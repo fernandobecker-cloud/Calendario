@@ -21,9 +21,6 @@ body { background-color: #ffffff; }
 
 # tooltip lib
 st.markdown("""
-<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
-<script src="https://unpkg.com/@popperjs/core@2"></script>
-<script src="https://unpkg.com/tippy.js@6"></script>
 """, unsafe_allow_html=True)
 
 # ---------------- DADOS ----------------
