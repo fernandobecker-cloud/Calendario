@@ -99,29 +99,35 @@ st.subheader("Visão Calendário")
 calendar_options = {
     "initialView": "dayGridMonth",
     "locale": "pt-br",
-    "eventDidMount": """
-    function(info) {
-        let props = info.event.extendedProps;
+    "dayMaxEventRows": 3,
 
-        let tooltip = `
-        <div style="padding:12px;border-radius:12px;background:white;box-shadow:0 8px 30px rgba(0,0,0,0.15);font-size:13px;line-height:1.5;">
-            <b>${info.event.title}</b><br>
-            <b>Canal:</b> ${props.canal || '-'}<br>
-            <b>Produto:</b> ${props.produto || '-'}<br>
-            <b>Data:</b> ${props.data || '-'}<br>
-            <b>Obs:</b> ${props.observacao || '-'}
-        </div>
+    "eventContent": """
+    function(arg) {
+
+        let canal = arg.event.extendedProps.canal || '';
+        let produto = arg.event.extendedProps.produto || '';
+        let obs = arg.event.extendedProps.observacao || '';
+
+        let cor = arg.event.backgroundColor;
+
+        let container = document.createElement("div");
+        container.style.padding = "4px 6px";
+        container.style.borderRadius = "8px";
+        container.style.fontSize = "11px";
+        container.style.lineHeight = "1.2";
+        container.style.color = "white";
+        container.style.background = cor;
+
+        container.innerHTML = `
+            <div style="font-weight:600">${arg.event.title}</div>
+            <div style="opacity:0.85">${canal}</div>
+            <div style="opacity:0.75">${produto}</div>
         `;
 
-        tippy(info.el, {
-            content: tooltip,
-            allowHTML: true,
-            placement: 'top',
-            animation: 'scale',
-            theme: 'light-border',
-        });
+        return { domNodes: [container] };
     }
     """,
+
     "headerToolbar": {
         "left": "prev,next today",
         "center": "title",
