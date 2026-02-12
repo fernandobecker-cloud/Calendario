@@ -63,11 +63,24 @@ st.write("")
 # ---- CRIAR EVENTOS PARA O CALENDÁRIO ----
 eventos = []
 
+def cor_por_canal(canal):
+    canal = str(canal).lower()
+
+    if "email" in canal:
+        return "#0071E3"   # azul apple
+    elif "whats" in canal:
+        return "#25D366"   # verde whatsapp
+    elif "sms" in canal:
+        return "#FF9F0A"   # laranja
+    else:
+        return "#8E8E93"   # cinza neutro
+
 for _, row in df_filtrado.iterrows():
     if pd.notna(row.get("DATA")):
         eventos.append({
-            "title": f"{row.get('CAMPANHA','')} ({row.get('CANAL','')})",
+            "title": f"{row.get('CAMPANHA','')}",
             "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+            "color": cor_por_canal(row.get("CANAL","")),
             "allDay": True
         })
 
