@@ -6,6 +6,10 @@ st.set_page_config(page_title="Calendário CRM", layout="wide")
 
 # ---- ESTILO (visual Apple) ----
 st.markdown("""
+<link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
+<script src="https://unpkg.com/@popperjs/core@2"></script>
+<script src="https://unpkg.com/tippy.js@6"></script>
+""", unsafe_allow_html=True)
 <style>
 body { background-color: #ffffff; }
 
@@ -107,6 +111,45 @@ if len(dias_saturados) > 0:
         st.write(f"{dia.strftime('%d/%m/%Y')} — {qtd} campanhas")
 
 st.subheader("Visão Calendário")
+calendar_options = {
+    "initialView": "dayGridMonth",
+    "locale": "pt-br",
+    "eventDidMount": """
+    function(info) {
+        let props = info.event.extendedProps;
+
+        let tooltip = `
+        <div style="
+            padding:12px;
+            border-radius:12px;
+            background:white;
+            box-shadow:0 8px 30px rgba(0,0,0,0.15);
+            font-size:13px;
+            line-height:1.5;
+        ">
+            <b>${info.event.title}</b><br>
+            <b>Canal:</b> ${props.canal || '-'}<br>
+            <b>Produto:</b> ${props.produto || '-'}<br>
+            <b>Data:</b> ${props.data || '-'}<br>
+            <b>Obs:</b> ${props.observacao || '-'}
+        </div>
+        `;
+
+        tippy(info.el, {
+            content: tooltip,
+            allowHTML: true,
+            placement: 'top',
+            animation: 'scale',
+            theme: 'light-border',
+        });
+    }
+    """,
+    "headerToolbar": {
+        "left": "prev,next today",
+        "center": "title",
+        "right": "dayGridMonth,timeGridWeek"
+    }
+}
 
 calendar_options = {
     "initialView": "dayGridMonth",
@@ -121,6 +164,9 @@ calendar_options = {
 calendario = calendar(events=eventos, options=calendar_options)
 
 # quando clicar em um evento
+calendario = calendar(events=eventos, options=calendar_options)
+
+# quando clicar em um evento
 if calendario.get("eventClick"):
     evento = calendario["eventClick"]["event"]["extendedProps"]
 
@@ -130,3 +176,4 @@ if calendario.get("eventClick"):
         st.write("**Produto:**", evento.get("produto",""))
         st.write("**Data:**", evento.get("data",""))
         st.write("**Observação:**", evento.get("observacao",""))
+
