@@ -77,18 +77,27 @@ eventos = []
 
 for _, row in df_filtrado.iterrows():
     if pd.notna(row.get("DATA")):
-        eventos.append({
-            "title": f"{row.get('CAMPANHA','')}",
-            "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
-            "color": cor_por_canal(row.get("CANAL","")),
-            "allDay": True,
-            "extendedProps": {
-                "canal": row.get("CANAL",""),
-                "produto": row.get("PRODUTO",""),
-                "observacao": row.get("OBSERVACAO",""),
-                "data": str(row.get("DATA",""))
-            }
-        })
+        campanha = row.get("CAMPANHA","")
+canal = row.get("CANAL","")
+produto = row.get("PRODUTO","")
+obs = row.get("OBSERVACAO","")
+data_txt = str(row.get("DATA",""))
+
+tooltip = f"""
+Campanha: {campanha}
+Canal: {canal}
+Produto: {produto}
+Data: {data_txt}
+Obs: {obs}
+"""
+
+eventos.append({
+    "title": campanha,
+    "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+    "color": cor_por_canal(canal),
+    "allDay": True,
+    "description": tooltip
+})
 
 # ---------------- CALENDARIO ----------------
 st.subheader("Visão Calendário")
@@ -132,4 +141,12 @@ calendar_options = {
     }
 }
 
-calendar(events=eventos, options=calendar_options)
+calendar(events=eventos, options=calendar_options, custom_css="""
+.fc-event {
+    cursor: pointer;
+}
+.fc-event:hover::after {
+    content: attr(title);
+    white-space: pre-line;
+}
+""")
