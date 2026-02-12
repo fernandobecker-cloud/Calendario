@@ -118,4 +118,15 @@ calendar_options = {
     }
 }
 
-calendar(events=eventos, options=calendar_options)
+calendario = calendar(events=eventos, options=calendar_options)
+
+# quando clicar em um evento
+if calendario.get("eventClick"):
+    evento = calendario["eventClick"]["event"]["extendedProps"]
+
+    with st.sidebar:
+        st.header("📌 Detalhe da Campanha")
+        st.write("**Canal:**", evento.get("canal",""))
+        st.write("**Produto:**", evento.get("produto",""))
+        st.write("**Data:**", evento.get("data",""))
+        st.write("**Observação:**", evento.get("observacao",""))
