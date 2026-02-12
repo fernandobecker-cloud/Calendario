@@ -1,18 +1,12 @@
 import streamlit as st
 import pandas as pd
 
-# CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(
-    page_title="Calendário CRM",
-    layout="wide"
-)
+st.set_page_config(page_title="Calendário CRM", layout="wide")
 
-# CSS - estilo Apple
+# ---- ESTILO (visual Apple) ----
 st.markdown("""
 <style>
-body {
-    background-color: #ffffff;
-}
+body { background-color: #ffffff; }
 
 .card {
     background-color: #ffffff;
@@ -22,45 +16,61 @@ body {
     margin-bottom: 12px;
 }
 
-.titulo {
-    font-size: 20px;
-    font-weight: 600;
-}
-
-.canal {
-    font-size: 14px;
-    color: #6e6e73;
-}
-
-.data {
-    font-size: 13px;
-    color: #8e8e93;
-}
+.titulo { font-size: 20px; font-weight: 600; }
+.canal { font-size: 14px; color: #6e6e73; }
+.data { font-size: 13px; color: #8e8e93; }
 </style>
 """, unsafe_allow_html=True)
 
-# LENDO GOOGLE SHEETS
-csv_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQaQTSv32MuaQTlGRjr9m6s5pmyK9A9iZlRTNTePX8x0G5to5j6iLSkGx89fbiQLQ/pub?output=csv"
 
+# ---- LER PLANILHA ----
+csv_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQaQTSv32MuaQTlGRjr9m6s5pmyK9A9iZlRTNTePX8x0G5to5j6iLSkGx89fbiQLQ/pub?output=csv"
 df = pd.read_csv(csv_url)
 
+
+# ---- LIMPAR NOMES DAS COLUNAS (ANTI-ERRO) ----
+df.columns = (
+    df.columns
+    .str.strip()            # remove espaços
+    .str.upper()            # tudo maiúsculo
+    .str.normalize('NFKD')  # remove acentos
+    .str.encode('ascii', errors='ignore')
+    .str.decode('utf-8')
+)
+
+# ---- CRIAR COLUNA MES AUTOMÁTICA SE NÃO EXISTIR ----
+if "MES" not in df.columns and "DATA" in df.columns:
+    df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce")
+    df["MES"] = df["DATA"].dt.month_name()
+
+# ---- TÍTULO ----
 st.title("📅 Planejamento de Campanhas CRM")
 
-# FILTRO DE MÊS
-meses = df["MES"].dropna().unique()
-mes_selecionado = st.selectbox("Selecione o mês", sorted(meses))
 
-df_filtrado = df[df["MES"] == mes_selecionado]
+# ---- FILTRO DE MÊS ----
+if "MES" in df.columns:
+    meses = df["MES"].dropna().unique()
+    mes_selecionado = st.selectbox("Selecione o mês", sorted(meses))
+    df_filtrado = df[df["MES"] == mes_selecionado]
+else:
+    st.error("A planilha precisa ter uma coluna DATA ou MES")
+    st.stop()
+
 
 st.write("")
 
-# EXIBIÇÃO DOS CARDS
+# ---- EXIBIR CARDS ----
 for index, row in df_filtrado.iterrows():
+    campanha = row.get("CAMPANHA", "")
+    canal = row.get("CANAL", "")
+    data = row.get("DATA", "")
+    produto = row.get("PRODUTO", "")
+
     st.markdown(f"""
     <div class="card">
-        <div class="titulo">{row['CAMPANHA']}</div>
-        <div class="canal">Canal: {row['CANAL']}</div>
-        <div class="data">Data: {row['DATA']}</div>
-        <div class="data">Produto: {row['PRODUTO']}</div>
+        <div class="titulo">{campanha}</div>
+        <div class="canal">Canal: {canal}</div>
+        <div class="data">Data: {data}</div>
+        <div class="data">Produto: {produto}</div>
     </div>
     """, unsafe_allow_html=True)
