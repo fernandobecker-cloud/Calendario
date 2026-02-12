@@ -91,13 +91,21 @@ Data: {data_txt}
 Obs: {obs}
 """
 
-    eventos.append({
-        "title": campanha,
-        "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
-        "color": cor_por_canal(canal),
-        "allDay": True,
-        "description": tooltip
-    })
+    tooltip = f"""Campanha: {campanha}
+Canal: {canal}
+Produto: {produto}
+Data: {data_txt}
+Obs: {obs}"""
+
+eventos.append({
+    "title": campanha,
+    "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+    "color": cor_por_canal(canal),
+    "allDay": True,
+    "extendedProps": {
+        "tooltip": tooltip
+    }
+})
 
 # ---------------- CALENDARIO ----------------
 st.subheader("Visão Calendário")
@@ -113,4 +121,5 @@ calendar_options = {
     }
 }
 
-calendar(events=eventos, options=calendar_options)
+calendar(events=eventos, options=calendar_options, key="crm_calendar")
+
