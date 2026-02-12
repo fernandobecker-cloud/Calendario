@@ -78,11 +78,19 @@ def cor_por_canal(canal):
 for _, row in df_filtrado.iterrows():
     if pd.notna(row.get("DATA")):
         eventos.append({
-            "title": f"{row.get('CAMPANHA','')}",
-            "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
-            "color": cor_por_canal(row.get("CANAL","")),
-            "allDay": True
-        })
+    "title": f"{row.get('CAMPANHA','')}",
+    "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+    "color": cor_por_canal(row.get("CANAL","")),
+    "allDay": True,
+
+    # dados escondidos do evento
+    "extendedProps": {
+        "canal": row.get("CANAL",""),
+        "produto": row.get("PRODUTO",""),
+        "observacao": row.get("OBSERVACAO",""),
+        "data": str(row.get("DATA",""))
+    }
+})
         
 # ---- ALERTA DE SATURAÇÃO ----
 df_datas = df_filtrado.copy()
