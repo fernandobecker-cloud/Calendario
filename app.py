@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from streamlit_calendar import calendar
 
 st.set_page_config(page_title="Calendário CRM", layout="wide")
 
@@ -59,18 +60,27 @@ else:
 
 st.write("")
 
-# ---- EXIBIR CARDS ----
-for index, row in df_filtrado.iterrows():
-    campanha = row.get("CAMPANHA", "")
-    canal = row.get("CANAL", "")
-    data = row.get("DATA", "")
-    produto = row.get("PRODUTO", "")
+# ---- CRIAR EVENTOS PARA O CALENDÁRIO ----
+eventos = []
 
-    st.markdown(f"""
-    <div class="card">
-        <div class="titulo">{campanha}</div>
-        <div class="canal">Canal: {canal}</div>
-        <div class="data">Data: {data}</div>
-        <div class="data">Produto: {produto}</div>
-    </div>
-    """, unsafe_allow_html=True)
+for _, row in df_filtrado.iterrows():
+    if pd.notna(row.get("DATA")):
+        eventos.append({
+            "title": f"{row.get('CAMPANHA','')} ({row.get('CANAL','')})",
+            "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+            "allDay": True
+        })
+
+st.subheader("Visão Calendário")
+
+calendar_options = {
+    "initialView": "dayGridMonth",
+    "locale": "pt-br",
+    "headerToolbar": {
+        "left": "prev,next today",
+        "center": "title",
+        "right": "dayGridMonth,timeGridWeek"
+    }
+}
+
+calendar(events=eventos, options=calendar_options)
