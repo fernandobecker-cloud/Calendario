@@ -76,14 +76,14 @@ def cor_por_canal(canal):
 eventos = []
 
 for _, row in df_filtrado.iterrows():
-    if pd.notna(row.get("DATA")):
-        campanha = row.get("CAMPANHA","")
-canal = row.get("CANAL","")
-produto = row.get("PRODUTO","")
-obs = row.get("OBSERVACAO","")
-data_txt = str(row.get("DATA",""))
 
-tooltip = f"""
+    campanha = row.get("CAMPANHA","")
+    canal = row.get("CANAL","")
+    produto = row.get("PRODUTO","")
+    obs = row.get("OBSERVACAO","")
+    data_txt = str(row.get("DATA",""))
+
+    tooltip = f"""
 Campanha: {campanha}
 Canal: {canal}
 Produto: {produto}
@@ -91,13 +91,13 @@ Data: {data_txt}
 Obs: {obs}
 """
 
-eventos.append({
-    "title": campanha,
-    "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
-    "color": cor_por_canal(canal),
-    "allDay": True,
-    "description": tooltip
-})
+    eventos.append({
+        "title": campanha,
+        "start": pd.to_datetime(row["DATA"]).strftime("%Y-%m-%d"),
+        "color": cor_por_canal(canal),
+        "allDay": True,
+        "description": tooltip
+    })
 
 # ---------------- CALENDARIO ----------------
 st.subheader("Visão Calendário")
@@ -106,13 +106,11 @@ calendar_options = {
     "initialView": "dayGridMonth",
     "locale": "pt-br",
     "dayMaxEventRows": 3,
+    "headerToolbar": {
+        "left": "prev,next today",
+        "center": "title",
+        "right": "dayGridMonth,timeGridWeek"
+    }
+}
 
-calendar(events=eventos, options=calendar_options, custom_css="""
-.fc-event {
-    cursor: pointer;
-}
-.fc-event:hover::after {
-    content: attr(title);
-    white-space: pre-line;
-}
-""")
+calendar(events=eventos, options=calendar_options)
