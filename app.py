@@ -83,6 +83,20 @@ for _, row in df_filtrado.iterrows():
             "color": cor_por_canal(row.get("CANAL","")),
             "allDay": True
         })
+        
+# ---- ALERTA DE SATURAÇÃO ----
+df_datas = df_filtrado.copy()
+df_datas["DATA"] = pd.to_datetime(df_datas["DATA"], errors="coerce")
+
+contagem = df_datas.groupby(df_datas["DATA"].dt.date).size()
+
+dias_saturados = contagem[contagem >= 3]
+
+if len(dias_saturados) > 0:
+    st.warning("⚠️ Existem dias com 3 ou mais campanhas programadas. Risco de saturação de comunicação.")
+    
+    for dia, qtd in dias_saturados.items():
+        st.write(f"{dia.strftime('%d/%m/%Y')} — {qtd} campanhas")
 
 st.subheader("Visão Calendário")
 
