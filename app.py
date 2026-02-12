@@ -107,40 +107,6 @@ calendar_options = {
     "locale": "pt-br",
     "dayMaxEventRows": 3,
 
-    "eventContent": """
-    function(arg) {
-
-        let canal = arg.event.extendedProps.canal || '';
-        let produto = arg.event.extendedProps.produto || '';
-        let obs = arg.event.extendedProps.observacao || '';
-
-        let cor = arg.event.backgroundColor;
-
-        let container = document.createElement("div");
-        container.style.padding = "4px 6px";
-        container.style.borderRadius = "8px";
-        container.style.fontSize = "11px";
-        container.style.lineHeight = "1.2";
-        container.style.color = "white";
-        container.style.background = cor;
-
-        container.innerHTML = `
-            <div style="font-weight:600">${arg.event.title}</div>
-            <div style="opacity:0.85">${canal}</div>
-            <div style="opacity:0.75">${produto}</div>
-        `;
-
-        return { domNodes: [container] };
-    }
-    """,
-
-    "headerToolbar": {
-        "left": "prev,next today",
-        "center": "title",
-        "right": "dayGridMonth,timeGridWeek"
-    }
-}
-
 calendar(events=eventos, options=calendar_options, custom_css="""
 .fc-event {
     cursor: pointer;
