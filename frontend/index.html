@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Campaign Planner</title>
+    
+    <!-- FullCalendar CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+    
+    <!-- Custom CSS (AGORA via FastAPI /static) -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <!-- Alerta de saturação -->
+    <div id="saturation-alert" class="saturation-alert hidden">
+        ⚠️ Risco de saturação de comunicação - Mais de 3 campanhas no mesmo dia
+    </div>
+
+    <!-- Container principal -->
+    <div class="container">
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>📅 CRM Campaign Planner</h1>
+                <p class="subtitle">Calendário Editorial de Campanhas</p>
+                <button id="refresh-btn" class="refresh-btn">🔄 Atualizar</button>
+            </div>
+        </header>
+
+        <!-- Loading -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Carregando campanhas...</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="error hidden"></div>
+
+        <!-- Legenda -->
+        <div class="legend">
+
+            <div class="legend-item" data-filter="email">
+                <span class="legend-color" style="background-color:#0071E3;"></span>
+                <span>Email</span>
+            </div>
+
+            <div class="legend-item" data-filter="whatsapp">
+                <span class="legend-color" style="background-color:#25D366;"></span>
+                <span>WhatsApp</span>
+            </div>
+
+            <div class="legend-item" data-filter="sms">
+                <span class="legend-color" style="background-color: #FF9F0A;"></span>
+                <span>SMS</span>
+            </div>
+
+            <div class="legend-item" data-filter="all">
+                <span class="legend-color" style="background-color:#999;"></span>
+                <span>Todos</span>
+            </div>
+            
+        </div>
+
+        <!-- Calendário -->
+        <div id="calendar" class="calendar"></div>
+
+    </div>
+
+    <!-- Modal detalhes -->
+    <div id="eventModal" class="modal hidden">
+        <div class="modal-content">
+            <button class="modal-close">&times;</button>
+            <div id="eventDetails"></div>
+        </div>
+    </div>
+
+    <!-- FullCalendar JS -->
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script
+
+    <!-- Idiomas do FullCalendar -->
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales-all.global.min.js'></script>
+
+    <!-- Script principal (AGORA via FastAPI /static) -->
+    <script src="/static/script.js"></script>
+</body>
+</html>

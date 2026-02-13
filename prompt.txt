@@ -1,0 +1,56 @@
+Você é um engenheiro de software senior.
+
+Crie um sistema web interno completo chamado CRM Campaign Planner.
+
+OBJETIVO:
+Uma aplicação web acessível por navegador que mostre um calendário editorial de campanhas de CRM.
+
+FONTE DE DADOS:
+O sistema deve ler automaticamente este CSV público do Google Sheets:
+https://docs.google.com/spreadsheets/d/e/2PACX-1vQaQTSv32MuaQTlGRjr9m6s5pmyK9A9iZlRTNTePX8x0G5to5j6iLSkGx89fbiQLQ/pub?output=csv
+
+REQUISITOS FUNCIONAIS:
+
+* Mostrar campanhas em um calendário mensal visual
+* Cada linha da planilha é um evento
+* Campos: DATA, CAMPANHA, CANAL, PRODUTO, OBSERVACAO
+* Atualizar sempre que a página for aberta
+* Não usar banco de dados
+
+INTERFACE:
+
+* Usar FullCalendar (JavaScript original)
+* Visual clean estilo Apple
+* Hover do mouse mostra detalhes completos da campanha
+* Cores por canal:
+  Email = azul #0071E3
+  WhatsApp = verde #25D366
+  SMS = laranja #FF9F0A
+
+REGRAS DE NEGÓCIO:
+
+* Detectar mais de 3 campanhas no mesmo dia
+* Mostrar alerta visual no topo "Risco de saturação de comunicação"
+
+ARQUITETURA:
+
+* Backend em Python (FastAPI)
+* Frontend em HTML + CSS + JavaScript puro
+* Backend apenas fornece dados (API /events)
+* Frontend consome e desenha o calendário
+
+REQUISITOS TÉCNICOS:
+
+* Projeto pronto para rodar localmente
+* Instruções de execução no README
+* requirements.txt incluído
+* Código comentado e organizado
+
+ENTREGÁVEIS:
+
+1. server.py (backend)
+2. index.html (frontend)
+3. script.js (lógica do calendário)
+4. style.css
+5. requirements.txt
+6. README.md com passo a passo de execução
