@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 📅 CRM Campaign Planner
 
 Um sistema web interno completo para gerenciar um calendário editorial de campanhas de CRM. Aplicação desenvolvida com FastAPI (backend) e HTML + CSS + JavaScript puro (frontend), utilizando a biblioteca FullCalendar para visualização interativa.
@@ -260,3 +261,6 @@ Projeto desenvolvido para uso interno.
 **Versão**: 1.0  
 **Data de Criação**: Fevereiro de 2026  
 **Autor**: Engenheiro de Software Senior
+=======
+# Calendario
+>>>>>>> bebf01ca6c3ce68f33e39227211f21ae9fe8dea5
