@@ -24,7 +24,8 @@ async function fetchEvents() {
         const response = await fetch('/api/events');
         if (!response.ok) throw new Error("Falha ao buscar eventos");
 
-        const events = await response.json();
+        const payload = await response.json();
+        const events = Array.isArray(payload?.events) ? payload.events : [];
 
         showLoading(false);
         return events;
@@ -169,8 +170,11 @@ eventModal.addEventListener('click', e => {
 });
 
 refreshBtn.addEventListener('click', async () => {
-    calendar.destroy();
+    if (calendar) {
+        calendar.destroy();
+    }
     const events = await fetchEvents();
+    window.allEvents = events;
     initializeCalendar(events);
 });
 
