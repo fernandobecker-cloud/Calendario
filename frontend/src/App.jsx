@@ -10,6 +10,13 @@ const CHANNEL_COLORS = {
   other: '#8E8E93'
 }
 
+const MENU_ITEMS = [
+  { key: 'calendar', label: 'Calendario CRM' },
+  { key: 'utm', label: 'Gerador de Tags UTM' },
+  { key: 'future-1', label: 'Resumo de Resultados', disabled: true },
+  { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
+]
+
 function normalizeChannel(channel) {
   const value = String(channel || '').toLowerCase()
   if (value.includes('email')) return 'email'
@@ -30,11 +37,20 @@ function formatDate(value) {
 }
 
 export default function App() {
+  const [activeView, setActiveView] = useState('calendar')
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedChannel, setSelectedChannel] = useState('all')
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const [utmForm, setUtmForm] = useState({
+    baseUrl: '',
+    source: 'email',
+    medium: 'crm',
+    campaign: '',
+    content: '',
+    term: ''
+  })
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -43,6 +59,10 @@ export default function App() {
     try {
       const response = await fetch('/api/events')
       if (!response.ok) throw new Error('Falha ao carregar campanhas')
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        throw new Error('API respondeu em formato inesperado. Verifique se o backend FastAPI esta rodando na porta 8000.')
+      }
 
       const payload = await response.json()
       const apiEvents = Array.isArray(payload?.events) ? payload.events : []
@@ -103,13 +123,41 @@ export default function App() {
     loadEvents()
   }, [loadEvents])
 
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
+  const utmUrl = useMemo(() => {
+    if (!utmForm.baseUrl || !utmForm.campaign) return ''
+
+    try {
+      const url = new URL(utmForm.baseUrl)
+      url.searchParams.set('utm_source', utmForm.source)
+      url.searchParams.set('utm_medium', utmForm.medium)
+      url.searchParams.set('utm_campaign', utmForm.campaign)
+
+      if (utmForm.content) url.searchParams.set('utm_content', utmForm.content)
+      if (utmForm.term) url.searchParams.set('utm_term', utmForm.term)
+
+      return url.toString()
+    } catch (_error) {
+      return ''
+    }
+  }, [utmForm])
+
+  const copyUtmUrl = useCallback(async () => {
+    if (!utmUrl) return
+    try {
+      await navigator.clipboard.writeText(utmUrl)
+      alert('URL copiada!')
+    } catch (_error) {
+      alert('Nao foi possivel copiar automaticamente. Copie manualmente.')
+    }
+  }, [utmUrl])
+
+  const renderCalendarView = () => (
+    <>
       <section className="rounded-2xl bg-gradient-to-r from-brand-500 to-brand-600 p-6 text-white shadow-soft md:p-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">CRM Campaign Planner</h1>
-            <p className="mt-2 text-sm text-blue-100 md:text-base">Calendário editorial de campanhas</p>
+            <p className="mt-2 text-sm text-blue-100 md:text-base">Calendario editorial de campanhas</p>
           </div>
           <button
             type="button"
@@ -123,7 +171,7 @@ export default function App() {
 
       {saturationDays.length > 0 && (
         <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-          Risco de saturação de comunicação: há {saturationDays.length} dia(s) com 3+ campanhas.
+          Risco de saturacao de comunicacao: ha {saturationDays.length} dia(s) com 3+ campanhas.
         </section>
       )}
 
@@ -166,7 +214,7 @@ export default function App() {
             locale="pt-br"
             buttonText={{
               today: 'Hoje',
-              month: 'Mês',
+              month: 'Mes',
               week: 'Semana'
             }}
             headerToolbar={{
@@ -182,6 +230,123 @@ export default function App() {
           />
         </div>
       </section>
+    </>
+  )
+
+  const renderUtmView = () => (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h1 className="text-2xl font-semibold text-slate-900">Gerador de Tags UTM</h1>
+      <p className="mt-2 text-sm text-slate-600">
+        Padrao sugerido para CRM: <code>utm_medium=crm</code> e origem por canal.
+      </p>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm">
+          URL base
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="https://www.seusite.com/pagina"
+            value={utmForm.baseUrl}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, baseUrl: event.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          utm_campaign
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="black_friday_2026"
+            value={utmForm.campaign}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, campaign: event.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          utm_source
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            value={utmForm.source}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, source: event.target.value }))}
+          >
+            <option value="email">email</option>
+            <option value="whatsapp">whatsapp</option>
+            <option value="sms">sms</option>
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          utm_medium
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            value={utmForm.medium}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, medium: event.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          utm_content (opcional)
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            value={utmForm.content}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, content: event.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          utm_term (opcional)
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            value={utmForm.term}
+            onChange={(event) => setUtmForm((prev) => ({ ...prev, term: event.target.value }))}
+          />
+        </label>
+      </div>
+
+      <div className="mt-6 space-y-2">
+        <p className="text-sm font-medium text-slate-700">URL final</p>
+        <textarea
+          readOnly
+          className="h-28 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm"
+          value={utmUrl || 'Preencha URL base e utm_campaign para gerar a URL.'}
+        />
+        <button
+          type="button"
+          className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-400"
+          onClick={copyUtmUrl}
+          disabled={!utmUrl}
+        >
+          Copiar URL
+        </button>
+      </div>
+    </section>
+  )
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
+      <div className="grid gap-4 md:grid-cols-[260px_1fr]">
+        <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-soft">
+          <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ferramentas CRM</p>
+          <nav className="space-y-1">
+            {MENU_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                disabled={item.disabled}
+                onClick={() => setActiveView(item.key)}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                  activeView === item.key
+                    ? 'bg-brand-50 font-semibold text-brand-700'
+                    : 'text-slate-700 hover:bg-slate-100'
+                } ${item.disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="space-y-5">{activeView === 'calendar' ? renderCalendarView() : renderUtmView()}</div>
+      </div>
 
       {selectedEvent && (
         <div
@@ -201,7 +366,7 @@ export default function App() {
                 className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 onClick={closeModal}
               >
-                ✕
+                X
               </button>
             </div>
 
@@ -212,15 +377,15 @@ export default function App() {
               </p>
               <p>
                 <span className="font-semibold text-slate-900">Canal:</span>{' '}
-                {selectedEvent.extendedProps?.canal || 'Não informado'}
+                {selectedEvent.extendedProps?.canal || 'Nao informado'}
               </p>
               <p>
                 <span className="font-semibold text-slate-900">Produto:</span>{' '}
-                {selectedEvent.extendedProps?.produto || 'Não informado'}
+                {selectedEvent.extendedProps?.produto || 'Nao informado'}
               </p>
               <p>
-                <span className="font-semibold text-slate-900">Observação:</span>{' '}
-                {selectedEvent.extendedProps?.observacao || 'Sem observação'}
+                <span className="font-semibold text-slate-900">Observacao:</span>{' '}
+                {selectedEvent.extendedProps?.observacao || 'Sem observacao'}
               </p>
             </div>
           </div>
