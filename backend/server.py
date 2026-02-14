@@ -29,8 +29,14 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
+FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
 
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+# Assets gerados pelo Vite (build React)
+app.mount(
+    "/assets",
+    StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets"), check_dir=False),
+    name="assets",
+)
 
 CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/"
@@ -143,6 +149,27 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
     return events
 
 
+def serve_frontend_file(path: str) -> FileResponse:
+    """Serve um arquivo do build React; fallback para index.html (SPA)."""
+    index_file = FRONTEND_DIST_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Frontend não encontrado. Execute: cd frontend && npm run build",
+        )
+
+    target = (FRONTEND_DIST_DIR / path).resolve()
+
+    # Bloqueia path traversal para fora da pasta dist
+    if FRONTEND_DIST_DIR.resolve() not in target.parents and target != FRONTEND_DIST_DIR.resolve():
+        return FileResponse(str(index_file))
+
+    if target.is_file():
+        return FileResponse(str(target))
+
+    return FileResponse(str(index_file))
+
+
 @app.get("/api/events")
 def get_events() -> dict[str, Any]:
     events = fetch_and_parse_csv()
@@ -156,7 +183,14 @@ def health() -> dict[str, str]:
 
 @app.get("/")
 def home() -> FileResponse:
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
+    return serve_frontend_file("index.html")
+
+
+@app.get("/{full_path:path}")
+def frontend_routes(full_path: str) -> FileResponse:
+    if full_path.startswith("api/") or full_path == "api" or full_path == "health":
+        raise HTTPException(status_code=404, detail="Not found")
+    return serve_frontend_file(full_path)
 
 
 if __name__ == "__main__":

@@ -1,73 +1,94 @@
 # CRM Campaign Planner
 
-Sistema interno para calendário de campanhas de CRM.
+Sistema interno para calendário de campanhas de CRM com frontend React e backend FastAPI.
 
 ## Stack
 - Backend: FastAPI
-- Frontend: HTML + CSS + JavaScript + FullCalendar (CDN)
+- Frontend: React + Vite + TailwindCSS + FullCalendar
 - Fonte de dados: Google Sheets CSV público
 - Deploy: Render (Web Service)
 
-## Estrutura do projeto
+## Estrutura
 ```text
 crm-calendario/
-├── server.py               # Entrypoint ASGI (uvicorn server:app)
-├── start.sh                # Start script para Render (usa $PORT)
-├── render.yaml             # Infra as code para deploy automático na Render
+├── server.py
+├── start.sh
+├── render.yaml
 ├── backend/
-│   └── server.py           # API + serving de frontend estático
+│   └── server.py
 ├── frontend/
 │   ├── index.html
-│   ├── script.js
-│   └── style.css
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── tailwind.config.js
+│   ├── vite.config.js
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   └── dist/                 # gerado pelo npm run build
 ├── requirements.txt
 └── README.md
 ```
 
-## Executar localmente
-1. Criar ambiente virtual:
+## Como rodar localmente (backend + frontend buildado)
+1. Criar e ativar ambiente virtual:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-2. Instalar dependências:
+2. Instalar dependências Python:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Rodar servidor:
+3. Instalar dependências frontend:
+```bash
+cd frontend
+npm install
+```
+
+4. Gerar build React:
+```bash
+npm run build
+cd ..
+```
+
+5. Subir API + frontend pelo FastAPI:
 ```bash
 uvicorn server:app --reload
 ```
 
-4. Acessar:
+6. Acessar:
 - App: `http://127.0.0.1:8000/`
 - API: `http://127.0.0.1:8000/api/events`
-- Healthcheck: `http://127.0.0.1:8000/health`
+- Health: `http://127.0.0.1:8000/health`
 
-## Deploy na Render (automático após push)
-### Opção recomendada: Blueprint com `render.yaml`
+## Desenvolvimento do frontend (hot reload)
+Em outro terminal:
+```bash
+cd frontend
+npm run dev
+```
+
+Durante o desenvolvimento você pode usar o Vite em `http://127.0.0.1:5173`.
+
+## Deploy na Render (automático após git push)
+Este repositório usa `render.yaml` com:
+- Build command: `pip install -r requirements.txt && cd frontend && npm install && npm run build`
+- Start command: `bash start.sh`
+- Health check: `/health`
+
+Passos:
 1. Suba o repositório no GitHub.
-2. Na Render, clique em `New +` -> `Blueprint`.
+2. Na Render: `New +` -> `Blueprint`.
 3. Selecione o repositório.
-4. A Render criará o serviço com:
-   - Build command: `pip install -r requirements.txt`
-   - Start command: `bash start.sh`
-   - Health check path: `/health`
-   - Auto deploy: `true`
-
-Depois disso, cada `git push` na branch conectada dispara novo deploy automaticamente.
-
-### Opção manual (sem Blueprint)
-Configure no Web Service:
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `bash start.sh`
-- Environment: `Python`
+4. Deploy automático será executado a cada `git push`.
 
 ## API
 ### `GET /api/events`
-Retorna JSON padronizado:
+Contrato preservado:
 ```json
 {
   "events": [
@@ -90,18 +111,7 @@ Retorna JSON padronizado:
 }
 ```
 
-## Mapeamento de colunas do Google Sheets
-Mapeamento tolerante a acento/caixa e aliases:
-- Data: `DATA`
-- Campanha: `CAMPANHA`, `ASSUNTO`, `TITULO`, `TITLE`
-- Canal: `CANAL`, `CHANNEL`
-- Produto: `PRODUTO`, `PRODUCT`
-- Observação: `OBSERVACAO`, `OBS`, `OBSERVATION`
-
-Colunas obrigatórias: `DATA` e `CAMPANHA/ASSUNTO`.
-
-## Observações de produção
-- A rota `/` serve `frontend/index.html`.
-- Arquivos estáticos são servidos em `/static`.
-- A API consulta o CSV do Google Sheets a cada chamada em `/api/events`.
-- Não há banco de dados.
+## Observações
+- O backend serve o build React em `/`.
+- Arquivos gerados pelo Vite são servidos de `frontend/dist`.
+- A rota `/api/events` não foi alterada.

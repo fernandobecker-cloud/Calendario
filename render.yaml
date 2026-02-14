@@ -3,6 +3,6 @@ services:
     name: crm-campaign-planner
     env: python
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && cd frontend && npm install && npm run build
     startCommand: bash start.sh
     healthCheckPath: /health
