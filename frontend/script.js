@@ -3,6 +3,7 @@
  */
 
 let calendar;
+let selectedChannel = 'all';
 
 const calendarEl = document.getElementById('calendar');
 const loadingEl = document.getElementById('loading');
@@ -16,47 +17,88 @@ const modalClose = document.querySelector('.modal-close');
 
 /* ================= FETCH API ================= */
 
-async function fetchEvents() {
-    try {
-        showLoading(true);
-        hideError();
-
-        const response = await fetch('/api/events');
-        if (!response.ok) throw new Error("Falha ao buscar eventos");
-
-        const payload = await response.json();
-        const events = Array.isArray(payload?.events) ? payload.events : [];
-
-        showLoading(false);
-        return events;
-
-    } catch (error) {
-        showLoading(false);
-        showError("Erro ao carregar campanhas");
-        console.error(error);
-        return [];
+async function fetchEventsFromApi() {
+    const response = await fetch('/api/events');
+    if (!response.ok) {
+        throw new Error('Falha ao buscar eventos');
     }
+
+    const payload = await response.json();
+    return Array.isArray(payload?.events) ? payload.events : [];
+}
+
+
+/* ================= AUXILIARES ================= */
+
+function normalizeChannel(value) {
+    return String(value || '').toLowerCase();
+}
+
+function applySelectedChannel(events) {
+    if (selectedChannel === 'all') return events;
+    return events.filter((event) =>
+        normalizeChannel(event?.extendedProps?.canal).includes(selectedChannel)
+    );
+}
+
+function checkSaturation(events) {
+    const countByDate = {};
+
+    events.forEach((event) => {
+        const date = event?.start;
+        if (!date) return;
+        countByDate[date] = (countByDate[date] || 0) + 1;
+    });
+
+    const saturated = Object.values(countByDate).some((value) => value >= 3);
+    saturationAlertEl.classList.toggle('hidden', !saturated);
+}
+
+function paintDayCells(events) {
+    const countByDate = {};
+
+    events.forEach((event) => {
+        const date = event?.start;
+        if (!date) return;
+        countByDate[date] = (countByDate[date] || 0) + 1;
+    });
+
+    document.querySelectorAll('.campaign-count-badge').forEach((el) => el.remove());
+
+    document.querySelectorAll('.fc-daygrid-day').forEach((dayCell) => {
+        const date = dayCell.getAttribute('data-date');
+        const count = countByDate[date] || 0;
+
+        dayCell.style.backgroundColor = '';
+        if (count >= 3) dayCell.style.backgroundColor = '#fff3cd';
+        if (count >= 5) dayCell.style.backgroundColor = '#f8d7da';
+
+        if (count <= 0) return;
+
+        const badge = document.createElement('div');
+        badge.className = 'campaign-count-badge';
+        badge.style.fontSize = '11px';
+        badge.style.marginTop = '2px';
+        badge.style.color = '#666';
+        badge.innerText = `${count} campanhas`;
+
+        const top = dayCell.querySelector('.fc-daygrid-day-top');
+        if (top) {
+            top.appendChild(badge);
+        }
+    });
 }
 
 
 /* ================= CALENDAR ================= */
 
-function initializeCalendar(events) {
-
-    if (!events || events.length === 0) {
-        showError("Nenhum evento encontrado");
-        return;
-    }
-
+function initializeCalendar() {
     calendar = new FullCalendar.Calendar(calendarEl, {
-
         initialView: 'dayGridMonth',
         initialDate: new Date(),
-
-        // idioma
         locale: 'pt-br',
+        lazyFetching: false,
 
-        // tradução botões
         buttonText: {
             today: 'Hoje',
             month: 'Mês',
@@ -73,146 +115,104 @@ function initializeCalendar(events) {
 
         height: 'auto',
 
-        events: events,
+        events: async function (_fetchInfo, successCallback, failureCallback) {
+            try {
+                showLoading(true);
+                hideError();
 
-        /* ===== CONTADOR DE CAMPANHAS POR DIA ===== */
-        dayCellDidMount: function(info) {
+                const allEvents = await fetchEventsFromApi();
+                window.allEvents = allEvents;
 
-            const dateStr = info.date.toISOString().split('T')[0];
-
-            const count = events.filter(e => e.start === dateStr).length;
-
-            if (count > 0) {
-
-                const badge = document.createElement('div');
-                badge.style.fontSize = '11px';
-                badge.style.marginTop = '2px';
-                badge.style.color = '#666';
-                badge.innerText = count + ' campanhas';
-
-                info.el.querySelector('.fc-daygrid-day-top').appendChild(badge);
-
-                // alerta visual se tiver muitas campanhas
-                if (count >= 3) {
-                    info.el.style.backgroundColor = '#fff3cd';
-                }
-
-                if (count >= 5) {
-                    info.el.style.backgroundColor = '#f8d7da';
-                }
+                const filteredEvents = applySelectedChannel(allEvents);
+                successCallback(filteredEvents);
+            } catch (error) {
+                console.error(error);
+                showError('Erro ao carregar campanhas');
+                failureCallback(error);
+            } finally {
+                showLoading(false);
             }
         },
 
-        /* ===== CLIQUE NO EVENTO ===== */
-        eventClick: function(info) {
-
-            const e = info.event;
-            const p = e.extendedProps;
+        eventClick: function (info) {
+            const event = info.event;
+            const props = event.extendedProps || {};
 
             eventDetails.innerHTML = `
-                <h2>${e.title}</h2>
-                <p><b>📅 Data:</b> ${p.data_original}</p>
-                <p><b>📣 Canal:</b> ${p.canal}</p>
-                <p><b>🛍 Produto:</b> ${p.produto || '—'}</p>
+                <h2>${event.title}</h2>
+                <p><b>📅 Data:</b> ${props.data_original || event.startStr || '—'}</p>
+                <p><b>📣 Canal:</b> ${props.canal || '—'}</p>
+                <p><b>🛍 Produto:</b> ${props.produto || '—'}</p>
             `;
 
             eventModal.classList.remove('hidden');
+        },
+
+        eventsSet: function (currentEvents) {
+            const simpleEvents = currentEvents.map((event) => ({
+                start: event.startStr,
+            }));
+
+            checkSaturation(simpleEvents);
+            paintDayCells(simpleEvents);
         }
     });
 
     calendar.render();
-    checkSaturation(events);
-}
-
-
-/* ================= SATURAÇÃO ================= */
-
-function checkSaturation(events) {
-
-    const map = {};
-
-    events.forEach(e => {
-        map[e.start] = (map[e.start] || 0) + 1;
-    });
-
-    const saturated = Object.values(map).some(v => v >= 3);
-
-    if (saturated)
-        saturationAlertEl.classList.remove('hidden');
-    else
-        saturationAlertEl.classList.add('hidden');
 }
 
 
 /* ================= UI ================= */
 
-function showLoading(show){
+function showLoading(show) {
     loadingEl.classList.toggle('hidden', !show);
 }
 
-function showError(msg){
+function showError(msg) {
     errorEl.textContent = msg;
     errorEl.classList.remove('hidden');
 }
 
-function hideError(){
+function hideError() {
     errorEl.classList.add('hidden');
 }
 
-function closeModal(){
+function closeModal() {
     eventModal.classList.add('hidden');
 }
 
 modalClose.addEventListener('click', closeModal);
 
-eventModal.addEventListener('click', e => {
-    if(e.target === eventModal) closeModal();
+eventModal.addEventListener('click', (e) => {
+    if (e.target === eventModal) closeModal();
 });
 
-refreshBtn.addEventListener('click', async () => {
+refreshBtn.addEventListener('click', () => {
     if (calendar) {
-        calendar.destroy();
+        calendar.refetchEvents();
     }
-    const events = await fetchEvents();
-    window.allEvents = events;
-    initializeCalendar(events);
 });
+
 
 /* ================= FILTRO DE CANAL ================= */
 
-function applyChannelFilter(channel){
-
-    let filtered;
-
-    if(channel === 'all'){
-        filtered = window.allEvents;
-    } else {
-        filtered = window.allEvents.filter(e =>
-            e.extendedProps.canal.toLowerCase().includes(channel)
-        );
+function applyChannelFilter(channel) {
+    selectedChannel = channel;
+    if (calendar) {
+        calendar.refetchEvents();
     }
-
-    calendar.removeAllEvents();
-    calendar.addEventSource(filtered);
 }
+
 
 /* ================= START ================= */
 
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', function () {
+    initializeCalendar();
 
-    const events = await fetchEvents();
-
-    // guarda globalmente
-    window.allEvents = events;
-
-    initializeCalendar(events);
-
-    // ativa clique na legenda
-    document.querySelectorAll('.legend-item').forEach(el => {
+    document.querySelectorAll('.legend-item').forEach((el) => {
         el.addEventListener('click', () => {
             const channel = el.dataset.filter;
             applyChannelFilter(channel);
         });
     });
-
 });
