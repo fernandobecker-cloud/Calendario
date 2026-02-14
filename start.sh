@@ -1,1 +1,6 @@
-uvicorn backend.server:app --host 0.0.0.0 --port $PORT
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${PORT:-10000}"
+
+exec python3 -m uvicorn server:app --host 0.0.0.0 --port "$PORT"

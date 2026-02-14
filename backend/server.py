@@ -149,6 +149,11 @@ def get_events() -> dict[str, Any]:
     return {"events": events, "total": len(events)}
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/")
 def home() -> FileResponse:
     return FileResponse(str(FRONTEND_DIR / "index.html"))

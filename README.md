@@ -1,18 +1,21 @@
 # CRM Campaign Planner
 
-Sistema interno para visualizar campanhas de CRM em calendário mensal.
+Sistema interno para calendário de campanhas de CRM.
 
 ## Stack
 - Backend: FastAPI
-- Frontend: HTML + CSS + JavaScript (FullCalendar via CDN)
-- Fonte de dados: CSV público do Google Sheets
+- Frontend: HTML + CSS + JavaScript + FullCalendar (CDN)
+- Fonte de dados: Google Sheets CSV público
+- Deploy: Render (Web Service)
 
-## Estrutura
+## Estrutura do projeto
 ```text
 crm-calendario/
-├── server.py            # Entrypoint (uvicorn server:app --reload)
+├── server.py               # Entrypoint ASGI (uvicorn server:app)
+├── start.sh                # Start script para Render (usa $PORT)
+├── render.yaml             # Infra as code para deploy automático na Render
 ├── backend/
-│   └── server.py        # API, leitura do Google Sheets e serving do frontend
+│   └── server.py           # API + serving de frontend estático
 ├── frontend/
 │   ├── index.html
 │   ├── script.js
@@ -21,8 +24,8 @@ crm-calendario/
 └── README.md
 ```
 
-## Executar do zero
-1. Criar e ativar ambiente virtual:
+## Executar localmente
+1. Criar ambiente virtual:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -33,21 +36,38 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Rodar aplicação:
+3. Rodar servidor:
 ```bash
 uvicorn server:app --reload
 ```
 
 4. Acessar:
-```text
-http://127.0.0.1:8000
-```
+- App: `http://127.0.0.1:8000/`
+- API: `http://127.0.0.1:8000/api/events`
+- Healthcheck: `http://127.0.0.1:8000/health`
+
+## Deploy na Render (automático após push)
+### Opção recomendada: Blueprint com `render.yaml`
+1. Suba o repositório no GitHub.
+2. Na Render, clique em `New +` -> `Blueprint`.
+3. Selecione o repositório.
+4. A Render criará o serviço com:
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `bash start.sh`
+   - Health check path: `/health`
+   - Auto deploy: `true`
+
+Depois disso, cada `git push` na branch conectada dispara novo deploy automaticamente.
+
+### Opção manual (sem Blueprint)
+Configure no Web Service:
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `bash start.sh`
+- Environment: `Python`
 
 ## API
 ### `GET /api/events`
-Retorna eventos já no formato esperado pelo FullCalendar.
-
-Exemplo:
+Retorna JSON padronizado:
 ```json
 {
   "events": [
@@ -61,7 +81,7 @@ Exemplo:
       "extendedProps": {
         "canal": "Email",
         "produto": "Roupas",
-        "observacao": "Black Friday especial",
+        "observacao": "Texto opcional",
         "data_original": "14/02/2026"
       }
     }
@@ -70,20 +90,18 @@ Exemplo:
 }
 ```
 
-## Mapeamento de colunas do Sheets
-O backend tenta identificar automaticamente estes nomes (aceita variações):
+## Mapeamento de colunas do Google Sheets
+Mapeamento tolerante a acento/caixa e aliases:
 - Data: `DATA`
 - Campanha: `CAMPANHA`, `ASSUNTO`, `TITULO`, `TITLE`
 - Canal: `CANAL`, `CHANNEL`
 - Produto: `PRODUTO`, `PRODUCT`
 - Observação: `OBSERVACAO`, `OBS`, `OBSERVATION`
 
-`DATA` e `CAMPANHA/ASSUNTO` são obrigatórias.
+Colunas obrigatórias: `DATA` e `CAMPANHA/ASSUNTO`.
 
-## Observações
-- Não usa banco de dados.
-- Os dados são buscados no Google Sheets a cada chamada de `/api/events`.
-- Cores por canal:
-  - Email: `#0071E3`
-  - WhatsApp: `#25D366`
-  - SMS: `#FF9F0A`
+## Observações de produção
+- A rota `/` serve `frontend/index.html`.
+- Arquivos estáticos são servidos em `/static`.
+- A API consulta o CSV do Google Sheets a cada chamada em `/api/events`.
+- Não há banco de dados.
