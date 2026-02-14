@@ -46,7 +46,7 @@ pip install -r requirements.txt
 3. Instalar dependências frontend:
 ```bash
 cd frontend
-npm install
+npm ci
 ```
 
 4. Gerar build React:
@@ -76,7 +76,7 @@ Durante o desenvolvimento você pode usar o Vite em `http://127.0.0.1:5173`.
 
 ## Deploy na Render (automático após git push)
 Este repositório usa `render.yaml` com:
-- Build command: `pip install -r requirements.txt && cd frontend && npm install && npm run build`
+- Build command: `pip install -r requirements.txt && cd frontend && npm ci && npm run build`
 - Start command: `bash start.sh`
 - Health check: `/health`
 
@@ -115,3 +115,4 @@ Contrato preservado:
 - O backend serve o build React em `/`.
 - Arquivos gerados pelo Vite são servidos de `frontend/dist`.
 - A rota `/api/events` não foi alterada.
+- Defina `CORS_ALLOWED_ORIGINS` na Render com o domínio do app (ex.: `https://calendario-39gp.onrender.com`).

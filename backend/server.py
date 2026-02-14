@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import unicodedata
 from io import StringIO
 from pathlib import Path
@@ -17,10 +18,17 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="CRM Campaign Planner API")
 
-# Uso interno: aberto para facilitar execução local em qualquer host/porta.
+def parse_allowed_origins() -> list[str]:
+    """Lê CORS_ALLOWED_ORIGINS do ambiente (csv) com fallback local."""
+    raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+    if raw:
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -155,7 +163,11 @@ def serve_frontend_file(path: str) -> FileResponse:
     if not index_file.exists():
         raise HTTPException(
             status_code=500,
-            detail="Frontend não encontrado. Execute: cd frontend && npm run build",
+            detail=(
+                "Frontend não encontrado (frontend/dist/index.html ausente). "
+                "No deploy da Render, configure o build para executar "
+                "'cd frontend && npm install && npm run build'."
+            ),
         )
 
     target = (FRONTEND_DIST_DIR / path).resolve()
