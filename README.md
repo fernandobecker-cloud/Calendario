@@ -86,6 +86,29 @@ Passos:
 3. Selecione o repositório.
 4. Deploy automático será executado a cada `git push`.
 
+## Autenticação com usuário e senha (opcional)
+Para restringir o acesso externo, você pode habilitar `Basic Auth` no backend.
+
+Defina estas variáveis de ambiente:
+- `AUTH_USERNAME`: usuário de acesso
+- `AUTH_PASSWORD`: senha de acesso
+
+Com as duas variáveis definidas, o app inteiro (frontend + `/api/events`) exige login.
+A rota `/health` continua pública para o health check da Render.
+
+Exemplo local:
+```bash
+export AUTH_USERNAME=admin
+export AUTH_PASSWORD=sua_senha_forte
+uvicorn server:app --reload
+```
+
+Na Render:
+1. Abra o serviço `crm-campaign-planner`.
+2. Vá em `Environment`.
+3. Adicione `AUTH_USERNAME` e `AUTH_PASSWORD`.
+4. Faça `Manual Deploy` (ou novo `git push`).
+
 ## API
 ### `GET /api/events`
 Contrato preservado:

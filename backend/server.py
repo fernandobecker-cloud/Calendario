@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import csv
 import os
+import secrets
 import unicodedata
+from base64 import b64decode
 from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import requests
 from dateutil import parser
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="CRM Campaign Planner API")
+
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "").strip()
 
 def parse_allowed_origins() -> list[str]:
     """Lê CORS_ALLOWED_ORIGINS do ambiente (csv) com fallback local."""
@@ -33,6 +38,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def is_auth_enabled() -> bool:
+    """Habilita auth somente se usuário e senha estiverem definidos."""
+    return bool(AUTH_USERNAME and AUTH_PASSWORD)
+
+
+def is_authorized(authorization_header: str | None) -> bool:
+    """Valida o header Authorization no formato Basic base64(user:pass)."""
+    if not authorization_header or not authorization_header.startswith("Basic "):
+        return False
+
+    encoded_credentials = authorization_header[6:].strip()
+    if not encoded_credentials:
+        return False
+
+    try:
+        decoded_bytes = b64decode(encoded_credentials, validate=True)
+        decoded_credentials = decoded_bytes.decode("utf-8")
+    except Exception:
+        return False
+
+    username, separator, password = decoded_credentials.partition(":")
+    if not separator:
+        return False
+
+    return secrets.compare_digest(username, AUTH_USERNAME) and secrets.compare_digest(
+        password, AUTH_PASSWORD
+    )
+
+
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next: Any) -> Response:
+    """Protege app e API com Basic Auth, mantendo /health livre para monitoramento."""
+    if not is_auth_enabled() or request.url.path == "/health":
+        return await call_next(request)
+
+    if not is_authorized(request.headers.get("Authorization")):
+        return Response(
+            status_code=401,
+            content="Unauthorized",
+            headers={"WWW-Authenticate": 'Basic realm="CRM Campaign Planner"'},
+        )
+
+    return await call_next(request)
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
