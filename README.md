@@ -86,15 +86,21 @@ Passos:
 3. Selecione o repositório.
 4. Deploy automático será executado a cada `git push`.
 
-## Autenticação com usuário e senha (opcional)
-Para restringir o acesso externo, você pode habilitar `Basic Auth` no backend.
+## Autenticacao multiusuario (admin e usuario)
+O sistema agora suporta multiplos usuarios com perfil:
+- `admin`: pode cadastrar e descadastrar usuarios
+- `user`: acesso normal ao app
 
-Defina estas variáveis de ambiente:
-- `AUTH_USERNAME`: usuário de acesso
-- `AUTH_PASSWORD`: senha de acesso
+O login continua via `Basic Auth` no navegador e vale para frontend + API.
+A rota `/health` segue publica para o health check da Render.
 
-Com as duas variáveis definidas, o app inteiro (frontend + `/api/events`) exige login.
-A rota `/health` continua pública para o health check da Render.
+### Usuario inicial (bootstrap)
+Para criar o primeiro administrador automaticamente no deploy/start:
+- `AUTH_USERNAME`: usuario inicial
+- `AUTH_PASSWORD`: senha inicial
+
+Depois do primeiro acesso, o proprio admin pode criar/remover usuarios na tela
+`Usuarios e Perfis` (menu lateral, abaixo de `Checklist de Campanha`).
 
 Exemplo local:
 ```bash
@@ -104,10 +110,10 @@ uvicorn server:app --reload
 ```
 
 Na Render:
-1. Abra o serviço `crm-campaign-planner`.
-2. Vá em `Environment`.
+1. Abra o servico `crm-campaign-planner`.
+2. Va em `Environment`.
 3. Adicione `AUTH_USERNAME` e `AUTH_PASSWORD`.
-4. Faça `Manual Deploy` (ou novo `git push`).
+4. Faca `Manual Deploy` (ou novo `git push`).
 
 ## API
 ### `GET /api/events`
@@ -131,6 +137,44 @@ Contrato preservado:
     }
   ],
   "total": 1
+}
+```
+
+### `GET /api/me`
+Retorna usuario autenticado atual:
+```json
+{
+  "username": "admin",
+  "role": "admin"
+}
+```
+
+### `GET /api/users` (admin)
+Lista usuarios cadastrados.
+
+### `POST /api/users` (admin)
+Cadastra usuario:
+```json
+{
+  "username": "novo.usuario",
+  "password": "senha123",
+  "role": "user"
+}
+```
+
+### `DELETE /api/users/{username}` (admin)
+Descadastra usuario.
+
+### `PATCH /api/users/{username}/role` (admin)
+Altera perfil de um usuario (`admin` ou `user`).
+
+### `PATCH /api/me/password`
+Permite ao usuario autenticado trocar a propria senha.
+Body:
+```json
+{
+  "current_password": "senha_antiga",
+  "new_password": "nova_senha"
 }
 ```
 
