@@ -91,6 +91,11 @@ O sistema agora suporta multiplos usuarios com perfil:
 - `admin`: pode cadastrar e descadastrar usuarios
 - `user`: acesso normal ao app
 
+Tambem existe modo de login unico compartilhado (sem gestao de usuarios):
+- `AUTH_MODE=single`
+- usa somente `AUTH_USERNAME` e `AUTH_PASSWORD`
+- oculta a tela `Usuarios e Perfis`
+
 O login continua via `Basic Auth` no navegador e vale para frontend + API.
 A rota `/health` segue publica para o health check da Render.
 
@@ -98,6 +103,9 @@ A rota `/health` segue publica para o health check da Render.
 Para criar o primeiro administrador automaticamente no deploy/start:
 - `AUTH_USERNAME`: usuario inicial
 - `AUTH_PASSWORD`: senha inicial
+- `AUTH_MODE`:
+  - `multi` (padrao): multiusuarios com cadastro/descadastro
+  - `single`: login unico compartilhado
 
 Depois do primeiro acesso, o proprio admin pode criar/remover usuarios na tela
 `Usuarios e Perfis` (menu lateral, abaixo de `Checklist de Campanha`).

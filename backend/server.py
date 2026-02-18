@@ -30,11 +30,16 @@ AUTH_DB_PATH = ROOT_DIR / "auth_users.db"
 
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "").strip()
+AUTH_MODE = os.getenv("AUTH_MODE", "multi").strip().lower()
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
 PASSWORD_MIN_LENGTH = 6
 
 app = FastAPI(title="CRM Campaign Planner API")
+
+
+def is_single_auth_mode() -> bool:
+    return AUTH_MODE in {"single", "simple"}
 
 
 class UserCreatePayload(BaseModel):
@@ -182,6 +187,8 @@ def update_user_role(username: str, role: Literal["admin", "user"]) -> None:
 
 def ensure_bootstrap_admin() -> None:
     """Cria admin inicial pelo .env/Render quando ainda nao ha usuarios."""
+    if is_single_auth_mode():
+        return
     if user_count() > 0:
         return
     if not AUTH_USERNAME or not AUTH_PASSWORD:
@@ -199,7 +206,9 @@ def ensure_bootstrap_admin() -> None:
 
 
 def is_auth_enabled() -> bool:
-    """Auth fica ativa quando existe ao menos um usuario cadastrado."""
+    """Em single usa credencial fixa; em multi usa usuarios cadastrados."""
+    if is_single_auth_mode():
+        return bool(AUTH_USERNAME and AUTH_PASSWORD)
     return user_count() > 0
 
 
@@ -225,6 +234,20 @@ def parse_basic_credentials(authorization_header: str | None) -> tuple[str, str]
 
 
 def authenticate_user(username_raw: str, password: str) -> AuthUser | None:
+    if is_single_auth_mode():
+        try:
+            username = normalize_username(username_raw)
+            expected_username = normalize_username(AUTH_USERNAME)
+        except ValueError:
+            return None
+
+        if not secrets.compare_digest(username, expected_username):
+            return None
+        if not secrets.compare_digest(password, AUTH_PASSWORD):
+            return None
+
+        return AuthUser(username=expected_username, role="admin")
+
     try:
         username = normalize_username(username_raw)
     except ValueError:
@@ -285,8 +308,17 @@ def get_admin_user(current_user: AuthUser = Depends(get_current_user)) -> AuthUs
     return current_user
 
 
-init_user_store()
-ensure_bootstrap_admin()
+def ensure_multi_user_mode() -> None:
+    if is_single_auth_mode():
+        raise HTTPException(
+            status_code=404,
+            detail="Gestao de usuarios desabilitada no modo de login unico",
+        )
+
+
+if not is_single_auth_mode():
+    init_user_store()
+    ensure_bootstrap_admin()
 
 # Assets gerados pelo Vite (build React)
 app.mount(
@@ -352,6 +384,7 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
     col_campanha = find_column(headers, ["campanha", "assunto", "titulo", "title"])
     col_canal = find_column(headers, ["canal", "channel"])
     col_direcionamento = find_column(headers, ["direcionamento", "direcion", "target", "segmento"])
+    col_status = find_column(headers, ["status", "situacao", "situação"])
     col_produto = find_column(headers, ["produto", "product"])
     col_observacao = find_column(headers, ["observacao", "obs", "observation"])
 
@@ -373,6 +406,7 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
         campaign = (row.get(col_campanha) or "").strip()
         channel = (row.get(col_canal) or "").strip() if col_canal else ""
         direcionamento = (row.get(col_direcionamento) or "").strip() if col_direcionamento else ""
+        status = (row.get(col_status) or "").strip() if col_status else ""
 
         if not date_str:
             continue
@@ -399,6 +433,7 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
                 "extendedProps": {
                     "canal": channel,
                     "direcionamento": direcionamento,
+                    "status": status,
                     "titulo_original": campaign,
                     "produto": product,
                     "observacao": observation,
@@ -440,10 +475,25 @@ def get_me(current_user: AuthUser = Depends(get_current_user)) -> dict[str, str]
     return {"username": current_user.username, "role": current_user.role}
 
 
+@app.get("/api/auth-config")
+def get_auth_config(current_user: AuthUser = Depends(get_current_user)) -> dict[str, Any]:
+    return {
+        "auth_mode": "single" if is_single_auth_mode() else "multi",
+        "user_management_enabled": not is_single_auth_mode(),
+        "current_user": {"username": current_user.username, "role": current_user.role},
+    }
+
+
 @app.patch("/api/me/password")
 def update_my_password(
     payload: UpdatePasswordPayload, current_user: AuthUser = Depends(get_current_user)
 ) -> dict[str, str]:
+    if is_single_auth_mode():
+        raise HTTPException(
+            status_code=400,
+            detail="Troca de senha via app desabilitada no modo de login unico",
+        )
+
     user = get_user(current_user.username)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
@@ -464,6 +514,7 @@ def update_my_password(
 
 @app.get("/api/users")
 def list_users(_: AuthUser = Depends(get_admin_user)) -> dict[str, Any]:
+    ensure_multi_user_mode()
     with get_db_connection() as conn:
         rows = conn.execute(
             "SELECT username, role, created_at FROM users ORDER BY role DESC, username ASC"
@@ -477,6 +528,7 @@ def list_users(_: AuthUser = Depends(get_admin_user)) -> dict[str, Any]:
 
 @app.post("/api/users", status_code=201)
 def create_user(payload: UserCreatePayload, _: AuthUser = Depends(get_admin_user)) -> dict[str, str]:
+    ensure_multi_user_mode()
     try:
         username = normalize_username(payload.username)
     except ValueError as exc:
@@ -501,6 +553,7 @@ def create_user(payload: UserCreatePayload, _: AuthUser = Depends(get_admin_user
 def update_role(
     username: str, payload: UpdateRolePayload, current_admin: AuthUser = Depends(get_admin_user)
 ) -> dict[str, str]:
+    ensure_multi_user_mode()
     try:
         target_username = normalize_username(username)
     except ValueError as exc:
@@ -527,6 +580,7 @@ def update_role(
 
 @app.delete("/api/users/{username}")
 def delete_user(username: str, current_admin: AuthUser = Depends(get_admin_user)) -> dict[str, str]:
+    ensure_multi_user_mode()
     try:
         target_username = normalize_username(username)
     except ValueError as exc:

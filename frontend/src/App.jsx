@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
+import BriefingsPanel from './components/BriefingsPanel'
 
 const CHANNEL_COLORS = {
   email: '#0071E3',
@@ -10,12 +11,11 @@ const CHANNEL_COLORS = {
   other: '#8E8E93'
 }
 
-const MENU_ITEMS = [
+const BASE_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'future-1', label: 'Resumo de Resultados', disabled: true },
-  { key: 'future-2', label: 'Checklist de Campanha', disabled: true },
-  { key: 'users', label: 'Usuarios e Perfis' }
+  { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
 ]
 
 function normalizeChannel(channel) {
@@ -72,6 +72,7 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState(null)
   const [currentUserError, setCurrentUserError] = useState('')
+  const [userManagementEnabled, setUserManagementEnabled] = useState(true)
 
   const [users, setUsers] = useState([])
   const [usersLoading, setUsersLoading] = useState(false)
@@ -137,13 +138,22 @@ export default function App() {
   const loadCurrentUser = useCallback(async () => {
     setCurrentUserError('')
     try {
-      const response = await fetch('/api/me')
-      if (!response.ok) throw new Error('Nao foi possivel obter o usuario logado.')
+      const response = await fetch('/api/auth-config')
+      if (!response.ok) throw new Error('Nao foi possivel obter configuracao de autenticacao.')
       const payload = await response.json()
-      setCurrentUser(payload)
+      setCurrentUser(payload?.current_user || null)
+      setUserManagementEnabled(Boolean(payload?.user_management_enabled))
     } catch (err) {
-      setCurrentUser(null)
-      setCurrentUserError(err instanceof Error ? err.message : 'Falha ao carregar usuario logado.')
+      try {
+        const response = await fetch('/api/me')
+        if (!response.ok) throw new Error('Nao foi possivel obter o usuario logado.')
+        const payload = await response.json()
+        setCurrentUser(payload)
+        setUserManagementEnabled(true)
+      } catch (innerErr) {
+        setCurrentUser(null)
+        setCurrentUserError(innerErr instanceof Error ? innerErr.message : 'Falha ao carregar usuario logado.')
+      }
     }
   }, [])
 
@@ -182,6 +192,17 @@ export default function App() {
       loadUsers()
     }
   }, [activeView, loadUsers])
+
+  useEffect(() => {
+    if (!userManagementEnabled && activeView === 'users') {
+      setActiveView('calendar')
+    }
+  }, [activeView, userManagementEnabled])
+
+  const menuItems = useMemo(() => {
+    if (!userManagementEnabled) return BASE_MENU_ITEMS
+    return [...BASE_MENU_ITEMS, { key: 'users', label: 'Usuarios e Perfis' }]
+  }, [userManagementEnabled])
 
   const filteredEvents = useMemo(() => {
     if (selectedChannel === 'all') return events
@@ -491,6 +512,8 @@ export default function App() {
           />
         </div>
       </section>
+
+      <BriefingsPanel events={events} />
     </>
   )
 
@@ -794,7 +817,7 @@ export default function App() {
         <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-soft">
           <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ferramentas CRM</p>
           <nav className="space-y-1">
-            {MENU_ITEMS.map((item) => (
+            {menuItems.map((item) => (
               <button
                 key={item.key}
                 type="button"
@@ -815,7 +838,7 @@ export default function App() {
         <div className="space-y-5">
           {activeView === 'calendar' && renderCalendarView()}
           {activeView === 'utm' && renderUtmView()}
-          {activeView === 'users' && renderUsersView()}
+          {activeView === 'users' && userManagementEnabled && renderUsersView()}
         </div>
       </div>
 
