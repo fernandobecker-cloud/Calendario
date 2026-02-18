@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -14,7 +14,8 @@ const MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'future-1', label: 'Resumo de Resultados', disabled: true },
-  { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
+  { key: 'future-2', label: 'Checklist de Campanha', disabled: true },
+  { key: 'users', label: 'Usuarios e Perfis' }
 ]
 
 function normalizeChannel(channel) {
@@ -36,6 +37,23 @@ function formatDate(value) {
   }).format(date)
 }
 
+function formatRole(role) {
+  return role === 'admin' ? 'Administrador' : 'Usuario'
+}
+
+function formatCreatedAt(value) {
+  if (!value) return 'Nao informado'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState('calendar')
   const [events, setEvents] = useState([])
@@ -51,6 +69,30 @@ export default function App() {
     content: '',
     term: ''
   })
+
+  const [currentUser, setCurrentUser] = useState(null)
+  const [currentUserError, setCurrentUserError] = useState('')
+
+  const [users, setUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState('')
+  const [usersSuccess, setUsersSuccess] = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    username: '',
+    password: '',
+    role: 'user'
+  })
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordSuccess, setPasswordSuccess] = useState('')
+  const [roleDrafts, setRoleDrafts] = useState({})
+  const [roleSavingUser, setRoleSavingUser] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -92,6 +134,55 @@ export default function App() {
     }
   }, [])
 
+  const loadCurrentUser = useCallback(async () => {
+    setCurrentUserError('')
+    try {
+      const response = await fetch('/api/me')
+      if (!response.ok) throw new Error('Nao foi possivel obter o usuario logado.')
+      const payload = await response.json()
+      setCurrentUser(payload)
+    } catch (err) {
+      setCurrentUser(null)
+      setCurrentUserError(err instanceof Error ? err.message : 'Falha ao carregar usuario logado.')
+    }
+  }, [])
+
+  const loadUsers = useCallback(async () => {
+    if (currentUser?.role !== 'admin') return
+
+    setUsersLoading(true)
+    setUsersError('')
+
+    try {
+      const response = await fetch('/api/users')
+      if (!response.ok) throw new Error('Nao foi possivel carregar usuarios.')
+      const payload = await response.json()
+      const loadedUsers = Array.isArray(payload?.users) ? payload.users : []
+      setUsers(loadedUsers)
+      setRoleDrafts(
+        loadedUsers.reduce((acc, user) => {
+          acc[user.username] = user.role
+          return acc
+        }, {})
+      )
+    } catch (err) {
+      setUsers([])
+      setUsersError(err instanceof Error ? err.message : 'Erro ao carregar usuarios.')
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [currentUser?.role])
+
+  useEffect(() => {
+    loadCurrentUser()
+  }, [loadCurrentUser])
+
+  useEffect(() => {
+    if (activeView === 'users') {
+      loadUsers()
+    }
+  }, [activeView, loadUsers])
+
   const filteredEvents = useMemo(() => {
     if (selectedChannel === 'all') return events
     return events.filter((event) => event?.extendedProps?.channelKey === selectedChannel)
@@ -122,6 +213,176 @@ export default function App() {
   const handleRefresh = useCallback(() => {
     loadEvents()
   }, [loadEvents])
+
+  const handleCreateUser = useCallback(
+    async (event) => {
+      event.preventDefault()
+      setUsersError('')
+      setUsersSuccess('')
+
+      if (!createForm.username || !createForm.password) {
+        setUsersError('Preencha usuario e senha.')
+        return
+      }
+
+      setCreateLoading(true)
+
+      try {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(createForm)
+        })
+
+        let payload = null
+        try {
+          payload = await response.json()
+        } catch (_error) {
+          payload = null
+        }
+
+        if (!response.ok) {
+          const detail = payload?.detail || 'Nao foi possivel cadastrar usuario.'
+          throw new Error(detail)
+        }
+
+        setCreateForm({ username: '', password: '', role: 'user' })
+        setUsersSuccess(`Usuario ${payload?.username || createForm.username} cadastrado com sucesso.`)
+        await loadUsers()
+      } catch (err) {
+        setUsersError(err instanceof Error ? err.message : 'Erro ao cadastrar usuario.')
+      } finally {
+        setCreateLoading(false)
+      }
+    },
+    [createForm, loadUsers]
+  )
+
+  const handleDeleteUser = useCallback(
+    async (username) => {
+      const shouldDelete = window.confirm(`Deseja descadastrar o usuario "${username}"?`)
+      if (!shouldDelete) return
+
+      setUsersError('')
+      setUsersSuccess('')
+      setUsersLoading(true)
+
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+          method: 'DELETE'
+        })
+
+        let payload = null
+        try {
+          payload = await response.json()
+        } catch (_error) {
+          payload = null
+        }
+
+        if (!response.ok) {
+          const detail = payload?.detail || 'Nao foi possivel descadastrar usuario.'
+          throw new Error(detail)
+        }
+
+        setUsersSuccess(`Usuario ${username} removido com sucesso.`)
+        await loadUsers()
+      } catch (err) {
+        setUsersError(err instanceof Error ? err.message : 'Erro ao remover usuario.')
+      } finally {
+        setUsersLoading(false)
+      }
+    },
+    [loadUsers]
+  )
+
+  const handleChangeMyPassword = useCallback(
+    async (event) => {
+      event.preventDefault()
+      setPasswordError('')
+      setPasswordSuccess('')
+
+      if (!passwordForm.currentPassword || !passwordForm.newPassword) {
+        setPasswordError('Preencha senha atual e nova senha.')
+        return
+      }
+
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        setPasswordError('A confirmacao da nova senha nao confere.')
+        return
+      }
+
+      setPasswordLoading(true)
+      try {
+        const response = await fetch('/api/me/password', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            current_password: passwordForm.currentPassword,
+            new_password: passwordForm.newPassword
+          })
+        })
+
+        let payload = null
+        try {
+          payload = await response.json()
+        } catch (_error) {
+          payload = null
+        }
+
+        if (!response.ok) {
+          const detail = payload?.detail || 'Nao foi possivel alterar a senha.'
+          throw new Error(detail)
+        }
+
+        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+        setPasswordSuccess('Senha alterada com sucesso. No proximo login use a nova senha.')
+      } catch (err) {
+        setPasswordError(err instanceof Error ? err.message : 'Erro ao alterar senha.')
+      } finally {
+        setPasswordLoading(false)
+      }
+    },
+    [passwordForm]
+  )
+
+  const handleUpdateRole = useCallback(
+    async (username) => {
+      const nextRole = roleDrafts[username]
+      if (!nextRole) return
+
+      setUsersError('')
+      setUsersSuccess('')
+      setRoleSavingUser(username)
+
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(username)}/role`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: nextRole })
+        })
+
+        let payload = null
+        try {
+          payload = await response.json()
+        } catch (_error) {
+          payload = null
+        }
+
+        if (!response.ok) {
+          const detail = payload?.detail || 'Nao foi possivel atualizar o perfil.'
+          throw new Error(detail)
+        }
+
+        setUsersSuccess(`Perfil de ${username} atualizado para ${formatRole(nextRole)}.`)
+        await loadUsers()
+      } catch (err) {
+        setUsersError(err instanceof Error ? err.message : 'Erro ao atualizar perfil.')
+      } finally {
+        setRoleSavingUser('')
+      }
+    },
+    [roleDrafts, loadUsers]
+  )
 
   const utmUrl = useMemo(() => {
     if (!utmForm.baseUrl || !utmForm.campaign) return ''
@@ -321,6 +582,212 @@ export default function App() {
     </section>
   )
 
+  const renderUsersView = () => (
+    <section className="space-y-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Usuarios e Perfis</h1>
+        {currentUserError && <p className="mt-3 text-sm text-rose-700">{currentUserError}</p>}
+        {currentUser && (
+          <p className="mt-3 text-sm text-slate-700">
+            Logado como <span className="font-semibold">{currentUser.username}</span> ({formatRole(currentUser.role)}).
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Alterar minha senha</h2>
+        <form className="mt-4 grid gap-4 md:grid-cols-3" onSubmit={handleChangeMyPassword}>
+          <label className="flex flex-col gap-1 text-sm">
+            Senha atual
+            <input
+              required
+              type="password"
+              className="rounded-lg border border-slate-300 px-3 py-2"
+              value={passwordForm.currentPassword}
+              onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Nova senha
+            <input
+              required
+              type="password"
+              className="rounded-lg border border-slate-300 px-3 py-2"
+              value={passwordForm.newPassword}
+              onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            Confirmar nova senha
+            <input
+              required
+              type="password"
+              className="rounded-lg border border-slate-300 px-3 py-2"
+              value={passwordForm.confirmPassword}
+              onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+            />
+          </label>
+
+          <div className="md:col-span-3">
+            <button
+              type="submit"
+              disabled={passwordLoading}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {passwordLoading ? 'Salvando...' : 'Salvar nova senha'}
+            </button>
+          </div>
+        </form>
+
+        {passwordError && <p className="mt-4 text-sm text-rose-700">{passwordError}</p>}
+        {passwordSuccess && <p className="mt-4 text-sm text-emerald-700">{passwordSuccess}</p>}
+      </section>
+
+      {currentUser?.role !== 'admin' ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+          Apenas administradores podem cadastrar e descadastrar usuarios.
+        </section>
+      ) : (
+        <>
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Cadastrar novo usuario</h2>
+
+            <form className="mt-4 grid gap-4 md:grid-cols-3" onSubmit={handleCreateUser}>
+              <label className="flex flex-col gap-1 text-sm">
+                Usuario
+                <input
+                  required
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="exemplo.usuario"
+                  value={createForm.username}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, username: event.target.value }))}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm">
+                Senha
+                <input
+                  required
+                  type="password"
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="Minimo 6 caracteres"
+                  value={createForm.password}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, password: event.target.value }))}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm">
+                Perfil
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={createForm.role}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, role: event.target.value }))}
+                >
+                  <option value="user">Usuario</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </label>
+
+              <div className="md:col-span-3">
+                <button
+                  type="submit"
+                  disabled={createLoading}
+                  className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {createLoading ? 'Cadastrando...' : 'Cadastrar usuario'}
+                </button>
+              </div>
+            </form>
+
+            {usersError && <p className="mt-4 text-sm text-rose-700">{usersError}</p>}
+            {usersSuccess && <p className="mt-4 text-sm text-emerald-700">{usersSuccess}</p>}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-slate-900">Usuarios cadastrados</h2>
+              <button
+                type="button"
+                onClick={loadUsers}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Atualizar lista
+              </button>
+            </div>
+
+            {usersLoading ? (
+              <p className="mt-4 text-sm text-slate-600">Carregando usuarios...</p>
+            ) : users.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-600">Nenhum usuario encontrado.</p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-600">
+                      <th className="px-2 py-2 font-semibold">Usuario</th>
+                      <th className="px-2 py-2 font-semibold">Perfil</th>
+                      <th className="px-2 py-2 font-semibold">Criado em</th>
+                      <th className="px-2 py-2 font-semibold">Acoes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {users.map((user) => {
+                      const isCurrentUser = user.username === currentUser?.username
+                      return (
+                        <tr key={user.username}>
+                          <td className="px-2 py-3">
+                            {user.username}
+                            {isCurrentUser ? ' (voce)' : ''}
+                          </td>
+                          <td className="px-2 py-3">
+                            <select
+                              value={roleDrafts[user.username] || user.role}
+                              disabled={isCurrentUser || roleSavingUser === user.username}
+                              onChange={(event) =>
+                                setRoleDrafts((prev) => ({ ...prev, [user.username]: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              <option value="user">Usuario</option>
+                              <option value="admin">Administrador</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-3">{formatCreatedAt(user.created_at)}</td>
+                          <td className="px-2 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={isCurrentUser || roleSavingUser === user.username}
+                                onClick={() => handleUpdateRole(user.username)}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Salvar perfil
+                              </button>
+                              <button
+                                type="button"
+                                disabled={usersLoading || isCurrentUser}
+                                onClick={() => handleDeleteUser(user.username)}
+                                className="rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Descadastrar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </section>
+  )
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
       <div className="grid gap-4 md:grid-cols-[260px_1fr]">
@@ -345,7 +812,11 @@ export default function App() {
           </nav>
         </aside>
 
-        <div className="space-y-5">{activeView === 'calendar' ? renderCalendarView() : renderUtmView()}</div>
+        <div className="space-y-5">
+          {activeView === 'calendar' && renderCalendarView()}
+          {activeView === 'utm' && renderUtmView()}
+          {activeView === 'users' && renderUsersView()}
+        </div>
       </div>
 
       {selectedEvent && (
