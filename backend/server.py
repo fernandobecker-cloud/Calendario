@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
+import json
 import os
 import re
 import secrets
 import sqlite3
 import unicodedata
 from base64 import b64decode
-from io import StringIO
 from pathlib import Path
 from typing import Any, Literal
 
-import requests
+import gspread
+import pandas as pd
 from dateutil import parser
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -327,11 +328,8 @@ app.mount(
     name="assets",
 )
 
-CSV_URL = (
-    "https://docs.google.com/spreadsheets/d/e/"
-    "2PACX-1vQaQTSv32MuaQTlGRjr9m6s5pmyK9A9iZlRTNTePX8x0G5to5j6iLSkGx89fbiQLQ/"
-    "pub?output=csv"
-)
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
+GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT", "").strip()
 
 
 def normalize_text(text: str | None) -> str:
@@ -368,17 +366,54 @@ def get_channel_color(channel: str) -> str:
     return "#8E8E93"
 
 
-def fetch_and_parse_csv() -> list[dict[str, Any]]:
-    """Le o CSV publico do Sheets e converte para eventos FullCalendar."""
-    try:
-        response = requests.get(CSV_URL, timeout=20)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail="Falha ao buscar Google Sheets") from exc
+def load_google_sheet() -> pd.DataFrame:
+    """Carrega a primeira aba da planilha via Service Account usando env vars."""
+    if not GOOGLE_SERVICE_ACCOUNT:
+        raise HTTPException(status_code=500, detail="Variavel GOOGLE_SERVICE_ACCOUNT nao configurada")
+    if not SPREADSHEET_ID:
+        raise HTTPException(status_code=500, detail="Variavel SPREADSHEET_ID nao configurada")
 
-    csv_content = response.content.decode("utf-8-sig")
-    reader = csv.DictReader(StringIO(csv_content))
-    headers = reader.fieldnames or []
+    try:
+        service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="GOOGLE_SERVICE_ACCOUNT contem JSON invalido") from exc
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+
+    try:
+        credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="A planilha nao possui abas")
+        values = worksheet.get_all_values()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Falha ao autenticar ou ler Google Sheets com Service Account",
+        ) from exc
+
+    if not values:
+        return pd.DataFrame()
+
+    headers = values[0]
+    rows = values[1:]
+    dataframe = pd.DataFrame(rows, columns=headers).fillna("")
+    return dataframe
+
+
+def fetch_and_parse_csv() -> list[dict[str, Any]]:
+    """Le a planilha privada e converte para eventos FullCalendar."""
+    dataframe = load_google_sheet()
+    if dataframe.empty:
+        return []
+    headers = dataframe.columns.tolist()
 
     col_data = find_column(headers, ["data"])
     col_campanha = find_column(headers, ["campanha", "assunto", "titulo", "title"])
@@ -401,7 +436,7 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
 
     events: list[dict[str, Any]] = []
 
-    for row in reader:
+    for row in dataframe.to_dict(orient="records"):
         date_str = (row.get(col_data) or "").strip()
         campaign = (row.get(col_campanha) or "").strip()
         channel = (row.get(col_canal) or "").strip() if col_canal else ""
