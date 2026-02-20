@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.ga4_client import get_sessions_yesterday
+from backend.ga4_client import get_crm_monthly_report, get_sessions_yesterday
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -655,6 +655,24 @@ def ga4_test(property_id: str | None = Query(default=None)) -> dict[str, int]:
 
     try:
         return get_sessions_yesterday(property_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/crm/monthly")
+def ga4_crm_monthly(
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    property_id: str | None = Query(default=None),
+) -> dict[str, Any]:
+    effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
+    if not effective_property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    try:
+        return get_crm_monthly_report(effective_property_id, year, month)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
