@@ -14,7 +14,7 @@ const CHANNEL_COLORS = {
 const BASE_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
-  { key: 'future-1', label: 'Resumo de Resultados', disabled: true },
+  { key: 'results', label: 'Resumo de Resultados' },
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
 ]
 
@@ -52,6 +52,29 @@ function formatCreatedAt(value) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
+}
+
+function formatMetricValue(key, value) {
+  if (key === 'purchaseRevenue') {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2
+    }).format(Number(value || 0))
+  }
+  return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
+}
+
+function formatVariation(value) {
+  if (value === null || value === undefined) return 'N/A'
+  const numeric = Number(value)
+  const sign = numeric > 0 ? '+' : ''
+  return `${sign}${numeric.toFixed(2)}%`
+}
+
+function variationTextColor(value) {
+  if (value === null || value === undefined || Number(value) === 0) return 'text-slate-600'
+  return Number(value) > 0 ? 'text-emerald-700' : 'text-rose-700'
 }
 
 export default function App() {
@@ -94,6 +117,12 @@ export default function App() {
   const [passwordSuccess, setPasswordSuccess] = useState('')
   const [roleDrafts, setRoleDrafts] = useState({})
   const [roleSavingUser, setRoleSavingUser] = useState('')
+  const now = useMemo(() => new Date(), [])
+  const [reportYear, setReportYear] = useState(now.getFullYear())
+  const [reportMonth, setReportMonth] = useState(now.getMonth() + 1)
+  const [ga4Report, setGa4Report] = useState(null)
+  const [ga4Loading, setGa4Loading] = useState(false)
+  const [ga4Error, setGa4Error] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -183,6 +212,32 @@ export default function App() {
     }
   }, [currentUser?.role])
 
+  const loadGa4MonthlyReport = useCallback(async () => {
+    setGa4Loading(true)
+    setGa4Error('')
+
+    try {
+      const response = await fetch(`/api/ga4/crm/monthly?year=${reportYear}&month=${reportMonth}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || 'Nao foi possivel carregar resumo de resultados.')
+      }
+
+      setGa4Report(payload)
+    } catch (err) {
+      setGa4Report(null)
+      setGa4Error(err instanceof Error ? err.message : 'Falha ao carregar resumo de resultados.')
+    } finally {
+      setGa4Loading(false)
+    }
+  }, [reportMonth, reportYear])
+
   useEffect(() => {
     loadCurrentUser()
   }, [loadCurrentUser])
@@ -192,6 +247,12 @@ export default function App() {
       loadUsers()
     }
   }, [activeView, loadUsers])
+
+  useEffect(() => {
+    if (activeView === 'results') {
+      loadGa4MonthlyReport()
+    }
+  }, [activeView, loadGa4MonthlyReport])
 
   useEffect(() => {
     if (!userManagementEnabled && activeView === 'users') {
@@ -605,6 +666,86 @@ export default function App() {
     </section>
   )
 
+  const renderResultsView = () => {
+    const metrics = [
+      { key: 'sessions', label: 'Sessoes' },
+      { key: 'totalUsers', label: 'Usuarios' },
+      { key: 'transactions', label: 'Transacoes' },
+      { key: 'purchaseRevenue', label: 'Receita de compras' }
+    ]
+
+    return (
+      <section className="space-y-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">Resumo de Resultados CRM</h1>
+              <p className="mt-1 text-sm text-slate-600">Comparativo do mes atual contra o mesmo mes do ano anterior.</p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm">
+                Ano
+                <input
+                  type="number"
+                  min="2000"
+                  max="2100"
+                  className="w-28 rounded-lg border border-slate-300 px-3 py-2"
+                  value={reportYear}
+                  onChange={(event) => setReportYear(Number(event.target.value || now.getFullYear()))}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                Mes
+                <input
+                  type="number"
+                  min="1"
+                  max="12"
+                  className="w-20 rounded-lg border border-slate-300 px-3 py-2"
+                  value={reportMonth}
+                  onChange={(event) => setReportMonth(Number(event.target.value || now.getMonth() + 1))}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={loadGa4MonthlyReport}
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600"
+              >
+                Atualizar
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {ga4Error && <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{ga4Error}</section>}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          {ga4Loading ? (
+            <p className="text-sm text-slate-600">Carregando resultados do GA4...</p>
+          ) : !ga4Report ? (
+            <p className="text-sm text-slate-600">Selecione periodo e clique em atualizar.</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {metrics.map((metric) => (
+                <article key={metric.key} className="rounded-xl border border-slate-200 p-4">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{metric.label}</h2>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {formatMetricValue(metric.key, ga4Report.current_year?.[metric.key])}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Ano anterior: {formatMetricValue(metric.key, ga4Report.last_year?.[metric.key])}
+                  </p>
+                  <p className={`mt-1 text-sm font-semibold ${variationTextColor(ga4Report.variation?.[metric.key])}`}>
+                    Variacao: {formatVariation(ga4Report.variation?.[metric.key])}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+    )
+  }
+
   const renderUsersView = () => (
     <section className="space-y-5">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -838,6 +979,7 @@ export default function App() {
         <div className="space-y-5">
           {activeView === 'calendar' && renderCalendarView()}
           {activeView === 'utm' && renderUtmView()}
+          {activeView === 'results' && renderResultsView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
         </div>
       </div>
