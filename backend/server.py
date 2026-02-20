@@ -16,12 +16,14 @@ from typing import Any, Literal
 import gspread
 import pandas as pd
 from dateutil import parser
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
+
+from backend.ga4_client import get_sessions_yesterday
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -330,6 +332,7 @@ app.mount(
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT", "").strip()
+GA4_PROPERTY_ID = os.getenv("GA4_PROPERTY_ID", "").strip()
 
 
 def normalize_text(text: str | None) -> str:
@@ -642,6 +645,20 @@ def delete_user(username: str, current_admin: AuthUser = Depends(get_admin_user)
 def get_events() -> dict[str, Any]:
     events = fetch_and_parse_csv()
     return {"events": events, "total": len(events)}
+
+
+@app.get("/api/ga4/test")
+def ga4_test(property_id: str | None = Query(default=None)) -> dict[str, int]:
+    property_id = (property_id or "").strip() or GA4_PROPERTY_ID
+    if not property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    try:
+        return get_sessions_yesterday(property_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
 
 
 @app.get("/health")
