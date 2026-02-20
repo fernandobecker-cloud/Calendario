@@ -51,7 +51,8 @@ def get_sessions_yesterday(property_id: str) -> dict[str, int]:
         )
         response = client.run_report(request=request)
     except Exception as exc:
-        raise RuntimeError("Falha ao consultar Google Analytics Data API") from exc
+        error_type = exc.__class__.__name__
+        raise RuntimeError(f"Falha ao consultar Google Analytics Data API [{error_type}]: {exc}") from exc
 
     sessions = 0
     users = 0
