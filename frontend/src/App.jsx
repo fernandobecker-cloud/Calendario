@@ -97,6 +97,11 @@ function getMonthDateRange(year, month) {
   }
 }
 
+function isGa4NoDataError(detail) {
+  const message = String(detail || '').toLowerCase()
+  return message.includes('future currency exchange rate not exist')
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState('calendar')
   const [events, setEvents] = useState([])
@@ -255,7 +260,13 @@ export default function App() {
       }
 
       if (!response.ok) {
-        throw new Error(payload?.detail || 'Nao foi possivel carregar resumo de resultados.')
+        const detail = payload?.detail || 'Nao foi possivel carregar resumo de resultados.'
+        if (isGa4NoDataError(detail)) {
+          setGa4Report(null)
+          setGa4Error('')
+          return
+        }
+        throw new Error(detail)
       }
 
       setGa4Report(payload)
@@ -282,7 +293,13 @@ export default function App() {
       }
 
       if (!response.ok) {
-        throw new Error(payload?.detail || 'Nao foi possivel carregar assists de CRM.')
+        const detail = payload?.detail || 'Nao foi possivel carregar assists de CRM.'
+        if (isGa4NoDataError(detail)) {
+          setCrmAssists(null)
+          setCrmAssistsError('')
+          return
+        }
+        throw new Error(detail)
       }
 
       setCrmAssists(payload)
@@ -309,7 +326,13 @@ export default function App() {
       }
 
       if (!response.ok) {
-        throw new Error(payload?.detail || 'Nao foi possivel carregar LTV de CRM.')
+        const detail = payload?.detail || 'Nao foi possivel carregar LTV de CRM.'
+        if (isGa4NoDataError(detail)) {
+          setCrmLtv(null)
+          setCrmLtvError('')
+          return
+        }
+        throw new Error(detail)
       }
 
       setCrmLtv(payload)
@@ -335,7 +358,13 @@ export default function App() {
       }
 
       if (!response.ok) {
-        throw new Error(payload?.detail || 'Nao foi possivel carregar funil de CRM.')
+        const detail = payload?.detail || 'Nao foi possivel carregar funil de CRM.'
+        if (isGa4NoDataError(detail)) {
+          setCrmFunnel(null)
+          setCrmFunnelError('')
+          return
+        }
+        throw new Error(detail)
       }
 
       setCrmFunnel(payload)
