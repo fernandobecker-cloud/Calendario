@@ -77,6 +77,26 @@ function variationTextColor(value) {
   return Number(value) > 0 ? 'text-emerald-700' : 'text-rose-700'
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2
+  }).format(Number(value || 0))
+}
+
+function getMonthDateRange(year, month) {
+  const y = Number(year)
+  const m = Number(month)
+  const safeMonth = Math.min(Math.max(m, 1), 12)
+  const lastDay = new Date(y, safeMonth, 0).getDate()
+  const monthText = String(safeMonth).padStart(2, '0')
+  return {
+    start: `${y}-${monthText}-01`,
+    end: `${y}-${monthText}-${String(lastDay).padStart(2, '0')}`
+  }
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState('calendar')
   const [events, setEvents] = useState([])
@@ -123,6 +143,12 @@ export default function App() {
   const [ga4Report, setGa4Report] = useState(null)
   const [ga4Loading, setGa4Loading] = useState(false)
   const [ga4Error, setGa4Error] = useState('')
+  const [crmAssists, setCrmAssists] = useState(null)
+  const [crmAssistsLoading, setCrmAssistsLoading] = useState(false)
+  const [crmAssistsError, setCrmAssistsError] = useState('')
+  const [crmLtv, setCrmLtv] = useState(null)
+  const [crmLtvLoading, setCrmLtvLoading] = useState(false)
+  const [crmLtvError, setCrmLtvError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -238,6 +264,64 @@ export default function App() {
     }
   }, [reportMonth, reportYear])
 
+  const loadCrmAssists = useCallback(async () => {
+    setCrmAssistsLoading(true)
+    setCrmAssistsError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+
+    try {
+      const response = await fetch(`/api/ga4/crm-assists?start=${period.start}&end=${period.end}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || 'Nao foi possivel carregar assists de CRM.')
+      }
+
+      setCrmAssists(payload)
+    } catch (err) {
+      setCrmAssists(null)
+      setCrmAssistsError(err instanceof Error ? err.message : 'Falha ao carregar assists de CRM.')
+    } finally {
+      setCrmAssistsLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadCrmLtv = useCallback(async () => {
+    setCrmLtvLoading(true)
+    setCrmLtvError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+
+    try {
+      const response = await fetch(`/api/ga4/crm-ltv?start=${period.start}&end=${period.end}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || 'Nao foi possivel carregar LTV de CRM.')
+      }
+
+      setCrmLtv(payload)
+    } catch (err) {
+      setCrmLtv(null)
+      setCrmLtvError(err instanceof Error ? err.message : 'Falha ao carregar LTV de CRM.')
+    } finally {
+      setCrmLtvLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadAllResults = useCallback(async () => {
+    await Promise.all([loadGa4MonthlyReport(), loadCrmAssists(), loadCrmLtv()])
+  }, [loadCrmAssists, loadCrmLtv, loadGa4MonthlyReport])
+
   useEffect(() => {
     loadCurrentUser()
   }, [loadCurrentUser])
@@ -250,9 +334,9 @@ export default function App() {
 
   useEffect(() => {
     if (activeView === 'results') {
-      loadGa4MonthlyReport()
+      loadAllResults()
     }
-  }, [activeView, loadGa4MonthlyReport])
+  }, [activeView, loadAllResults])
 
   useEffect(() => {
     if (!userManagementEnabled && activeView === 'users') {
@@ -707,7 +791,7 @@ export default function App() {
               </label>
               <button
                 type="button"
-                onClick={loadGa4MonthlyReport}
+                onClick={loadAllResults}
                 className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600"
               >
                 Atualizar
@@ -741,6 +825,68 @@ export default function App() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+            <h2 className="text-lg font-semibold text-slate-900">Assistencia de Conversao (CRM)</h2>
+            <p className="mt-1 text-sm text-slate-600">Periodo selecionado por sessoes e usuarios CRM assistidos.</p>
+
+            {crmAssistsError && <p className="mt-4 text-sm text-rose-700">{crmAssistsError}</p>}
+
+            {crmAssistsLoading ? (
+              <p className="mt-4 text-sm text-slate-600">Carregando assists...</p>
+            ) : crmAssists ? (
+              <div className="mt-4 grid gap-3 text-sm">
+                <p>
+                  <span className="font-semibold text-slate-900">Sessoes CRM:</span>{' '}
+                  {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.crm_sessions || 0))}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">Usuarios CRM:</span>{' '}
+                  {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.crm_users || 0))}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">Compras assistidas:</span>{' '}
+                  {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.assisted_purchases || 0))}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">Receita assistida:</span>{' '}
+                  {formatCurrency(crmAssists.assisted_revenue)}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+            )}
+          </article>
+
+          <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+            <h2 className="text-lg font-semibold text-slate-900">LTV do CRM</h2>
+            <p className="mt-1 text-sm text-slate-600">Coorte de usuarios adquiridos por CRM no periodo selecionado.</p>
+
+            {crmLtvError && <p className="mt-4 text-sm text-rose-700">{crmLtvError}</p>}
+
+            {crmLtvLoading ? (
+              <p className="mt-4 text-sm text-slate-600">Carregando LTV...</p>
+            ) : crmLtv ? (
+              <div className="mt-4 grid gap-3 text-sm">
+                <p>
+                  <span className="font-semibold text-slate-900">Novos usuarios CRM:</span>{' '}
+                  {new Intl.NumberFormat('pt-BR').format(Number(crmLtv.crm_new_users || 0))}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">Receita total da coorte:</span>{' '}
+                  {formatCurrency(crmLtv.total_revenue_from_crm_users)}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">LTV medio CRM:</span>{' '}
+                  {formatCurrency(crmLtv.crm_ltv)}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+            )}
+          </article>
         </section>
       </section>
     )
