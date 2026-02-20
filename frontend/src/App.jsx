@@ -149,6 +149,9 @@ export default function App() {
   const [crmLtv, setCrmLtv] = useState(null)
   const [crmLtvLoading, setCrmLtvLoading] = useState(false)
   const [crmLtvError, setCrmLtvError] = useState('')
+  const [crmFunnel, setCrmFunnel] = useState(null)
+  const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
+  const [crmFunnelError, setCrmFunnelError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -318,9 +321,35 @@ export default function App() {
     }
   }, [reportMonth, reportYear])
 
+  const loadCrmFunnel = useCallback(async () => {
+    setCrmFunnelLoading(true)
+    setCrmFunnelError('')
+
+    try {
+      const response = await fetch(`/api/ga4/crm-funnel?year=${reportYear}&month=${reportMonth}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || 'Nao foi possivel carregar funil de CRM.')
+      }
+
+      setCrmFunnel(payload)
+    } catch (err) {
+      setCrmFunnel(null)
+      setCrmFunnelError(err instanceof Error ? err.message : 'Falha ao carregar funil de CRM.')
+    } finally {
+      setCrmFunnelLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
   const loadAllResults = useCallback(async () => {
-    await Promise.all([loadGa4MonthlyReport(), loadCrmAssists(), loadCrmLtv()])
-  }, [loadCrmAssists, loadCrmLtv, loadGa4MonthlyReport])
+    await Promise.all([loadGa4MonthlyReport(), loadCrmAssists(), loadCrmLtv(), loadCrmFunnel()])
+  }, [loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
 
   useEffect(() => {
     loadCurrentUser()
@@ -887,6 +916,41 @@ export default function App() {
               <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
             )}
           </article>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Funil de Conversao CRM</h2>
+          <p className="mt-1 text-sm text-slate-600">Progressao do CRM: entrada, produto, carrinho, checkout e compra.</p>
+
+          {crmFunnelError && <p className="mt-4 text-sm text-rose-700">{crmFunnelError}</p>}
+
+          {crmFunnelLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando funil...</p>
+          ) : crmFunnel ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-5">
+              {[
+                { label: 'Sessoes', value: crmFunnel.sessions, rate: null },
+                { label: 'Produto', value: crmFunnel.product_view, rate: crmFunnel.conversion_rates?.view_rate },
+                { label: 'Carrinho', value: crmFunnel.add_to_cart, rate: crmFunnel.conversion_rates?.cart_rate },
+                { label: 'Checkout', value: crmFunnel.checkout, rate: crmFunnel.conversion_rates?.checkout_rate },
+                { label: 'Compra', value: crmFunnel.purchase, rate: crmFunnel.conversion_rates?.purchase_rate }
+              ].map((step) => (
+                <article key={step.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{step.label}</h3>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {new Intl.NumberFormat('pt-BR').format(Number(step.value || 0))}
+                  </p>
+                  {step.rate !== null && step.rate !== undefined && (
+                    <p className="mt-1 text-sm text-slate-600">
+                      Taxa: {(Number(step.rate) * 100).toFixed(2)}%
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+          )}
         </section>
       </section>
     )

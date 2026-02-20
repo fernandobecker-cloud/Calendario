@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import unicodedata
 from base64 import b64decode
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +30,7 @@ from backend.ga4_client import (
     get_crm_monthly_report,
     get_sessions_yesterday,
 )
+from backend.ga4_funnel import get_crm_funnel
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -714,6 +716,26 @@ def ga4_crm_ltv(
 
     try:
         return get_crm_ltv(effective_property_id, start, end)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/crm-funnel")
+def ga4_crm_funnel(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+) -> dict[str, Any]:
+    effective_property_id = GA4_PROPERTY_ID
+    if not effective_property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    target_year = year if year is not None else date.today().year
+    target_month = month if month is not None else date.today().month
+
+    try:
+        return get_crm_funnel(effective_property_id, target_year, target_month)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
