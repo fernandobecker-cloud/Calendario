@@ -108,12 +108,35 @@ function readExpandedFromStorage() {
 }
 
 const TaskRow = memo(function TaskRow({ task, timelineDays, timelineWidth, timelineStart, onEditTask }) {
+  const deadlineIcon =
+    task.deadline_state === 'overdue' ? (
+      <span title="Atrasada" className="text-rose-600">
+        🔴
+      </span>
+    ) : task.deadline_state === 'due_today' ? (
+      <span title="Vence hoje" className="text-amber-500">
+        ⚠️
+      </span>
+    ) : task.deadline_state === 'due_soon' ? (
+      <span title="Vence em breve" className="text-amber-400">
+        🟡
+      </span>
+    ) : null
+
   return (
     <div className="flex bg-white/70">
       <div className="w-[340px] shrink-0 border-r border-slate-200 px-4 py-2 pl-10">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-sm font-medium text-slate-600">{task.title}</p>
+            <p className="text-sm font-medium text-slate-600">
+              {deadlineIcon && <span className="mr-1">{deadlineIcon}</span>}
+              {task.depends_on_task_id ? (
+                <span title="Possui dependencia" className="mr-1 text-slate-500">
+                  🔗
+                </span>
+              ) : null}
+              {task.title}
+            </p>
             <p className="text-[11px] text-slate-400">{task.start_date || '—'} → {task.end_date || '—'}</p>
           </div>
           <button

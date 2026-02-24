@@ -29,7 +29,9 @@ export default function TaskModal({
   onClose,
   onSubmit,
   projects,
+  tasksByProject,
   initialValues,
+  currentTaskId,
   lockProject = false,
   loading,
   error,
@@ -49,11 +51,16 @@ export default function TaskModal({
       end_date: initialValues?.end_date || '',
       status: initialValues?.status || 'planned',
       priority: initialValues?.priority || 'medium',
-      progress: Number(initialValues?.progress || 0)
+      progress: Number(initialValues?.progress || 0),
+      depends_on_task_id: initialValues?.depends_on_task_id ? String(initialValues.depends_on_task_id) : ''
     })
   }, [initialValues, isOpen, projects])
 
   if (!isOpen) return null
+
+  const selectableDependencies = (tasksByProject?.[Number(form.project_id)] || []).filter(
+    (task) => task.id !== currentTaskId
+  )
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -65,7 +72,8 @@ export default function TaskModal({
       end_date: form.end_date || null,
       status: form.status,
       priority: form.priority,
-      progress: Number(form.progress) || 0
+      progress: Number(form.progress) || 0,
+      depends_on_task_id: form.depends_on_task_id ? Number(form.depends_on_task_id) : null
     })
   }
 
@@ -176,6 +184,23 @@ export default function TaskModal({
               {TASK_PRIORITY_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-sm text-slate-700">
+            Depende de
+            <select
+              value={form.depends_on_task_id}
+              onChange={(event) => setForm((prev) => ({ ...prev, depends_on_task_id: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            >
+              <option value="">Nenhuma</option>
+              {selectableDependencies.map((task) => (
+                <option key={task.id} value={task.id}>
+                  #{task.id} - {task.title}
                 </option>
               ))}
             </select>

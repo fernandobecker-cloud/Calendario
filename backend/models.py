@@ -33,6 +33,7 @@ class Task(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    depends_on_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
     start_date = Column(Date, nullable=True)
@@ -43,3 +44,30 @@ class Task(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="tasks")
+    depends_on_task = relationship("Task", remote_side=[id], uselist=False)
+
+    @property
+    def is_overdue(self) -> bool:
+        if not self.end_date:
+            return False
+        if self.status == "done":
+            return False
+        return datetime.utcnow().date() > self.end_date
+
+    @property
+    def deadline_state(self) -> str:
+        if self.is_overdue:
+            return "overdue"
+
+        if not self.end_date:
+            return "normal"
+
+        today = datetime.utcnow().date()
+        if self.end_date == today:
+            return "due_today"
+
+        delta_days = (self.end_date - today).days
+        if 0 < delta_days <= 2:
+            return "due_soon"
+
+        return "normal"

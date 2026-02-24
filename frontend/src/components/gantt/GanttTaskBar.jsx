@@ -53,7 +53,13 @@ export default function GanttTaskBar({ task, timelineStart }) {
   const days = dayDiff(startDate, endDate) + 1
   const width = Math.max(DAY_WIDTH, days * DAY_WIDTH)
   const progress = clampProgress(task.progress)
-  const styles = STATUS_STYLES[task.status] || STATUS_STYLES.planned
+  const baseStyles = STATUS_STYLES[task.status] || STATUS_STYLES.planned
+  const styles = task.is_overdue
+    ? {
+        bar: 'bg-rose-900',
+        fill: 'bg-rose-700'
+      }
+    : baseStyles
   const statusLabel = STATUS_LABELS[task.status] || STATUS_LABELS.planned
 
   return (
@@ -66,12 +72,15 @@ export default function GanttTaskBar({ task, timelineStart }) {
       <div className={`h-full ${styles.fill} transition-all`} style={{ width: `${progress}%` }} />
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-2 text-xs font-semibold text-white">
-        <span className="truncate">{task.title}</span>
+        <span className="truncate">
+          {task.title}
+          {task.is_overdue ? <span className="ml-1 rounded bg-rose-950/70 px-1 py-0.5 text-[10px]">Atrasada</span> : null}
+        </span>
         <span className="ml-2 shrink-0">{progress}%</span>
       </div>
 
       <div className="pointer-events-none absolute left-1/2 top-[-58px] z-30 hidden -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] text-white shadow-lg group-hover:block">
-        {task.title} • {task.start_date} → {task.end_date} • {statusLabel} • {progress}%
+        {task.title} • {task.start_date} → {task.end_date} • {statusLabel} • {progress}%{task.is_overdue ? ' • Atrasada' : ''}
       </div>
     </div>
   )

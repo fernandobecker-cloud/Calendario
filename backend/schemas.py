@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ProjectStatus = Literal["planned", "active", "done", "cancelled"]
 TaskStatus = Literal["planned", "doing", "blocked", "done"]
 TaskPriority = Literal["low", "medium", "high"]
+DeadlineState = Literal["normal", "due_today", "due_soon", "overdue"]
 
 
 class ProjectBase(BaseModel):
@@ -49,6 +50,7 @@ class TaskBase(BaseModel):
     progress: int = Field(default=0, ge=0, le=100)
     status: TaskStatus = "planned"
     priority: TaskPriority = "medium"
+    depends_on_task_id: int | None = None
 
 
 class TaskCreate(TaskBase):
@@ -63,6 +65,7 @@ class TaskUpdate(BaseModel):
     progress: int | None = Field(default=None, ge=0, le=100)
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
+    depends_on_task_id: int | None = None
 
 
 class TaskProgressUpdate(BaseModel):
@@ -73,5 +76,7 @@ class TaskOut(TaskBase):
     id: int
     project_id: int
     created_at: datetime
+    is_overdue: bool
+    deadline_state: DeadlineState
 
     model_config = ConfigDict(from_attributes=True)

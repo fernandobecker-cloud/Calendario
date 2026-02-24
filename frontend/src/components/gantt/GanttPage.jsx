@@ -180,7 +180,8 @@ export default function GanttPage() {
               end_date: payload.end_date,
               status: payload.status,
               priority: payload.priority,
-              progress: payload.progress
+              progress: payload.progress,
+              depends_on_task_id: payload.depends_on_task_id
             })
           })
           showToast('Tarefa atualizada')
@@ -200,7 +201,8 @@ export default function GanttPage() {
               end_date: payload.end_date,
               status: payload.status,
               priority: payload.priority,
-              progress: payload.progress
+              progress: payload.progress,
+              depends_on_task_id: payload.depends_on_task_id
             })
           })
           showToast('Tarefa criada')
@@ -227,7 +229,8 @@ export default function GanttPage() {
       end_date: editingTask.end_date || '',
       status: editingTask.status || 'planned',
       priority: editingTask.priority || 'medium',
-      progress: editingTask.progress ?? 0
+      progress: editingTask.progress ?? 0,
+      depends_on_task_id: editingTask.depends_on_task_id ?? null
     }
   }, [editingTask])
 
@@ -279,7 +282,9 @@ export default function GanttPage() {
           onClose={closeTaskModal}
           onSubmit={handleTaskSubmit}
           projects={projects}
+          tasksByProject={tasksByProject}
           initialValues={editingTaskInitialValues}
+          currentTaskId={editingTask?.id}
           lockProject
           loading={taskSaving}
           error={taskModalError}
@@ -290,7 +295,9 @@ export default function GanttPage() {
           onClose={closeTaskModal}
           onSubmit={handleTaskSubmit}
           projects={projects}
+          tasksByProject={tasksByProject}
           initialValues={editingTaskInitialValues}
+          currentTaskId={null}
           loading={taskSaving}
           error={taskModalError}
           title="Nova Tarefa"
