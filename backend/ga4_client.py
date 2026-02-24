@@ -309,7 +309,17 @@ def get_crm_ltv(property_id: str, start_date: str, end_date: str) -> dict[str, i
     """
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
-    today = date.today().isoformat()
+    today_date = date.today()
+    start_date_obj = date.fromisoformat(start)
+    today = today_date.isoformat()
+
+    # Periodo totalmente no futuro: retorna sem dados em vez de erro da API.
+    if start_date_obj > today_date:
+        return {
+            "crm_new_users": 0,
+            "total_revenue_from_crm_users": 0.0,
+            "crm_ltv": 0.0,
+        }
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
 
