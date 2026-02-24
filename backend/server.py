@@ -24,7 +24,6 @@ from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.database import init_db
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_crm_ltv,
@@ -89,11 +88,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 def get_db_connection() -> sqlite3.Connection:
