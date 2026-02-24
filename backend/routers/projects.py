@@ -48,9 +48,11 @@ def _validate_date_range(start_date: date | None, end_date: date | None) -> None
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
+    if isinstance(value, date):
+        return value
     try:
         return date.fromisoformat(value)
-    except ValueError:
+    except (ValueError, TypeError):
         try:
             return date_parser.parse(value).date()
         except Exception:
