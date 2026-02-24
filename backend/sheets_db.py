@@ -28,6 +28,7 @@ PROJECT_HEADERS = [
 TASK_HEADERS = [
     "id",
     "project_id",
+    "depends_on_task_id",
     "title",
     "description",
     "start_date",
@@ -202,6 +203,7 @@ def _normalize_task(raw: dict[str, str]) -> dict[str, Any]:
     return {
         "id": _coerce_int(raw.get("id"), default=0),
         "project_id": _coerce_int(raw.get("project_id"), default=0),
+        "depends_on_task_id": _coerce_int(raw.get("depends_on_task_id"), default=0) or None,
         "title": (raw.get("title") or "").strip(),
         "description": _coerce_optional(raw.get("description")),
         "start_date": _coerce_optional(raw.get("start_date")),
@@ -357,6 +359,7 @@ def create_task(project_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     new_item = {
         "id": _next_id(tasks),
         "project_id": project_id,
+        "depends_on_task_id": payload.get("depends_on_task_id"),
         "title": payload["title"],
         "description": payload.get("description"),
         "start_date": payload.get("start_date"),
