@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException
+from dateutil import parser as date_parser
 
 from backend.schemas import (
     ProjectCreate,
@@ -50,14 +51,32 @@ def _parse_date(value: str | None) -> date | None:
     try:
         return date.fromisoformat(value)
     except ValueError:
-        return None
+        try:
+            return date_parser.parse(value).date()
+        except Exception:
+            return None
+
+
+def _normalize_task_status(value: str | None) -> str:
+    allowed = {"planned", "doing", "blocked", "done"}
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in allowed else "planned"
+
+
+def _normalize_task_priority(value: str | None) -> str:
+    allowed = {"low", "medium", "high"}
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in allowed else "medium"
 
 
 def _serialize_task(task: dict) -> dict:
     today = datetime.utcnow().date()
     end_date = _parse_date(task.get("end_date"))
+    start_date = _parse_date(task.get("start_date"))
+    status = _normalize_task_status(task.get("status"))
+    priority = _normalize_task_priority(task.get("priority"))
 
-    is_overdue = bool(end_date and task.get("status") != "done" and today > end_date)
+    is_overdue = bool(end_date and status != "done" and today > end_date)
 
     if is_overdue:
         deadline_state = "overdue"
@@ -76,12 +95,12 @@ def _serialize_task(task: dict) -> dict:
         "depends_on_task_id": task.get("depends_on_task_id"),
         "title": task["title"],
         "description": task.get("description"),
-        "start_date": task.get("start_date"),
-        "end_date": task.get("end_date"),
+        "start_date": start_date.isoformat() if start_date else None,
+        "end_date": end_date.isoformat() if end_date else None,
         "progress": task.get("progress", 0),
-        "status": task.get("status", "planned"),
-        "priority": task.get("priority", "medium"),
-        "created_at": task.get("created_at"),
+        "status": status,
+        "priority": priority,
+        "created_at": task.get("created_at") or datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "is_overdue": is_overdue,
         "deadline_state": deadline_state,
     }
