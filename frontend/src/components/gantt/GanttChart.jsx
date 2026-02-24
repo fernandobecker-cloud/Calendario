@@ -3,6 +3,15 @@ import GanttTaskBar from './GanttTaskBar'
 
 const DAY_WIDTH = 42
 
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  )
+}
+
 function toDate(value) {
   if (!value) return null
   const date = new Date(`${value}T00:00:00`)
@@ -63,7 +72,7 @@ function getTimelineBounds(projects, tasksByProject) {
   }
 }
 
-export default function GanttChart({ projects, tasksByProject }) {
+export default function GanttChart({ projects, tasksByProject, onCreateTask, onEditProject, onEditTask }) {
   const { timelineStart, timelineDays, headerDates, timelineWidth } = useMemo(() => {
     const bounds = getTimelineBounds(projects, tasksByProject)
     const days = dayDiff(bounds.start, bounds.end) + 1
@@ -114,8 +123,29 @@ export default function GanttChart({ projects, tasksByProject }) {
               <div key={project.id} className="border-b border-slate-100">
                 <div className="flex border-b border-slate-100 bg-white">
                   <div className="w-[340px] shrink-0 border-r border-slate-200 px-4 py-3">
-                    <p className="text-sm font-semibold text-slate-900">{project.name}</p>
-                    <p className="mt-1 text-xs text-slate-500 line-clamp-2">{project.description || 'Sem descricao'}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{project.name}</p>
+                        <p className="mt-1 text-xs text-slate-500 line-clamp-2">{project.description || 'Sem descricao'}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onCreateTask(project.id)}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        >
+                          + Nova tarefa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onEditProject(project)}
+                          className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100"
+                          aria-label="Editar projeto"
+                        >
+                          <PencilIcon />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="relative h-14" style={{ width: `${timelineWidth}px` }}>
                     {Array.from({ length: timelineDays }).map((_, index) => (
@@ -137,8 +167,20 @@ export default function GanttChart({ projects, tasksByProject }) {
                   tasks.map((task) => (
                     <div key={task.id} className="flex bg-white">
                       <div className="w-[340px] shrink-0 border-r border-slate-200 px-4 py-2">
-                        <p className="text-sm font-medium text-slate-700">{task.title}</p>
-                        <p className="text-xs text-slate-500">{task.start_date || '—'} → {task.end_date || '—'}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">{task.title}</p>
+                            <p className="text-xs text-slate-500">{task.start_date || '—'} → {task.end_date || '—'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onEditTask(task)}
+                            className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100"
+                            aria-label="Editar tarefa"
+                          >
+                            <PencilIcon />
+                          </button>
+                        </div>
                       </div>
                       <div className="relative h-11" style={{ width: `${timelineWidth}px` }}>
                         {Array.from({ length: timelineDays }).map((_, index) => (
