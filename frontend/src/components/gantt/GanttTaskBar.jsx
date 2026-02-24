@@ -17,6 +17,13 @@ const STATUS_STYLES = {
   }
 }
 
+const STATUS_LABELS = {
+  planned: 'Planejada',
+  doing: 'Fazendo',
+  blocked: 'Bloqueada',
+  done: 'Concluida'
+}
+
 const DAY_WIDTH = 42
 
 function clampProgress(value) {
@@ -47,6 +54,7 @@ export default function GanttTaskBar({ task, timelineStart }) {
   const width = Math.max(DAY_WIDTH, days * DAY_WIDTH)
   const progress = clampProgress(task.progress)
   const styles = STATUS_STYLES[task.status] || STATUS_STYLES.planned
+  const statusLabel = STATUS_LABELS[task.status] || STATUS_LABELS.planned
 
   return (
     <div
@@ -63,7 +71,7 @@ export default function GanttTaskBar({ task, timelineStart }) {
       </div>
 
       <div className="pointer-events-none absolute left-1/2 top-[-58px] z-30 hidden -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] text-white shadow-lg group-hover:block">
-        {task.title} • {task.start_date} → {task.end_date} • {task.status || 'planned'} • {progress}%
+        {task.title} • {task.start_date} → {task.end_date} • {statusLabel} • {progress}%
       </div>
     </div>
   )

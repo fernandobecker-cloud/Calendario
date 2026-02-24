@@ -1,6 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import GanttChart from './GanttChart'
 
+const PROJECT_STATUS_OPTIONS = [
+  { value: 'planned', label: 'Planejado' },
+  { value: 'active', label: 'Em andamento' },
+  { value: 'done', label: 'Concluido' },
+  { value: 'cancelled', label: 'Cancelado' }
+]
+
+const TASK_STATUS_OPTIONS = [
+  { value: 'planned', label: 'Planejada' },
+  { value: 'doing', label: 'Fazendo' },
+  { value: 'blocked', label: 'Bloqueada' },
+  { value: 'done', label: 'Concluida' }
+]
+
+const TASK_PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Baixa' },
+  { value: 'medium', label: 'Media' },
+  { value: 'high', label: 'Alta' }
+]
+
 async function fetchJson(url, options = undefined) {
   const response = await fetch(url, options)
   let payload = null
@@ -26,6 +46,8 @@ export default function GanttPage() {
   const [error, setError] = useState('')
   const [createError, setCreateError] = useState('')
   const [createLoading, setCreateLoading] = useState(false)
+  const [createTaskError, setCreateTaskError] = useState('')
+  const [createTaskLoading, setCreateTaskLoading] = useState(false)
   const [createForm, setCreateForm] = useState({
     name: '',
     owner: '',
@@ -33,6 +55,16 @@ export default function GanttPage() {
     start_date: '',
     end_date: '',
     status: 'planned'
+  })
+  const [taskForm, setTaskForm] = useState({
+    project_id: '',
+    title: '',
+    description: '',
+    start_date: '',
+    end_date: '',
+    status: 'planned',
+    priority: 'medium',
+    progress: 0
   })
 
   const loadData = useCallback(async () => {
@@ -76,6 +108,14 @@ export default function GanttPage() {
     }
   }, [loadData])
 
+  useEffect(() => {
+    if (!projects.length) return
+    setTaskForm((prev) => {
+      if (prev.project_id) return prev
+      return { ...prev, project_id: String(projects[0].id) }
+    })
+  }, [projects])
+
   const handleCreateProject = useCallback(
     async (event) => {
       event.preventDefault()
@@ -118,6 +158,58 @@ export default function GanttPage() {
       }
     },
     [createForm, loadData]
+  )
+
+  const handleCreateTask = useCallback(
+    async (event) => {
+      event.preventDefault()
+      setCreateTaskError('')
+
+      const projectId = Number(taskForm.project_id)
+      if (!projectId) {
+        setCreateTaskError('Selecione um projeto.')
+        return
+      }
+      if (!taskForm.title.trim()) {
+        setCreateTaskError('Titulo da tarefa e obrigatorio.')
+        return
+      }
+
+      setCreateTaskLoading(true)
+      try {
+        await fetchJson(`/api/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: taskForm.title.trim(),
+            description: taskForm.description.trim() || null,
+            start_date: taskForm.start_date || null,
+            end_date: taskForm.end_date || null,
+            status: taskForm.status,
+            priority: taskForm.priority,
+            progress: Number(taskForm.progress) || 0
+          })
+        })
+
+        setTaskForm((prev) => ({
+          ...prev,
+          title: '',
+          description: '',
+          start_date: '',
+          end_date: '',
+          status: 'planned',
+          priority: 'medium',
+          progress: 0
+        }))
+
+        await loadData()
+      } catch (err) {
+        setCreateTaskError(err instanceof Error ? err.message : 'Erro ao criar tarefa.')
+      } finally {
+        setCreateTaskLoading(false)
+      }
+    },
+    [taskForm, loadData]
   )
 
   const totalTasks = useMemo(
@@ -173,10 +265,11 @@ export default function GanttPage() {
               onChange={(event) => setCreateForm((prev) => ({ ...prev, status: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             >
-              <option value="planned">planned</option>
-              <option value="active">active</option>
-              <option value="done">done</option>
-              <option value="cancelled">cancelled</option>
+              {PROJECT_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="text-sm text-slate-700 md:col-span-3">
@@ -216,6 +309,122 @@ export default function GanttPage() {
           </div>
         </form>
         {createError && <p className="mt-3 text-sm text-rose-700">{createError}</p>}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">Nova Tarefa</h2>
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={handleCreateTask}>
+          <label className="text-sm text-slate-700">
+            Projeto
+            <select
+              value={taskForm.project_id}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, project_id: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            >
+              {projects.length === 0 ? (
+                <option value="">Sem projetos</option>
+              ) : (
+                projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <label className="text-sm text-slate-700 md:col-span-2">
+            Titulo
+            <input
+              required
+              value={taskForm.title}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            />
+          </label>
+          <label className="text-sm text-slate-700">
+            Progresso (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={taskForm.progress}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, progress: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            />
+          </label>
+          <label className="text-sm text-slate-700 md:col-span-4">
+            Descricao
+            <input
+              value={taskForm.description}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            />
+          </label>
+          <label className="text-sm text-slate-700">
+            Inicio
+            <input
+              type="date"
+              value={taskForm.start_date}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, start_date: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            />
+          </label>
+          <label className="text-sm text-slate-700">
+            Fim
+            <input
+              type="date"
+              value={taskForm.end_date}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, end_date: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            />
+          </label>
+          <label className="text-sm text-slate-700">
+            Status
+            <select
+              value={taskForm.status}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, status: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            >
+              {TASK_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-700">
+            Prioridade
+            <select
+              value={taskForm.priority}
+              onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              disabled={projects.length === 0}
+            >
+              {TASK_PRIORITY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={createTaskLoading || projects.length === 0}
+              className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {createTaskLoading ? 'Salvando...' : 'Cadastrar tarefa'}
+            </button>
+          </div>
+        </form>
+        {createTaskError && <p className="mt-3 text-sm text-rose-700">{createTaskError}</p>}
       </section>
 
       {loading ? (
