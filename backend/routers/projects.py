@@ -89,18 +89,32 @@ def _serialize_task(task: dict) -> dict:
     else:
         deadline_state = "normal"
 
+    progress = task.get("progress", 0)
+    try:
+        progress_int = max(0, min(100, int(progress)))
+    except Exception:
+        progress_int = 0
+
+    created_at_raw = task.get("created_at")
+    try:
+        created_at = datetime.fromisoformat(str(created_at_raw).replace("Z", "+00:00")).isoformat().replace("+00:00", "Z")
+    except Exception:
+        created_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    title = (task.get("title") or "").strip() or "Tarefa sem titulo"
+
     return {
         "id": task["id"],
         "project_id": task["project_id"],
         "depends_on_task_id": task.get("depends_on_task_id"),
-        "title": task["title"],
+        "title": title,
         "description": task.get("description"),
         "start_date": start_date.isoformat() if start_date else None,
         "end_date": end_date.isoformat() if end_date else None,
-        "progress": task.get("progress", 0),
+        "progress": progress_int,
         "status": status,
         "priority": priority,
-        "created_at": task.get("created_at") or datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "created_at": created_at,
         "is_overdue": is_overdue,
         "deadline_state": deadline_state,
     }

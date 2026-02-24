@@ -59,15 +59,24 @@ export default function GanttPage() {
       const projectsPayload = await fetchJson('/api/projects')
       const loadedProjects = Array.isArray(projectsPayload) ? projectsPayload : []
 
+      const taskWarnings = []
       const tasksList = await Promise.all(
         loadedProjects.map(async (project) => {
-          const tasks = await fetchJson(`/api/projects/${project.id}/tasks`)
-          return [project.id, Array.isArray(tasks) ? tasks : []]
+          try {
+            const tasks = await fetchJson(`/api/projects/${project.id}/tasks`)
+            return [project.id, Array.isArray(tasks) ? tasks : []]
+          } catch (_err) {
+            taskWarnings.push(project.id)
+            return [project.id, []]
+          }
         })
       )
 
       setProjects(loadedProjects)
       setTasksByProject(Object.fromEntries(tasksList))
+      if (taskWarnings.length > 0) {
+        setError(`Falha ao carregar tarefas de ${taskWarnings.length} projeto(s).`)
+      }
     } catch (err) {
       setProjects([])
       setTasksByProject({})
