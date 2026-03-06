@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -17,6 +18,7 @@ EMARSYS_DISCOVERY_ENDPOINTS = [
     "https://api.emarsys.net/api/v3/programs",
     "https://api.emarsys.net/api/v3/segments",
 ]
+logger = logging.getLogger(__name__)
 
 
 def _extract_error_detail(response: requests.Response) -> str:
@@ -42,23 +44,24 @@ def get_access_token() -> str:
     if not EMARSYS_TOKEN_URL:
         raise RuntimeError("Variavel EMARSYS_TOKEN_URL nao configurada")
 
-    payload = {
-        "grant_type": "client_credentials",
-        "client_id": EMARSYS_CLIENT_ID,
-        "client_secret": EMARSYS_CLIENT_SECRET,
-    }
+    payload = {"grant_type": "client_credentials"}
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     try:
         response = requests.post(
             EMARSYS_TOKEN_URL,
             data=payload,
+            headers=headers,
+            auth=(EMARSYS_CLIENT_ID, EMARSYS_CLIENT_SECRET),
             timeout=EMARSYS_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
+        logger.exception("Falha de rede ao solicitar token Emarsys")
         raise RuntimeError(f"Falha de rede ao solicitar token Emarsys: {exc}") from exc
 
     if response.status_code >= 400:
         detail = _extract_error_detail(response)
+        logger.error("Erro Emarsys ao gerar token (HTTP %s): %s", response.status_code, detail)
         raise RuntimeError(
             f"Erro Emarsys ao gerar token (HTTP {response.status_code}): {detail}"
         )
@@ -66,10 +69,12 @@ def get_access_token() -> str:
     try:
         body = response.json()
     except ValueError as exc:
+        logger.error("Resposta invalida da Emarsys ao gerar token: corpo nao e JSON")
         raise RuntimeError("Resposta invalida da Emarsys: corpo nao e JSON") from exc
 
     access_token = str(body.get("access_token", "")).strip()
     if not access_token:
+        logger.error("Resposta da Emarsys nao contem access_token")
         raise RuntimeError("Resposta da Emarsys nao contem access_token")
 
     return access_token
