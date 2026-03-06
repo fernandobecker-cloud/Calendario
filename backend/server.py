@@ -19,12 +19,13 @@ import pandas as pd
 from dateutil import parser
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.emarsys_client import get_access_token
+from backend.emarsys_client import get_access_token, get_campaigns
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_crm_ltv,
@@ -682,6 +683,20 @@ def emarsys_test() -> dict[str, str]:
         "status": "connected",
         "token_preview": token[:10],
     }
+
+
+@app.get("/api/emarsys/campaigns")
+def emarsys_campaigns() -> Any:
+    try:
+        return get_campaigns()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": "error",
+                "message": str(exc),
+            },
+        )
 
 
 @app.get("/api/ga4/crm/monthly")
