@@ -24,7 +24,6 @@ from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.database import init_db
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_crm_ltv,
@@ -32,7 +31,6 @@ from backend.ga4_client import (
     get_sessions_yesterday,
 )
 from backend.ga4_funnel import get_crm_funnel
-from backend.routers.projects import router as projects_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -89,11 +87,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -752,9 +745,6 @@ def ga4_crm_funnel(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-app.include_router(projects_router)
 
 
 

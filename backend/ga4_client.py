@@ -94,6 +94,19 @@ def _month_date_range(target_year: int, target_month: int) -> tuple[str, str]:
     return start_date, end_date
 
 
+def _normalize_period_to_today(start_date: str, end_date: str) -> tuple[str, str] | None:
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    today = date.today()
+    if start > today:
+        return None
+    if end > today:
+        end = today
+    if start > end:
+        return None
+    return start.isoformat(), end.isoformat()
+
+
 def _build_crm_filter() -> FilterExpression:
     return FilterExpression(
         filter=Filter(
@@ -199,12 +212,35 @@ def get_crm_monthly_report(property_id: str, year: int, month: int) -> dict[str,
 
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
+    today = date.today()
 
     current_start, current_end = _month_date_range(year, month)
     previous_start, previous_end = _month_date_range(year - 1, month)
 
-    current_year = _run_crm_report(client, property_resource, current_start, current_end)
-    last_year = _run_crm_report(client, property_resource, previous_start, previous_end)
+    normalized_current = _normalize_period_to_today(current_start, current_end)
+    if normalized_current is None:
+        current_year = {
+            "sessions": 0,
+            "totalUsers": 0,
+            "transactions": 0,
+            "purchaseRevenue": 0.0,
+        }
+        last_year = {
+            "sessions": 0,
+            "totalUsers": 0,
+            "transactions": 0,
+            "purchaseRevenue": 0.0,
+        }
+    else:
+        current_start, current_end = normalized_current
+
+        # Para mes corrente, compara o mesmo recorte de dias do ano anterior.
+        if year == today.year and month == today.month:
+            previous_last_day = calendar.monthrange(year - 1, month)[1]
+            previous_end = date(year - 1, month, min(today.day, previous_last_day)).isoformat()
+
+        current_year = _run_crm_report(client, property_resource, current_start, current_end)
+        last_year = _run_crm_report(client, property_resource, previous_start, previous_end)
 
     variation = {
         "sessions": _percentage_variation(current_year["sessions"], last_year["sessions"]),
@@ -238,6 +274,15 @@ def get_crm_assisted_conversions(property_id: str, start_date: str, end_date: st
     """
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
+        return {
+            "crm_sessions": 0,
+            "crm_users": 0,
+            "assisted_purchases": 0,
+            "assisted_revenue": 0.0,
+        }
+    start, end = normalized_period
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
 
@@ -309,17 +354,16 @@ def get_crm_ltv(property_id: str, start_date: str, end_date: str) -> dict[str, i
     """
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
-    today_date = date.today()
-    start_date_obj = date.fromisoformat(start)
-    today = today_date.isoformat()
-
-    # Periodo totalmente no futuro: retorna sem dados em vez de erro da API.
-    if start_date_obj > today_date:
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
         return {
             "crm_new_users": 0,
             "total_revenue_from_crm_users": 0.0,
             "crm_ltv": 0.0,
         }
+    start, end = normalized_period
+    today_date = date.today()
+    today = today_date.isoformat()
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
 

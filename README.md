@@ -1,193 +1,262 @@
-# CRM Campaign Planner
+# 📅 CRM Campaign Planner
 
-Sistema interno para calendário de campanhas de CRM com frontend React e backend FastAPI.
+Um sistema web interno completo para gerenciar um calendário editorial de campanhas de CRM. Aplicação desenvolvida com FastAPI (backend) e HTML + CSS + JavaScript puro (frontend), utilizando a biblioteca FullCalendar para visualização interativa.
 
-## Stack
-- Backend: FastAPI
-- Frontend: React + Vite + TailwindCSS + FullCalendar
-- Fonte de dados: Google Sheets CSV público
-- Deploy: Render (Web Service)
+## 🎯 Características
 
-## Estrutura
-```text
-crm-calendario/
-├── server.py
-├── start.sh
-├── render.yaml
-├── backend/
-│   └── server.py
-├── frontend/
-│   ├── index.html
-│   ├── package.json
-│   ├── postcss.config.js
-│   ├── tailwind.config.js
-│   ├── vite.config.js
-│   ├── src/
-│   │   ├── App.jsx
-│   │   ├── index.css
-│   │   └── main.jsx
-│   └── dist/                 # gerado pelo npm run build
-├── requirements.txt
-└── README.md
-```
+✅ **Calendário Visual Interativo** - Visualize todas as campanhas em um calendário mensal bonito e intuitivo  
+✅ **Sincronização Automática** - Dados carregados diretamente do Google Sheets CSV público  
+✅ **Design Apple-like** - Interface limpa, moderna e responsiva  
+✅ **Color-coded Channels** - Cores diferentes para cada canal (Email, WhatsApp, SMS)  
+✅ **Detecção de Saturação** - Alerta visual quando há mais de 3 campanhas no mesmo dia  
+✅ **Informações Completas** - Ao clicar em uma campanha, veja todos os detalhes (data, canal, produto, observações)  
+✅ **Sem Banco de Dados** - Dados armazenados apenas em memória, atualizados a cada carregamento  
 
-## Como rodar localmente (backend + frontend buildado)
-1. Criar e ativar ambiente virtual:
+## 📋 Requisitos
+
+- **Python 3.8+**
+- **pip** (gerenciador de pacotes Python)
+- **Navegador moderno** (Chrome, Firefox, Safari, Edge)
+
+## 🚀 Como Executar
+
+### 1. Clonar ou Descarregar o Projeto
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+cd /Users/fernando.becker/Desktop/crm-calendario
 ```
 
-2. Instalar dependências Python:
+### 2. Criar um Ambiente Virtual (Recomendado)
+
+```bash
+# Criar ambiente virtual
+python3 -m venv venv
+
+# Ativar ambiente virtual
+# No macOS/Linux:
+source venv/bin/activate
+
+# No Windows:
+# venv\Scripts\activate
+```
+
+### 3. Instalar Dependências
+
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Instalar dependências frontend:
+### 4. Executar o Servidor
+
 ```bash
-cd frontend
-npm ci
+python3 server.py
 ```
 
-4. Gerar build React:
-```bash
-npm run build
-cd ..
+Você verá uma mensagem como:
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
 
-5. Subir API + frontend pelo FastAPI:
-```bash
-uvicorn server:app --reload
+### 5. Abrir no Navegador
+
+Acesse a aplicação em seu navegador:
+```
+http://localhost:8000
 ```
 
-6. Acessar:
-- App: `http://127.0.0.1:8000/`
-- API: `http://127.0.0.1:8000/api/events`
-- Health: `http://127.0.0.1:8000/health`
+## 📊 Dados do Google Sheets
 
-## Desenvolvimento do frontend (hot reload)
-Em outro terminal:
-```bash
-cd frontend
-npm run dev
+A aplicação busca dados automaticamente deste CSV público:
+```
+https://docs.google.com/spreadsheets/d/e/2PACX-1vQaQTSv32MuaQTlGRjr9m6s5pmyK9A9iZlRTNTePX8x0G5to5j6iLSkGx89fbiQLQ/pub?output=csv
 ```
 
-Durante o desenvolvimento você pode usar o Vite em `http://127.0.0.1:5173`.
+### Formato Esperado do CSV
 
-## Deploy na Render (automático após git push)
-Este repositório usa `render.yaml` com:
-- Build command: `pip install -r requirements.txt && cd frontend && npm ci && npm run build`
-- Start command: `bash start.sh`
-- Health check: `/health`
+O CSV deve conter as seguintes colunas:
 
-Passos:
-1. Suba o repositório no GitHub.
-2. Na Render: `New +` -> `Blueprint`.
-3. Selecione o repositório.
-4. Deploy automático será executado a cada `git push`.
+| DATA | CAMPANHA | CANAL | PRODUTO | OBSERVACAO |
+|------|----------|-------|---------|-----------|
+| 14/02/2026 | Valentine Sale | Email | Roupas | Black Friday especial |
+| 14/02/2026 | Love Promo | WhatsApp | Cosméticos | Acompanhar entrega |
+| 15/02/2026 | Feedback Survey | SMS | Serviços | Resposta até 5 dias |
 
-## Autenticacao multiusuario (admin e usuario)
-O sistema agora suporta multiplos usuarios com perfil:
-- `admin`: pode cadastrar e descadastrar usuarios
-- `user`: acesso normal ao app
+**Formatos de data suportados:**
+- `DD/MM/YYYY` (14/02/2026)
+- `YYYY-MM-DD` (2026-02-14)
+- `DD-MM-YYYY` (14-02-2026)
 
-Tambem existe modo de login unico compartilhado (sem gestao de usuarios):
-- `AUTH_MODE=single`
-- usa somente `AUTH_USERNAME` e `AUTH_PASSWORD`
-- oculta a tela `Usuarios e Perfis`
+## 🎨 Codificação por Canal
 
-O login continua via `Basic Auth` no navegador e vale para frontend + API.
-A rota `/health` segue publica para o health check da Render.
+| Canal | Cor | Código |
+|-------|-----|--------|
+| 📧 Email | Azul | #0071E3 |
+| 💚 WhatsApp | Verde | #25D366 |
+| 📱 SMS | Laranja | #FF9F0A |
 
-### Usuario inicial (bootstrap)
-Para criar o primeiro administrador automaticamente no deploy/start:
-- `AUTH_USERNAME`: usuario inicial
-- `AUTH_PASSWORD`: senha inicial
-- `AUTH_MODE`:
-  - `multi` (padrao): multiusuarios com cadastro/descadastro
-  - `single`: login unico compartilhado
+## 🏗️ Arquitetura do Projeto
 
-Depois do primeiro acesso, o proprio admin pode criar/remover usuarios na tela
-`Usuarios e Perfis` (menu lateral, abaixo de `Checklist de Campanha`).
-
-Exemplo local:
-```bash
-export AUTH_USERNAME=admin
-export AUTH_PASSWORD=sua_senha_forte
-uvicorn server:app --reload
+```
+crm-calendario/
+├── server.py          # Backend FastAPI - API e roteamento
+├── index.html         # Frontend HTML - Estrutura da página
+├── script.js          # Lógica do calendário e interações
+├── style.css          # Estilos (design Apple-like)
+├── requirements.txt   # Dependências Python
+└── README.md          # Esta documentação
 ```
 
-Na Render:
-1. Abra o servico `crm-campaign-planner`.
-2. Va em `Environment`.
-3. Adicione `AUTH_USERNAME` e `AUTH_PASSWORD`.
-4. Faca `Manual Deploy` (ou novo `git push`).
+### server.py
+- **Função**: Servidor FastAPI que fornece a API
+- **Endpoint `/api/events`**: Retorna lista de eventos em JSON
+- **Função**: Busca, valida e converte CSV do Google Sheets
 
-## API
-### `GET /api/events`
-Contrato preservado:
+### index.html
+- **Função**: Estrutura HTML da aplicação
+- **Componentes**: 
+  - Header com branding
+  - Alerta de saturação
+  - Calendário (container para FullCalendar)
+  - Modal de detalhes de evento
+
+### script.js
+- **Função**: Lógica interativa do frontend
+- **Responsabilidades**:
+  - Buscar eventos da API
+  - Inicializar FullCalendar
+  - Detectar saturação (3+ eventos/dia)
+  - Manipular modal de detalhes
+  - Tratamento de erros
+
+### style.css
+- **Função**: Estilos completos da aplicação
+- **Design**: Apple-inspired com variáveis CSS
+- **Responsivo**: Funciona em desktop, tablet e mobile
+
+## 🔧 Endpoints da API
+
+### GET /api/events
+Retorna todos os eventos/campanhas
+
+**Resposta de exemplo:**
 ```json
 {
   "events": [
     {
-      "id": "2026-02-14_Valentine Sale",
+      "id": "14/02/2026_Valentine Sale",
+      "date": "2026-02-14",
       "title": "Valentine Sale",
-      "start": "2026-02-14",
-      "allDay": true,
-      "backgroundColor": "#0071E3",
-      "borderColor": "#0071E3",
-      "extendedProps": {
-        "canal": "Email",
-        "produto": "Roupas",
-        "observacao": "Texto opcional",
-        "data_original": "14/02/2026"
-      }
+      "channel": "email",
+      "product": "Roupas",
+      "observation": "Black Friday especial",
+      "raw_date": "14/02/2026"
     }
-  ],
-  "total": 1
+  ]
 }
 ```
 
-### `GET /api/me`
-Retorna usuario autenticado atual:
-```json
-{
-  "username": "admin",
-  "role": "admin"
-}
+## 💻 Dependências
+
+- **fastapi**: Framework web moderno para Python
+- **uvicorn**: Servidor ASGI para FastAPI
+- **requests**: Biblioteca para requisições HTTP
+- **FullCalendar**: Biblioteca JavaScript para calendário
+
+## 🎓 Uso
+
+### Navegando no Calendário
+- ⬅️ **Anterior/Próximo**: Navegue entre meses
+- 📅 **Hoje**: Volta para o mês atual
+- 📊 **Mês/Semana**: Alterne entre visualizações
+
+### Interagindo com Eventos
+- **Clique em um evento** para ver todos os detalhes
+- **Passe o mouse** sobre um evento para ver preview
+- **Atualize** clicando no botão "🔄 Atualizar"
+
+### Entendendo os Alertas
+- **⚠️ Risco de saturação**: Aparece quando há mais de 3 campanhas no mesmo dia
+  - Isso indica que pode haver excesso de comunicação naquele dia
+  - Considere redistribuir algumas campanhas
+
+## 🐛 Troubleshooting
+
+### "Erro ao buscar dados do Google Sheets"
+- Verifique sua conexão com a internet
+- Confirme que o link do Google Sheets está acessível
+- Tente atualizar a página (🔄)
+
+### Nenhum evento aparece
+- Verifique se o CSV tem dados
+- Confirme que as datas estão em um dos formatos suportados
+- Abra o DevTools (F12) e verifique o Console para erros
+
+### Servidor não inicia
+```bash
+# Certifique-se de estar no ambiente virtual ativado
+source venv/bin/activate  # macOS/Linux
+
+# Reinstale as dependências
+pip install -r requirements.txt
+
+# Execute novamente
+python3 server.py
 ```
 
-### `GET /api/users` (admin)
-Lista usuarios cadastrados.
-
-### `POST /api/users` (admin)
-Cadastra usuario:
-```json
-{
-  "username": "novo.usuario",
-  "password": "senha123",
-  "role": "user"
-}
+### Porta 8000 já está em uso
+Você pode usar outra porta:
+```bash
+python3 server.py --port 8001
 ```
 
-### `DELETE /api/users/{username}` (admin)
-Descadastra usuario.
+## 📱 Responsividade
 
-### `PATCH /api/users/{username}/role` (admin)
-Altera perfil de um usuario (`admin` ou `user`).
+A aplicação foi otimizada para:
+- 🖥️ **Desktop** (1024px+)
+- 💻 **Tablet** (768px - 1023px)
+- 📱 **Mobile** (320px - 767px)
 
-### `PATCH /api/me/password`
-Permite ao usuario autenticado trocar a propria senha.
-Body:
-```json
-{
-  "current_password": "senha_antiga",
-  "new_password": "nova_senha"
-}
-```
+## 🔐 Notas de Segurança
 
-## Observações
-- O backend serve o build React em `/`.
-- Arquivos gerados pelo Vite são servidos de `frontend/dist`.
-- A rota `/api/events` não foi alterada.
-- Defina `CORS_ALLOWED_ORIGINS` na Render com o domínio do app (ex.: `https://calendario-39gp.onrender.com`).
+- A aplicação é destinada para uso **interno apenas**
+- Não requer autenticação por padrão
+- Para ambiente de produção, considere adicionar:
+  - Autenticação
+  - Validação CORS restrita
+  - HTTPS
+  - Rate limiting
+
+## 📝 Comentários no Código
+
+Todo o código foi documentado com:
+- Docstrings em funções
+- Comentários explicativos
+- Nomes de variáveis descritivos
+- Organização lógica do código
+
+## 🚀 Melhorias Futuras
+
+- [ ] Adicionar filtros por canal
+- [ ] Busca de campanhas
+- [ ] Exportar calendário (iCal)
+- [ ] Notificações de campanhas
+- [ ] Dashboard de estatísticas
+- [ ] Suporte a múltiplas planilhas
+
+## 📞 Suporte
+
+Para dúvidas ou problemas:
+1. Verifique o console do navegador (F12 → Console)
+2. Verifique os logs do servidor (terminal)
+3. Confirme que todos os arquivos estão presentes
+4. Tente limpar o cache (Ctrl+Shift+Del)
+
+## 📄 Licença
+
+Projeto desenvolvido para uso interno.
+
+---
+
+**Versão**: 1.0  
+**Data de Criação**: Fevereiro de 2026  
+**Autor**: Engenheiro de Software Senior
