@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
+from backend.emarsys_client import get_access_token
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_crm_ltv,
@@ -666,6 +667,21 @@ def ga4_test(property_id: str | None = Query(default=None)) -> dict[str, int]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/emarsys/test")
+def emarsys_test() -> dict[str, str]:
+    try:
+        token = get_access_token()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao autenticar na Emarsys") from exc
+
+    return {
+        "status": "connected",
+        "token_preview": token[:10],
+    }
 
 
 @app.get("/api/ga4/crm/monthly")
