@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.emarsys_client import get_access_token, get_campaigns
+from backend.emarsys_client import discover_emarsys, get_access_token, get_campaigns
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_crm_ltv,
@@ -689,6 +689,20 @@ def emarsys_test() -> dict[str, str]:
 def emarsys_campaigns() -> Any:
     try:
         return get_campaigns()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": "error",
+                "message": str(exc),
+            },
+        )
+
+
+@app.get("/api/emarsys/discover")
+def emarsys_discover() -> Any:
+    try:
+        return discover_emarsys()
     except Exception as exc:
         return JSONResponse(
             status_code=502,
