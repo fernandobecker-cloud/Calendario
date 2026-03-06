@@ -20,6 +20,11 @@ EMARSYS_DISCOVERY_ENDPOINTS = [
     "https://api.emarsys.net/api/v3/accounts",
     "https://api.emarsys.net/api/v3/fields",
     "https://api.emarsys.net/api/v3/programs",
+    "https://api.emarsys.net/api/v3/email/messages",
+    "https://api.emarsys.net/api/v3/email/campaigns",
+    "https://api.emarsys.net/api/v3/analytics/campaigns",
+    "https://api.emarsys.net/api/v3/interactions/events",
+    "https://api.emarsys.net/api/v3/contacts/search",
 ]
 logger = logging.getLogger(__name__)
 
@@ -162,7 +167,7 @@ def discover_emarsys() -> dict[str, Any]:
         results.append(
             {
                 "endpoint": endpoint,
-                "status": status_code,
+                "status_code": status_code,
                 "response_excerpt": _excerpt(response.text),
             }
         )
