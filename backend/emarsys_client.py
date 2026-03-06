@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from backend.services.emarsys_auth import generate_wsse_header
+
 EMARSYS_CLIENT_ID = os.getenv("CLIENT_ID", "").strip() or os.getenv("EMARSYS_CLIENT_ID", "").strip()
 EMARSYS_CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip() or os.getenv("EMARSYS_CLIENT_SECRET", "").strip()
 EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSYS_TOKEN_URL", "").strip()
@@ -99,10 +101,10 @@ def get_access_token() -> str:
 
 
 def get_campaigns() -> Any:
-    """Busca campanhas na API da Emarsys usando Bearer token."""
-    token = get_access_token()
+    """Busca campanhas na API v2 da Emarsys usando WSSE."""
+    wsse_header = generate_wsse_header()
     headers = {
-        "Authorization": f"Bearer {token}",
+        "X-WSSE": wsse_header,
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
