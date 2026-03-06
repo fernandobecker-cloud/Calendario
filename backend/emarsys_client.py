@@ -14,11 +14,12 @@ EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSY
 EMARSYS_CAMPAIGNS_URL = os.getenv("EMARSYS_CAMPAIGNS_URL", "").strip()
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_DISCOVERY_ENDPOINTS = [
-    "https://api.emarsys.net/api/v2/email",
-    "https://api.emarsys.net/api/v2/contact",
-    "https://api.emarsys.net/api/v2/segment",
-    "https://api.emarsys.net/api/v2/campaign",
-    "https://api.emarsys.net/api/v2/program",
+    "https://api.emarsys.net/api/v3/contacts",
+    "https://api.emarsys.net/api/v3/segments",
+    "https://api.emarsys.net/api/v3/events",
+    "https://api.emarsys.net/api/v3/accounts",
+    "https://api.emarsys.net/api/v3/fields",
+    "https://api.emarsys.net/api/v3/programs",
 ]
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ def _limit_records(data: Any) -> Any:
                 limited[key] = value[:20]
         return limited
     return data
+
+
+def _excerpt(text: str, limit: int = 200) -> str:
+    return (text or "").strip().replace("\n", " ").replace("\r", " ")[:limit]
 
 
 def get_access_token() -> str:
@@ -128,6 +133,9 @@ def discover_emarsys() -> dict[str, Any]:
         "Accept": "application/json",
     }
 
+    available: list[str] = []
+    forbidden: list[str] = []
+    not_found: list[str] = []
     results: list[dict[str, Any]] = []
     for url in EMARSYS_DISCOVERY_ENDPOINTS:
         endpoint = url.replace("https://api.emarsys.net", "")
@@ -143,34 +151,25 @@ def discover_emarsys() -> dict[str, Any]:
             )
             continue
 
-        if response.status_code >= 400:
-            results.append(
-                {
-                    "endpoint": endpoint,
-                    "status": "error",
-                    "message": _extract_error_detail(response),
-                }
-            )
-            continue
-
-        try:
-            body = response.json()
-        except ValueError:
-            results.append(
-                {
-                    "endpoint": endpoint,
-                    "status": "error",
-                    "message": "Resposta invalida da Emarsys: corpo nao e JSON",
-                }
-            )
-            continue
+        status_code = response.status_code
+        if status_code == 200:
+            available.append(endpoint)
+        elif status_code == 403:
+            forbidden.append(endpoint)
+        elif status_code == 404:
+            not_found.append(endpoint)
 
         results.append(
             {
                 "endpoint": endpoint,
-                "status": response.status_code,
-                "response": _limit_records(body),
+                "status": status_code,
+                "response_excerpt": _excerpt(response.text),
             }
         )
 
-    return {"results": results}
+    return {
+        "available": available,
+        "forbidden": forbidden,
+        "not_found": not_found,
+        "results": results,
+    }
