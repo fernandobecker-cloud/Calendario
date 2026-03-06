@@ -14,9 +14,11 @@ EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSY
 EMARSYS_CAMPAIGNS_URL = os.getenv("EMARSYS_CAMPAIGNS_URL", "").strip()
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_DISCOVERY_ENDPOINTS = [
-    "https://api.emarsys.net/api/v3/accounts",
-    "https://api.emarsys.net/api/v3/programs",
-    "https://api.emarsys.net/api/v3/segments",
+    "https://api.emarsys.net/api/v2/email",
+    "https://api.emarsys.net/api/v2/contact",
+    "https://api.emarsys.net/api/v2/segment",
+    "https://api.emarsys.net/api/v2/campaign",
+    "https://api.emarsys.net/api/v2/program",
 ]
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,12 @@ def _extract_error_detail(response: requests.Response) -> str:
 def _limit_records(data: Any) -> Any:
     if isinstance(data, list):
         return data[:20]
+    if isinstance(data, dict):
+        limited = dict(data)
+        for key, value in data.items():
+            if isinstance(value, list):
+                limited[key] = value[:20]
+        return limited
     return data
 
 
@@ -161,7 +169,7 @@ def discover_emarsys() -> dict[str, Any]:
             {
                 "endpoint": endpoint,
                 "status": response.status_code,
-                "data": _limit_records(body),
+                "response": _limit_records(body),
             }
         )
 
