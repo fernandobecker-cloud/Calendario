@@ -11,7 +11,7 @@ import requests
 EMARSYS_CLIENT_ID = os.getenv("CLIENT_ID", "").strip() or os.getenv("EMARSYS_CLIENT_ID", "").strip()
 EMARSYS_CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip() or os.getenv("EMARSYS_CLIENT_SECRET", "").strip()
 EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSYS_TOKEN_URL", "").strip()
-EMARSYS_CAMPAIGNS_URL = os.getenv("EMARSYS_CAMPAIGNS_URL", "").strip()
+EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/api/v2/campaign"
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_DISCOVERY_ENDPOINTS = [
     "https://api.emarsys.net/api/v3/contacts",
@@ -100,18 +100,16 @@ def get_access_token() -> str:
 
 def get_campaigns() -> Any:
     """Busca campanhas na API da Emarsys usando Bearer token."""
-    if not EMARSYS_CAMPAIGNS_URL:
-        raise RuntimeError("Variavel EMARSYS_CAMPAIGNS_URL nao configurada")
-
     token = get_access_token()
     headers = {
         "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
         "Accept": "application/json",
     }
 
     try:
         response = requests.get(
-            EMARSYS_CAMPAIGNS_URL,
+            EMARSYS_CAMPAIGNS_ENDPOINT,
             headers=headers,
             timeout=EMARSYS_TIMEOUT_SECONDS,
         )

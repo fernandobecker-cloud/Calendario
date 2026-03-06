@@ -692,7 +692,8 @@ def emarsys_test() -> dict[str, str]:
 @app.get("/api/emarsys/campaigns")
 def emarsys_campaigns() -> Any:
     try:
-        return get_campaigns()
+        campaigns = get_campaigns()
+        return {"campaigns": campaigns}
     except Exception as exc:
         return JSONResponse(
             status_code=502,
