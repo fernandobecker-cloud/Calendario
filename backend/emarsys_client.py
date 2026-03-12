@@ -5,26 +5,28 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 EMARSYS_CLIENT_ID = os.getenv("CLIENT_ID", "").strip() or os.getenv("EMARSYS_CLIENT_ID", "").strip()
 EMARSYS_CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip() or os.getenv("EMARSYS_CLIENT_SECRET", "").strip()
 EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSYS_TOKEN_URL", "").strip()
+EMARSYS_ACCOUNT_ID = os.getenv("EMARSYS_ACCOUNT_ID", "").strip()
 EMARSYS_CAMPAIGNS_ENDPOINT = os.getenv("EMARSYS_CAMPAIGNS_URL", "").strip() or "https://api.emarsys.net/api/v3/campaigns"
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_DISCOVERY_ENDPOINTS = [
-    "https://api.emarsys.net/api/v3/contacts",
-    "https://api.emarsys.net/api/v3/segments",
-    "https://api.emarsys.net/api/v3/events",
-    "https://api.emarsys.net/api/v3/accounts",
-    "https://api.emarsys.net/api/v3/fields",
-    "https://api.emarsys.net/api/v3/programs",
-    "https://api.emarsys.net/api/v3/email/messages",
-    "https://api.emarsys.net/api/v3/email/campaigns",
-    "https://api.emarsys.net/api/v3/analytics/campaigns",
-    "https://api.emarsys.net/api/v3/interactions/events",
-    "https://api.emarsys.net/api/v3/contacts/search",
+    "/contacts",
+    "/segments",
+    "/events",
+    "/accounts",
+    "/fields",
+    "/programs",
+    "/email/messages",
+    "/email/campaigns",
+    "/analytics/campaigns",
+    "/interactions/events",
+    "/contacts/search",
 ]
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,44 @@ def _limit_records(data: Any) -> Any:
 
 def _excerpt(text: str, limit: int = 200) -> str:
     return (text or "").strip().replace("\n", " ").replace("\r", " ")[:limit]
+
+
+def _build_v3_url(path: str) -> str:
+    account_id = EMARSYS_ACCOUNT_ID.strip()
+    if not account_id:
+        raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
+    safe_path = path if path.startswith("/") else f"/{path}"
+    return f"https://api.emarsys.net/api/v3/{account_id}{safe_path}"
+
+
+def _normalize_campaigns_url() -> str:
+    configured = EMARSYS_CAMPAIGNS_ENDPOINT.strip()
+    if not configured:
+        return _build_v3_url("/campaigns")
+
+    # Mantem endpoint custom quando nao e URL da Core API v3.
+    if "/api/v3/" not in configured:
+        return configured
+
+    parsed = urlparse(configured)
+    path = parsed.path
+    marker = "/api/v3/"
+    idx = path.find(marker)
+    if idx == -1:
+        return configured
+
+    tail = path[idx + len(marker):].strip("/")
+    if tail:
+        first = tail.split("/", 1)[0]
+        if first.isdigit():
+            return configured
+
+    # Injeta account_id automaticamente quando o endpoint vier sem tenant no path.
+    if not EMARSYS_ACCOUNT_ID.strip():
+        raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
+
+    rebuilt_path = f"{path[: idx + len(marker)]}{EMARSYS_ACCOUNT_ID.strip()}/{tail}" if tail else f"{path[: idx + len(marker)]}{EMARSYS_ACCOUNT_ID.strip()}"
+    return parsed._replace(path=rebuilt_path).geturl()
 
 
 def get_access_token() -> str:
@@ -101,6 +141,7 @@ def get_access_token() -> str:
 def get_campaigns() -> Any:
     """Busca campanhas na API da Emarsys usando OAuth2 Bearer token."""
     token = get_access_token()
+    endpoint_url = _normalize_campaigns_url()
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -109,7 +150,7 @@ def get_campaigns() -> Any:
 
     try:
         response = requests.get(
-            EMARSYS_CAMPAIGNS_ENDPOINT,
+            endpoint_url,
             headers=headers,
             timeout=EMARSYS_TIMEOUT_SECONDS,
         )
@@ -140,8 +181,19 @@ def discover_emarsys() -> dict[str, Any]:
     forbidden: list[str] = []
     not_found: list[str] = []
     results: list[dict[str, Any]] = []
-    for url in EMARSYS_DISCOVERY_ENDPOINTS:
-        endpoint = url.replace("https://api.emarsys.net", "")
+    for path in EMARSYS_DISCOVERY_ENDPOINTS:
+        endpoint = f"/api/v3/{EMARSYS_ACCOUNT_ID.strip()}{path}" if EMARSYS_ACCOUNT_ID.strip() else f"/api/v3{path}"
+        try:
+            url = _build_v3_url(path)
+        except RuntimeError as exc:
+            results.append(
+                {
+                    "endpoint": endpoint,
+                    "status": "error",
+                    "message": str(exc),
+                }
+            )
+            continue
         try:
             response = requests.get(url, headers=headers, timeout=EMARSYS_TIMEOUT_SECONDS)
         except requests.RequestException as exc:

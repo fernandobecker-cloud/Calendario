@@ -15,9 +15,10 @@ CLIENT_ID = os.getenv("CLIENT_ID", "").strip() or os.getenv("EMARSYS_CLIENT_ID",
 CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip() or os.getenv("EMARSYS_CLIENT_SECRET", "").strip()
 TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSYS_TOKEN_URL", "").strip() or "https://auth.emarsys.net/oauth2/token"
 JWKS_URL = os.getenv("JWKS_URL", "").strip() or "https://auth.emarsys.net/.well-known/jwks.json"
+ACCOUNT_ID = os.getenv("EMARSYS_ACCOUNT_ID", "").strip()
 
 CANDIDATE_BASE_URLS = [
-    "https://api.emarsys.net/api/v3",
+    "https://api.emarsys.net/api/v3/{account_id}",
     "https://api.emarsys.net/api/v2",
     "https://api.emarsys.net",
     "https://suite.emarsys.net/api/v2",
@@ -41,6 +42,9 @@ def _require_env() -> bool:
         ok = False
     if not TOKEN_URL:
         print("ERROR: TOKEN_ENDPOINT/EMARSYS_TOKEN_URL nao configurado.")
+        ok = False
+    if not ACCOUNT_ID:
+        print("ERROR: EMARSYS_ACCOUNT_ID nao configurado.")
         ok = False
     return ok
 
@@ -145,7 +149,8 @@ def scan_endpoints(token: str) -> list[dict[str, Any]]:
     headers = {"Authorization": f"Bearer {token}"}
     found: list[dict[str, Any]] = []
 
-    for base in CANDIDATE_BASE_URLS:
+    for base_template in CANDIDATE_BASE_URLS:
+        base = base_template.format(account_id=ACCOUNT_ID)
         for path in CAMPAIGN_PATHS:
             url = base + path
             try:
