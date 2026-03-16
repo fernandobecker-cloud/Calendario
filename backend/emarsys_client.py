@@ -424,6 +424,38 @@ def emarsys_route_check() -> dict[str, Any]:
     }
 
 
+def get_delivery_results(contact_id: int, start_date: str, end_date: str) -> dict[str, Any]:
+    token_info = get_access_token_info(force_refresh=True)
+    token = str(token_info["access_token"])
+    url = (
+        f"{_get_core_base_url().rstrip('/')}/api/email/reporting/v2/contacts/{contact_id}/deliveryResults"
+        f"?startDate={start_date}&endDate={end_date}"
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    try:
+        response = _request_with_retries("GET", url, headers=headers)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Falha de rede ao buscar delivery results: {exc}") from exc
+
+    response_body: Any
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = response.text
+
+    return {
+        "token_generated": True,
+        "token_scope": token_info.get("scope"),
+        "url": url,
+        "status_code": response.status_code,
+        "body": response_body,
+    }
+
+
 def get_campaigns() -> Any:
     """Busca campanhas na API da Emarsys usando OAuth2 Bearer token."""
     token = get_access_token()
