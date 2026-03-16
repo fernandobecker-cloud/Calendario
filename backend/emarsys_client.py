@@ -9,11 +9,8 @@ from urllib.parse import urlparse
 
 import requests
 
-EMARSYS_CLIENT_ID = os.getenv("CLIENT_ID", "").strip() or os.getenv("EMARSYS_CLIENT_ID", "").strip()
-EMARSYS_CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip() or os.getenv("EMARSYS_CLIENT_SECRET", "").strip()
-EMARSYS_TOKEN_URL = os.getenv("TOKEN_ENDPOINT", "").strip() or os.getenv("EMARSYS_TOKEN_URL", "").strip()
-EMARSYS_ACCOUNT_ID = os.getenv("EMARSYS_ACCOUNT_ID", "").strip()
-EMARSYS_CAMPAIGNS_ENDPOINT = os.getenv("EMARSYS_CAMPAIGNS_URL", "").strip() or "https://api.emarsys.net/api/v3/campaigns"
+DEFAULT_EMARSYS_TOKEN_URL = "https://auth.emarsys.net/oauth2/token"
+DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/api/v3/campaigns"
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_DISCOVERY_ENDPOINTS = [
     "/contacts",
@@ -29,6 +26,34 @@ EMARSYS_DISCOVERY_ENDPOINTS = [
     "/contacts/search",
 ]
 logger = logging.getLogger(__name__)
+
+
+def _read_env(name: str, *fallbacks: str, default: str = "") -> str:
+    for key in (name, *fallbacks):
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return default
+
+
+def _get_client_id() -> str:
+    return _read_env("CLIENT_ID", "EMARSYS_CLIENT_ID")
+
+
+def _get_client_secret() -> str:
+    return _read_env("CLIENT_SECRET", "EMARSYS_CLIENT_SECRET")
+
+
+def _get_token_url() -> str:
+    return _read_env("TOKEN_ENDPOINT", "EMARSYS_TOKEN_URL", default=DEFAULT_EMARSYS_TOKEN_URL)
+
+
+def _get_account_id() -> str:
+    return _read_env("EMARSYS_ACCOUNT_ID")
+
+
+def _get_campaigns_endpoint() -> str:
+    return _read_env("EMARSYS_CAMPAIGNS_URL", default=DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT)
 
 
 def _extract_error_detail(response: requests.Response) -> str:
@@ -56,7 +81,7 @@ def _excerpt(text: str, limit: int = 200) -> str:
 
 
 def _build_v3_url(path: str) -> str:
-    account_id = EMARSYS_ACCOUNT_ID.strip()
+    account_id = _get_account_id()
     if not account_id:
         raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
     safe_path = path if path.startswith("/") else f"/{path}"
@@ -64,7 +89,7 @@ def _build_v3_url(path: str) -> str:
 
 
 def _normalize_campaigns_url() -> str:
-    configured = EMARSYS_CAMPAIGNS_ENDPOINT.strip()
+    configured = _get_campaigns_endpoint()
     if not configured:
         return _build_v3_url("/campaigns")
 
@@ -86,36 +111,89 @@ def _normalize_campaigns_url() -> str:
             return configured
 
     # Injeta account_id automaticamente quando o endpoint vier sem tenant no path.
-    if not EMARSYS_ACCOUNT_ID.strip():
+    account_id = _get_account_id()
+    if not account_id:
         raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
 
-    rebuilt_path = f"{path[: idx + len(marker)]}{EMARSYS_ACCOUNT_ID.strip()}/{tail}" if tail else f"{path[: idx + len(marker)]}{EMARSYS_ACCOUNT_ID.strip()}"
+    rebuilt_path = f"{path[: idx + len(marker)]}{account_id}/{tail}" if tail else f"{path[: idx + len(marker)]}{account_id}"
     return parsed._replace(path=rebuilt_path).geturl()
+
+
+def _request_access_token(
+    token_url: str,
+    payload: dict[str, str],
+    headers: dict[str, str],
+    client_id: str,
+    client_secret: str,
+    *,
+    use_basic_auth: bool,
+) -> requests.Response:
+    request_kwargs: dict[str, Any] = {
+        "data": payload,
+        "headers": headers,
+        "timeout": EMARSYS_TIMEOUT_SECONDS,
+    }
+    if use_basic_auth:
+        request_kwargs["auth"] = (client_id, client_secret)
+    return requests.post(token_url, **request_kwargs)
+
+
+def _should_retry_with_client_secret_post(response: requests.Response) -> bool:
+    if response.status_code < 400:
+        return False
+    detail = _extract_error_detail(response).lower()
+    return "client_secret_post" in detail or "invalid_client" in detail
 
 
 def get_access_token() -> str:
     """Solicita access token OAuth2 (client_credentials) da Emarsys."""
-    if not EMARSYS_CLIENT_ID:
+    client_id = _get_client_id()
+    client_secret = _get_client_secret()
+    token_url = _get_token_url()
+
+    if not client_id:
         raise RuntimeError("Variavel EMARSYS_CLIENT_ID nao configurada")
-    if not EMARSYS_CLIENT_SECRET:
+    if not client_secret:
         raise RuntimeError("Variavel EMARSYS_CLIENT_SECRET nao configurada")
-    if not EMARSYS_TOKEN_URL:
+    if not token_url:
         raise RuntimeError("Variavel EMARSYS_TOKEN_URL nao configurada")
 
     payload = {"grant_type": "client_credentials"}
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     try:
-        response = requests.post(
-            EMARSYS_TOKEN_URL,
-            data=payload,
-            headers=headers,
-            auth=(EMARSYS_CLIENT_ID, EMARSYS_CLIENT_SECRET),
-            timeout=EMARSYS_TIMEOUT_SECONDS,
+        response = _request_access_token(
+            token_url,
+            payload,
+            headers,
+            client_id,
+            client_secret,
+            use_basic_auth=True,
         )
     except requests.RequestException as exc:
         logger.exception("Falha de rede ao solicitar token Emarsys")
         raise RuntimeError(f"Falha de rede ao solicitar token Emarsys: {exc}") from exc
+
+    if _should_retry_with_client_secret_post(response):
+        fallback_payload = {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        try:
+            response = _request_access_token(
+                token_url,
+                fallback_payload,
+                headers,
+                client_id,
+                client_secret,
+                use_basic_auth=False,
+            )
+        except requests.RequestException as exc:
+            logger.exception("Falha de rede ao solicitar token Emarsys com client_secret_post")
+            raise RuntimeError(
+                f"Falha de rede ao solicitar token Emarsys com client_secret_post: {exc}"
+            ) from exc
 
     if response.status_code >= 400:
         detail = _extract_error_detail(response)
@@ -172,6 +250,7 @@ def get_campaigns() -> Any:
 def discover_emarsys() -> dict[str, Any]:
     """Executa chamadas de descoberta em endpoints Core API v3."""
     token = get_access_token()
+    account_id = _get_account_id()
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -182,7 +261,7 @@ def discover_emarsys() -> dict[str, Any]:
     not_found: list[str] = []
     results: list[dict[str, Any]] = []
     for path in EMARSYS_DISCOVERY_ENDPOINTS:
-        endpoint = f"/api/v3/{EMARSYS_ACCOUNT_ID.strip()}{path}" if EMARSYS_ACCOUNT_ID.strip() else f"/api/v3{path}"
+        endpoint = f"/api/v3/{account_id}{path}" if account_id else f"/api/v3{path}"
         try:
             url = _build_v3_url(path)
         except RuntimeError as exc:
@@ -223,6 +302,8 @@ def discover_emarsys() -> dict[str, Any]:
         )
 
     return {
+        "token_url": _get_token_url(),
+        "account_id": account_id or None,
         "available": available,
         "forbidden": forbidden,
         "not_found": not_found,
