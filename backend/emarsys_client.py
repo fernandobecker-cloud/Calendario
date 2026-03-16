@@ -8,27 +8,20 @@ import logging
 import os
 import time
 from typing import Any
-from urllib.parse import urlparse
 
 import requests
 
 DEFAULT_EMARSYS_TOKEN_URL = "https://auth.emarsys.net/oauth2/token"
-DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/api/v3/campaigns"
-DEFAULT_EMARSYS_V2_BASE_URL = "https://api.emarsys.net/api/v2"
+DEFAULT_EMARSYS_CORE_BASE_URL = "https://api.emarsys.net"
+DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/v3/email"
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_MAX_RETRIES = 3
 EMARSYS_DISCOVERY_ENDPOINTS = [
-    "/contacts",
-    "/segments",
-    "/events",
-    "/accounts",
-    "/fields",
-    "/programs",
-    "/email/messages",
-    "/email/campaigns",
-    "/analytics/campaigns",
-    "/interactions/events",
-    "/contacts/search",
+    "/v3/email",
+    "/v3/email/1",
+    "/v3/email/1/responsesummary",
+    "/v3/contact",
+    "/v3/segment",
 ]
 logger = logging.getLogger(__name__)
 _TOKEN_CACHE: dict[str, Any] = {
@@ -67,8 +60,8 @@ def _get_campaigns_endpoint() -> str:
     return _read_env("EMARSYS_CAMPAIGNS_URL", default=DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT)
 
 
-def _get_v2_base_url() -> str:
-    return _read_env("EMARSYS_V2_BASE_URL", default=DEFAULT_EMARSYS_V2_BASE_URL)
+def _get_core_base_url() -> str:
+    return _read_env("EMARSYS_CORE_BASE_URL", default=DEFAULT_EMARSYS_CORE_BASE_URL)
 
 
 def _get_oauth_scope() -> str:
@@ -151,42 +144,13 @@ def _request_with_retries(
 
 
 def _build_v3_url(path: str) -> str:
-    account_id = _get_account_id()
-    if not account_id:
-        raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
     safe_path = path if path.startswith("/") else f"/{path}"
-    return f"https://api.emarsys.net/api/v3/{account_id}{safe_path}"
+    return f"{_get_core_base_url().rstrip('/')}{safe_path}"
 
 
 def _normalize_campaigns_url() -> str:
     configured = _get_campaigns_endpoint()
-    if not configured:
-        return _build_v3_url("/campaigns")
-
-    # Mantem endpoint custom quando nao e URL da Core API v3.
-    if "/api/v3/" not in configured:
-        return configured
-
-    parsed = urlparse(configured)
-    path = parsed.path
-    marker = "/api/v3/"
-    idx = path.find(marker)
-    if idx == -1:
-        return configured
-
-    tail = path[idx + len(marker):].strip("/")
-    if tail:
-        first = tail.split("/", 1)[0]
-        if first.isdigit():
-            return configured
-
-    # Injeta account_id automaticamente quando o endpoint vier sem tenant no path.
-    account_id = _get_account_id()
-    if not account_id:
-        raise RuntimeError("Variavel EMARSYS_ACCOUNT_ID nao configurada")
-
-    rebuilt_path = f"{path[: idx + len(marker)]}{account_id}/{tail}" if tail else f"{path[: idx + len(marker)]}{account_id}"
-    return parsed._replace(path=rebuilt_path).geturl()
+    return configured or _build_v3_url("/v3/email")
 
 
 def _request_access_token(
@@ -324,29 +288,29 @@ def get_access_token_info(*, force_refresh: bool = False) -> dict[str, Any]:
     }
 
 
-def _build_recommendation(token_generated: bool, token_scope: str, v2_status: int, v3_status: int) -> str:
+def _build_recommendation(token_generated: bool, token_scope: str, v3_status: int) -> str:
     if not token_generated:
         return "Falha ao gerar token. Revise client_id, client_secret e o scope solicitado."
-    if v2_status == 200 or v3_status == 200:
-        return "Autenticacao e permissao confirmadas para pelo menos um endpoint."
-    if v2_status == 400 or v3_status == 400:
+    if v3_status == 200:
+        return "Autenticacao e permissao confirmadas para o endpoint documentado da Core API."
+    if v3_status == 400:
         return "A requisicao foi rejeitada por formato ou scope invalido. Revise EMARSYS_OAUTH_SCOPE."
-    if v2_status == 401 or v3_status == 401:
+    if v3_status == 401:
         return "O token foi rejeitado. Verifique expiracao, audience e metodo de autenticacao do client."
-    if v2_status == 403 and v3_status == 403:
+    if v3_status == 403:
         if not token_scope:
             return "Token gerado sem scope visivel e endpoints negados. Revise os scopes do OAuth client e as permissoes no tenant."
-        return "Token gerado, mas sem permissao nos endpoints testados. Libere os scopes/permissoes correspondentes no painel da Emarsys."
-    return "Revise account_id, produto habilitado no tenant e permissoes do OAuth client."
+        return "Token gerado, mas sem permissao no endpoint documentado da Core API. Libere o produto e as permissoes correspondentes no tenant."
+    if v3_status == 404:
+        return "O endpoint documentado nao foi encontrado. Revise a base URL da Core API habilitada para o tenant."
+    return "Revise a configuracao da Core API, o produto habilitado no tenant e as permissoes do OAuth client."
 
 
 def emarsys_health_check() -> dict[str, Any]:
     token_generated = False
     token_scope = ""
     token_error = ""
-    v2_status = 0
     v3_status = 0
-    v2_error = ""
     v3_error = ""
 
     try:
@@ -371,18 +335,9 @@ def emarsys_health_check() -> dict[str, Any]:
         "Accept": "application/json",
     }
 
-    v2_url = f"{_get_v2_base_url().rstrip('/')}/contact/"
-    v3_url = _build_v3_url("/email/campaigns")
+    v3_url = _normalize_campaigns_url()
 
     if token:
-        try:
-            v2_response = _request_with_retries("GET", v2_url, headers=headers)
-            v2_status = v2_response.status_code
-            if v2_status >= 400:
-                v2_error = _excerpt(_extract_error_detail(v2_response))
-        except requests.RequestException as exc:
-            v2_error = str(exc)
-
         try:
             v3_response = _request_with_retries("GET", v3_url, headers=headers)
             v3_status = v3_response.status_code
@@ -401,13 +356,10 @@ def emarsys_health_check() -> dict[str, Any]:
         "token_roles": token_info.get("roles"),
         "token_error": token_error or None,
         "requested_scope": _get_oauth_scope(),
-        "v2_url": v2_url,
-        "v2_status": v2_status,
-        "v2_error": v2_error or None,
         "v3_url": v3_url,
         "v3_status": v3_status,
         "v3_error": v3_error or None,
-        "recommendation": _build_recommendation(token_generated, token_scope, v2_status, v3_status),
+        "recommendation": _build_recommendation(token_generated, token_scope, v3_status),
     }
 
 
@@ -441,7 +393,6 @@ def get_campaigns() -> Any:
 def discover_emarsys() -> dict[str, Any]:
     """Executa chamadas de descoberta em endpoints Core API v3."""
     token = get_access_token()
-    account_id = _get_account_id()
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -452,18 +403,8 @@ def discover_emarsys() -> dict[str, Any]:
     not_found: list[str] = []
     results: list[dict[str, Any]] = []
     for path in EMARSYS_DISCOVERY_ENDPOINTS:
-        endpoint = f"/api/v3/{account_id}{path}" if account_id else f"/api/v3{path}"
-        try:
-            url = _build_v3_url(path)
-        except RuntimeError as exc:
-            results.append(
-                {
-                    "endpoint": endpoint,
-                    "status": "error",
-                    "message": str(exc),
-                }
-            )
-            continue
+        endpoint = path
+        url = _build_v3_url(path)
         try:
             response = _request_with_retries("GET", url, headers=headers)
         except requests.RequestException as exc:
@@ -494,7 +435,8 @@ def discover_emarsys() -> dict[str, Any]:
 
     return {
         "token_url": _get_token_url(),
-        "account_id": account_id or None,
+        "account_id": _get_account_id() or None,
+        "core_base_url": _get_core_base_url(),
         "available": available,
         "forbidden": forbidden,
         "not_found": not_found,
