@@ -10,7 +10,9 @@ from backend.emarsys_client import (
     emarsys_health_check,
     emarsys_route_check,
     get_access_token_info,
+    get_campaigns_portal,
     get_delivery_results,
+    get_delivery_results_portal,
 )
 
 router = APIRouter(prefix="/api/emarsys", tags=["emarsys"])
@@ -53,6 +55,17 @@ def route_check() -> dict[str, Any]:
         }
 
 
+@router.get("/campaigns/portal")
+def campaigns_portal() -> dict[str, Any]:
+    try:
+        return get_campaigns_portal()
+    except RuntimeError as exc:
+        return {
+            "status": "error",
+            "message": str(exc),
+        }
+
+
 @router.get("/reporting/delivery-results-test")
 def delivery_results_test(
     contact_id: int = Query(..., ge=1),
@@ -65,4 +78,19 @@ def delivery_results_test(
         return {
             "token_generated": False,
             "error": str(exc),
+        }
+
+
+@router.get("/reporting/delivery-results")
+def delivery_results_portal(
+    contact_id: int = Query(..., ge=1),
+    start_date: str = Query(default="2026-01-01T00:00:00Z"),
+    end_date: str = Query(default="2026-01-31T23:59:59Z"),
+) -> dict[str, Any]:
+    try:
+        return get_delivery_results_portal(contact_id, start_date, end_date)
+    except RuntimeError as exc:
+        return {
+            "status": "error",
+            "message": str(exc),
         }

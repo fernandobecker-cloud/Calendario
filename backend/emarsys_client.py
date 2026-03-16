@@ -92,6 +92,20 @@ def _excerpt(text: str, limit: int = 200) -> str:
     return (text or "").strip().replace("\n", " ").replace("\r", " ")[:limit]
 
 
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
     parts = token.split(".")
     if len(parts) < 2:
@@ -453,6 +467,97 @@ def get_delivery_results(contact_id: int, start_date: str, end_date: str) -> dic
         "url": url,
         "status_code": response.status_code,
         "body": response_body,
+    }
+
+
+def get_delivery_results_portal(contact_id: int, start_date: str, end_date: str) -> dict[str, Any]:
+    result = get_delivery_results(contact_id, start_date, end_date)
+    body = result.get("body")
+    rows = body.get("data", []) if isinstance(body, dict) else []
+    normalized = [
+        {
+            "contact_id": contact_id,
+            "campaign_id": str(item.get("campaignId", "")),
+            "delivery_status": item.get("deliveryStatus"),
+            "launch_date": item.get("launchDate"),
+            "launch_list_id": str(item.get("launchListId", "")),
+        }
+        for item in rows
+        if isinstance(item, dict)
+    ]
+    return {
+        "contact_id": contact_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "status_code": result.get("status_code"),
+        "total": len(normalized),
+        "results": normalized,
+    }
+
+
+def get_campaigns_portal() -> dict[str, Any]:
+    raw = get_campaigns()
+    rows = raw.get("data", []) if isinstance(raw, dict) else []
+    campaigns: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        sent = _to_int(item.get("sent"))
+        delivered = _to_int(item.get("delivered"))
+        opens = _to_int(item.get("opens"))
+        unique_opens = _to_int(item.get("unique_opens"))
+        clicks = _to_int(item.get("clicks"))
+        unique_clicks = _to_int(item.get("unique_clicks"))
+        unsubscribes = _to_int(item.get("unsubscribes"))
+        bounces = _to_int(item.get("bounces"))
+        revenue = _to_float(item.get("revenue"))
+        campaigns.append(
+            {
+                "campaign_id": str(item.get("id", "")),
+                "campaign_name": str(item.get("name", "")).strip(),
+                "sent_date": item.get("created"),
+                "language": item.get("language"),
+                "subject": item.get("subject"),
+                "from_email": item.get("fromemail"),
+                "from_name": item.get("fromname"),
+                "status": item.get("status"),
+                "source": item.get("source"),
+                "metrics": {
+                    "sent": sent,
+                    "delivered": delivered,
+                    "opens": opens,
+                    "unique_opens": unique_opens,
+                    "clicks": clicks,
+                    "unique_clicks": unique_clicks,
+                    "unsubscribes": unsubscribes,
+                    "bounces": bounces,
+                    "revenue": revenue,
+                },
+                "rates": {
+                    "open_rate": (unique_opens / delivered) if delivered else 0.0,
+                    "click_rate": (unique_clicks / delivered) if delivered else 0.0,
+                    "ctr": (unique_clicks / unique_opens) if unique_opens else 0.0,
+                    "unsubscribe_rate": (unsubscribes / delivered) if delivered else 0.0,
+                    "bounce_rate": (bounces / sent) if sent else 0.0,
+                },
+                "raw": {
+                    "email_category": item.get("email_category"),
+                    "api_status": item.get("api_status"),
+                    "api_error": item.get("api_error"),
+                    "event_id": item.get("event_id"),
+                    "is_delayed": item.get("is_delayed"),
+                    "is_rti": item.get("is_rti"),
+                    "tags": item.get("tags", []),
+                    "features": item.get("features", []),
+                },
+            }
+        )
+
+    return {
+        "total": len(campaigns),
+        "reply_code": raw.get("replyCode") if isinstance(raw, dict) else None,
+        "reply_text": raw.get("replyText") if isinstance(raw, dict) else None,
+        "campaigns": campaigns,
     }
 
 
