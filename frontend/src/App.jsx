@@ -85,6 +85,13 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
+function isSameMonthAndYear(value, year, month) {
+  if (!value) return false
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+  return date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month)
+}
+
 function getMonthDateRange(year, month) {
   const y = Number(year)
   const m = Number(month)
@@ -846,11 +853,14 @@ export default function App() {
       { key: 'purchaseRevenue', label: 'Receita de compras' }
     ]
     const emarsysRows = Array.isArray(emarsysCampaigns?.campaigns) ? emarsysCampaigns.campaigns : []
+    const emarsysFilteredRows = emarsysRows.filter((campaign) =>
+      isSameMonthAndYear(campaign?.sent_date, reportYear, reportMonth)
+    )
     const emarsysHighlights = {
-      total: Number(emarsysCampaigns?.total || 0),
-      active: emarsysRows.filter((campaign) => String(campaign?.status || '') === '3').length,
-      transactional: emarsysRows.filter((campaign) => String(campaign?.source || '').toLowerCase() === 'userlist').length,
-      withSubject: emarsysRows.filter((campaign) => String(campaign?.subject || '').trim()).length
+      total: emarsysFilteredRows.length,
+      active: emarsysFilteredRows.filter((campaign) => String(campaign?.status || '') === '3').length,
+      transactional: emarsysFilteredRows.filter((campaign) => String(campaign?.source || '').toLowerCase() === 'userlist').length,
+      withSubject: emarsysFilteredRows.filter((campaign) => String(campaign?.subject || '').trim()).length
     }
 
     return (
@@ -900,7 +910,7 @@ export default function App() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Campanhas Emarsys</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Base atual de campanhas sincronizada da Emarsys para alimentar o portal de resultados.
+                Campanhas da Emarsys filtradas pelo ano e mes selecionados no resumo.
               </p>
             </div>
             {emarsysCampaigns?.reply_text && (
@@ -946,7 +956,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {emarsysRows.slice(0, 15).map((campaign) => (
+                    {emarsysFilteredRows.slice(0, 15).map((campaign) => (
                       <tr key={campaign.campaign_id} className="align-top">
                         <td className="px-4 py-3">
                           <p className="font-semibold text-slate-900">{campaign.campaign_name || 'Sem nome'}</p>
@@ -973,6 +983,12 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+
+              {emarsysFilteredRows.length === 0 && (
+                <p className="mt-4 text-sm text-slate-600">
+                  Nenhuma campanha encontrada para {String(reportMonth).padStart(2, '0')}/{reportYear}.
+                </p>
+              )}
             </>
           )}
         </section>
