@@ -13,7 +13,7 @@ import requests
 
 DEFAULT_EMARSYS_TOKEN_URL = "https://auth.emarsys.net/oauth2/token"
 DEFAULT_EMARSYS_CORE_BASE_URL = "https://api.emarsys.net"
-DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/v3/email"
+DEFAULT_EMARSYS_CAMPAIGNS_ENDPOINT = "https://api.emarsys.net/api/v3/email"
 EMARSYS_TIMEOUT_SECONDS = 20
 EMARSYS_MAX_RETRIES = 3
 EMARSYS_DISCOVERY_ENDPOINTS = [
@@ -150,7 +150,7 @@ def _build_v3_url(path: str) -> str:
 
 def _normalize_campaigns_url() -> str:
     configured = _get_campaigns_endpoint()
-    return configured or _build_v3_url("/v3/email")
+    return configured or _build_v3_url("/api/v3/email")
 
 
 def _request_access_token(
