@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from backend.emarsys_client import emarsys_health_check, get_access_token_info
+from backend.emarsys_client import emarsys_health_check, emarsys_route_check, get_access_token_info
 
 router = APIRouter(prefix="/api/emarsys", tags=["emarsys"])
 
@@ -35,3 +35,14 @@ def token_info() -> dict[str, Any]:
 @router.get("/health")
 def health() -> dict[str, Any]:
     return emarsys_health_check()
+
+
+@router.get("/route-check")
+def route_check() -> dict[str, Any]:
+    try:
+        return emarsys_route_check()
+    except RuntimeError as exc:
+        return {
+            "token_generated": False,
+            "error": str(exc),
+        }

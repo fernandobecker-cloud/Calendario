@@ -363,6 +363,67 @@ def emarsys_health_check() -> dict[str, Any]:
     }
 
 
+def emarsys_route_check() -> dict[str, Any]:
+    token_info = get_access_token_info(force_refresh=True)
+    token = str(token_info["access_token"])
+    account_id = _get_account_id()
+    base_url = _get_core_base_url().rstrip("/")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    candidate_paths = [
+        "/api/v3/campaigns",
+        "/v3/email",
+        "/api/v3/email",
+        "/api/v3/email/campaigns",
+        "/api/v3/analytics/campaigns",
+    ]
+    if account_id:
+        candidate_paths.extend(
+            [
+                f"/api/v3/{account_id}/email/campaigns",
+                f"/api/v3/{account_id}/analytics/campaigns",
+                f"/api/v3/{account_id}/interactions/events",
+            ]
+        )
+
+    results: list[dict[str, Any]] = []
+    for path in candidate_paths:
+        url = f"{base_url}{path}"
+        try:
+            response = _request_with_retries("GET", url, headers=headers)
+            results.append(
+                {
+                    "path": path,
+                    "url": url,
+                    "status_code": response.status_code,
+                    "response_excerpt": _excerpt(response.text),
+                }
+            )
+        except requests.RequestException as exc:
+            results.append(
+                {
+                    "path": path,
+                    "url": url,
+                    "status": "error",
+                    "message": str(exc),
+                }
+            )
+
+    return {
+        "token_generated": True,
+        "token_scope": token_info.get("scope"),
+        "token_issuer": token_info.get("issuer"),
+        "token_audience": token_info.get("audience"),
+        "token_client_id": token_info.get("client_id"),
+        "account_id": account_id or None,
+        "base_url": base_url,
+        "results": results,
+    }
+
+
 def get_campaigns() -> Any:
     """Busca campanhas na API da Emarsys usando OAuth2 Bearer token."""
     token = get_access_token()
