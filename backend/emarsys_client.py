@@ -470,6 +470,35 @@ def get_delivery_results(contact_id: int, start_date: str, end_date: str) -> dic
     }
 
 
+def get_response_summary(campaign_id: int) -> dict[str, Any]:
+    token_info = get_access_token_info(force_refresh=True)
+    token = str(token_info["access_token"])
+    url = f"{_get_core_base_url().rstrip('/')}/api/v3/email/{campaign_id}/responsesummary"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    try:
+        response = _request_with_retries("GET", url, headers=headers)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Falha de rede ao buscar response summary: {exc}") from exc
+
+    response_body: Any
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = response.text
+
+    return {
+        "token_generated": True,
+        "token_scope": token_info.get("scope"),
+        "url": url,
+        "status_code": response.status_code,
+        "body": response_body,
+    }
+
+
 def get_delivery_results_portal(contact_id: int, start_date: str, end_date: str) -> dict[str, Any]:
     result = get_delivery_results(contact_id, start_date, end_date)
     body = result.get("body")

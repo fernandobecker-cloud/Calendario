@@ -13,6 +13,7 @@ from backend.emarsys_client import (
     get_campaigns_portal,
     get_delivery_results,
     get_delivery_results_portal,
+    get_response_summary,
 )
 
 router = APIRouter(prefix="/api/emarsys", tags=["emarsys"])
@@ -93,4 +94,17 @@ def delivery_results_portal(
         return {
             "status": "error",
             "message": str(exc),
+        }
+
+
+@router.get("/reporting/response-summary-test")
+def response_summary_test(
+    campaign_id: int = Query(..., ge=1),
+) -> dict[str, Any]:
+    try:
+        return get_response_summary(campaign_id)
+    except RuntimeError as exc:
+        return {
+            "token_generated": False,
+            "error": str(exc),
         }
