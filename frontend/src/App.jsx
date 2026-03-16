@@ -148,6 +148,9 @@ export default function App() {
   const [ga4Report, setGa4Report] = useState(null)
   const [ga4Loading, setGa4Loading] = useState(false)
   const [ga4Error, setGa4Error] = useState('')
+  const [emarsysCampaigns, setEmarsysCampaigns] = useState(null)
+  const [emarsysCampaignsLoading, setEmarsysCampaignsLoading] = useState(false)
+  const [emarsysCampaignsError, setEmarsysCampaignsError] = useState('')
   const [crmAssists, setCrmAssists] = useState(null)
   const [crmAssistsLoading, setCrmAssistsLoading] = useState(false)
   const [crmAssistsError, setCrmAssistsError] = useState('')
@@ -278,6 +281,33 @@ export default function App() {
     }
   }, [reportMonth, reportYear])
 
+  const loadEmarsysCampaigns = useCallback(async () => {
+    setEmarsysCampaignsLoading(true)
+    setEmarsysCampaignsError('')
+
+    try {
+      const response = await fetch('/api/emarsys/campaigns/portal')
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok || payload?.status === 'error') {
+        const detail = payload?.message || 'Nao foi possivel carregar campanhas da Emarsys.'
+        throw new Error(detail)
+      }
+
+      setEmarsysCampaigns(payload)
+    } catch (err) {
+      setEmarsysCampaigns(null)
+      setEmarsysCampaignsError(err instanceof Error ? err.message : 'Falha ao carregar campanhas da Emarsys.')
+    } finally {
+      setEmarsysCampaignsLoading(false)
+    }
+  }, [])
+
   const loadCrmAssists = useCallback(async () => {
     setCrmAssistsLoading(true)
     setCrmAssistsError('')
@@ -377,8 +407,8 @@ export default function App() {
   }, [reportMonth, reportYear])
 
   const loadAllResults = useCallback(async () => {
-    await Promise.all([loadGa4MonthlyReport(), loadCrmAssists(), loadCrmLtv(), loadCrmFunnel()])
-  }, [loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
+    await Promise.all([loadGa4MonthlyReport(), loadEmarsysCampaigns(), loadCrmAssists(), loadCrmLtv(), loadCrmFunnel()])
+  }, [loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadEmarsysCampaigns, loadGa4MonthlyReport])
 
   useEffect(() => {
     loadCurrentUser()
@@ -815,6 +845,13 @@ export default function App() {
       { key: 'transactions', label: 'Transacoes' },
       { key: 'purchaseRevenue', label: 'Receita de compras' }
     ]
+    const emarsysRows = Array.isArray(emarsysCampaigns?.campaigns) ? emarsysCampaigns.campaigns : []
+    const emarsysHighlights = {
+      total: Number(emarsysCampaigns?.total || 0),
+      active: emarsysRows.filter((campaign) => String(campaign?.status || '') === '3').length,
+      transactional: emarsysRows.filter((campaign) => String(campaign?.source || '').toLowerCase() === 'userlist').length,
+      withSubject: emarsysRows.filter((campaign) => String(campaign?.subject || '').trim()).length
+    }
 
     return (
       <section className="space-y-5">
@@ -856,6 +893,88 @@ export default function App() {
               </button>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Campanhas Emarsys</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Base atual de campanhas sincronizada da Emarsys para alimentar o portal de resultados.
+              </p>
+            </div>
+            {emarsysCampaigns?.reply_text && (
+              <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                {emarsysCampaigns.reply_text}
+              </span>
+            )}
+          </div>
+
+          {emarsysCampaignsError && <p className="mt-4 text-sm text-rose-700">{emarsysCampaignsError}</p>}
+
+          {emarsysCampaignsLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando campanhas da Emarsys...</p>
+          ) : !emarsysCampaigns ? (
+            <p className="mt-4 text-sm text-slate-600">Sem dados da Emarsys carregados.</p>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                {[
+                  { label: 'Total de campanhas', value: emarsysHighlights.total },
+                  { label: 'Status ativo', value: emarsysHighlights.active },
+                  { label: 'Origem userlist', value: emarsysHighlights.transactional },
+                  { label: 'Com assunto', value: emarsysHighlights.withSubject }
+                ].map((item) => (
+                  <article key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</h3>
+                    <p className="mt-2 text-2xl font-semibold text-slate-900">
+                      {new Intl.NumberFormat('pt-BR').format(Number(item.value || 0))}
+                    </p>
+                  </article>
+                ))}
+              </div>
+
+              <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold text-slate-600">Campanha</th>
+                      <th className="px-4 py-3 font-semibold text-slate-600">Data</th>
+                      <th className="px-4 py-3 font-semibold text-slate-600">Remetente</th>
+                      <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
+                      <th className="px-4 py-3 font-semibold text-slate-600">Metricas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {emarsysRows.slice(0, 15).map((campaign) => (
+                      <tr key={campaign.campaign_id} className="align-top">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-slate-900">{campaign.campaign_name || 'Sem nome'}</p>
+                          <p className="mt-1 text-xs text-slate-500">ID {campaign.campaign_id}</p>
+                          {campaign.subject && <p className="mt-2 text-xs text-slate-600">{campaign.subject}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">{formatCreatedAt(campaign.sent_date)}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <p>{campaign.from_name || 'Nao informado'}</p>
+                          <p className="mt-1 text-xs text-slate-500">{campaign.from_email || 'Sem email'}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                            {campaign.status || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          <p>Envios: {new Intl.NumberFormat('pt-BR').format(Number(campaign.metrics?.sent || 0))}</p>
+                          <p>Aberturas unicas: {new Intl.NumberFormat('pt-BR').format(Number(campaign.metrics?.unique_opens || 0))}</p>
+                          <p>Cliques unicos: {new Intl.NumberFormat('pt-BR').format(Number(campaign.metrics?.unique_clicks || 0))}</p>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </section>
 
         {ga4Error && <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{ga4Error}</section>}
