@@ -27,6 +27,7 @@ async function fetchJson(url, options = undefined) {
 export default function GanttPage() {
   const [projects, setProjects] = useState([])
   const [tasksByProject, setTasksByProject] = useState({})
+  const [expandedProjectIds, setExpandedProjectIds] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -214,6 +215,7 @@ export default function GanttPage() {
               depends_on_task_id: payload.depends_on_task_id
             })
           })
+          setExpandedProjectIds([payload.project_id])
           showToast('Tarefa criada')
         }
 
@@ -257,6 +259,7 @@ export default function GanttPage() {
         <GanttChart
           projects={projects}
           tasksByProject={tasksByProject}
+          expandedProjectIds={expandedProjectIds}
           onCreateTask={openCreateTask}
           onEditProject={openEditProject}
           onEditTask={openEditTask}

@@ -263,7 +263,7 @@ const ProjectBlock = memo(function ProjectBlock({
   )
 })
 
-export default function GanttChart({ projects, tasksByProject, onCreateTask, onEditProject, onEditTask }) {
+export default function GanttChart({ projects, tasksByProject, expandedProjectIds = [], onCreateTask, onEditProject, onEditTask }) {
   const [expandedProjects, setExpandedProjects] = useState(() => readExpandedFromStorage())
 
   const { timelineStart, timelineDays, headerDates, timelineWidth } = useMemo(() => {
@@ -284,6 +284,17 @@ export default function GanttChart({ projects, tasksByProject, onCreateTask, onE
     if (typeof window === 'undefined') return
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(expandedProjects))
   }, [expandedProjects])
+
+  useEffect(() => {
+    if (!expandedProjectIds.length) return
+    setExpandedProjects((prev) => {
+      const next = { ...prev }
+      expandedProjectIds.forEach((projectId) => {
+        next[String(projectId)] = true
+      })
+      return next
+    })
+  }, [expandedProjectIds])
 
   const toggleProject = useCallback((projectId) => {
     setExpandedProjects((prev) => {
