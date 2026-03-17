@@ -34,6 +34,7 @@ from backend.ga4_client import (
 )
 from backend.ga4_funnel import get_crm_funnel
 from backend.routers.emarsys import router as emarsys_token_router
+from backend.routers.projects import router as projects_router
 from backend.routes.emarsys import router as emarsys_router
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ PASSWORD_MIN_LENGTH = 6
 app = FastAPI(title="CRM Campaign Planner API")
 app.include_router(emarsys_router)
 app.include_router(emarsys_token_router)
+app.include_router(projects_router)
 
 
 def is_single_auth_mode() -> bool:
