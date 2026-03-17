@@ -13,6 +13,18 @@ function PencilIcon() {
   )
 }
 
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  )
+}
+
 function ChevronIcon({ expanded }) {
   return (
     <span className="inline-block text-slate-700">{expanded ? '▾' : '▸'}</span>
@@ -107,7 +119,7 @@ function readExpandedFromStorage() {
   }
 }
 
-const TaskRow = memo(function TaskRow({ task, timelineDays, timelineWidth, timelineStart, onEditTask }) {
+const TaskRow = memo(function TaskRow({ task, timelineDays, timelineWidth, timelineStart, onEditTask, onDeleteTask }) {
   const deadlineIcon =
     task.deadline_state === 'overdue' ? (
       <span title="Atrasada" className="text-rose-600">
@@ -139,14 +151,24 @@ const TaskRow = memo(function TaskRow({ task, timelineDays, timelineWidth, timel
             </p>
             <p className="text-[11px] text-slate-400">{task.start_date || '—'} → {task.end_date || '—'}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => onEditTask(task)}
-            className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100"
-            aria-label="Editar tarefa"
-          >
-            <PencilIcon />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onEditTask(task)}
+              className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100"
+              aria-label="Editar tarefa"
+            >
+              <PencilIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeleteTask(task)}
+              className="rounded-md border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50"
+              aria-label="Excluir tarefa"
+            >
+              <TrashIcon />
+            </button>
+          </div>
         </div>
       </div>
       <div className="relative h-11" style={{ width: `${timelineWidth}px` }}>
@@ -172,7 +194,9 @@ const ProjectBlock = memo(function ProjectBlock({
   timelineStart,
   onToggle,
   onCreateTask,
+  onDeleteProject,
   onEditProject,
+  onDeleteTask,
   onEditTask
 }) {
   const progress = useMemo(() => getProjectProgress(tasks), [tasks])
@@ -221,6 +245,14 @@ const ProjectBlock = memo(function ProjectBlock({
               >
                 <PencilIcon />
               </button>
+              <button
+                type="button"
+                onClick={() => onDeleteProject(project)}
+                className="rounded-md border border-rose-200 p-1.5 text-rose-600 hover:bg-rose-50"
+                aria-label="Excluir projeto"
+              >
+                <TrashIcon />
+              </button>
             </div>
           </div>
         </div>
@@ -252,6 +284,7 @@ const ProjectBlock = memo(function ProjectBlock({
                 timelineWidth={timelineWidth}
                 timelineStart={timelineStart}
                 onEditTask={onEditTask}
+                onDeleteTask={onDeleteTask}
               />
             ))
           )}
@@ -263,7 +296,16 @@ const ProjectBlock = memo(function ProjectBlock({
   )
 })
 
-export default function GanttChart({ projects, tasksByProject, expandedProjectIds = [], onCreateTask, onEditProject, onEditTask }) {
+export default function GanttChart({
+  projects,
+  tasksByProject,
+  expandedProjectIds = [],
+  onCreateTask,
+  onDeleteProject,
+  onEditProject,
+  onDeleteTask,
+  onEditTask
+}) {
   const [expandedProjects, setExpandedProjects] = useState(() => readExpandedFromStorage())
 
   const { timelineStart, timelineDays, headerDates, timelineWidth } = useMemo(() => {
@@ -350,7 +392,9 @@ export default function GanttChart({ projects, tasksByProject, expandedProjectId
                 timelineStart={timelineStart}
                 onToggle={toggleProject}
                 onCreateTask={onCreateTask}
+                onDeleteProject={onDeleteProject}
                 onEditProject={onEditProject}
+                onDeleteTask={onDeleteTask}
                 onEditTask={onEditTask}
               />
             )

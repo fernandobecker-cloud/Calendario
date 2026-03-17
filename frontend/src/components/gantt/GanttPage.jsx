@@ -126,6 +126,46 @@ export default function GanttPage() {
     setIsTaskModalOpen(true)
   }, [])
 
+  const handleDeleteProject = useCallback(
+    async (project) => {
+      const confirmed = window.confirm(`Deseja excluir o projeto "${project.name}" e todas as tarefas vinculadas?`)
+      if (!confirmed) return
+
+      setError('')
+      setLoading(true)
+      try {
+        await fetchJson(`/api/projects/${project.id}`, { method: 'DELETE' })
+        showToast('Projeto excluido')
+        await loadData()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao excluir projeto.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [loadData, showToast]
+  )
+
+  const handleDeleteTask = useCallback(
+    async (task) => {
+      const confirmed = window.confirm(`Deseja excluir a tarefa "${task.title}"?`)
+      if (!confirmed) return
+
+      setError('')
+      setLoading(true)
+      try {
+        await fetchJson(`/api/tasks/${task.id}`, { method: 'DELETE' })
+        showToast('Tarefa excluida')
+        await loadData()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao excluir tarefa.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [loadData, showToast]
+  )
+
   const closeTaskModal = useCallback(() => {
     setIsTaskModalOpen(false)
     setEditingTask(null)
@@ -261,7 +301,9 @@ export default function GanttPage() {
           tasksByProject={tasksByProject}
           expandedProjectIds={expandedProjectIds}
           onCreateTask={openCreateTask}
+          onDeleteProject={handleDeleteProject}
           onEditProject={openEditProject}
+          onDeleteTask={handleDeleteTask}
           onEditTask={openEditTask}
         />
       )}
