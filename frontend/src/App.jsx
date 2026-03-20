@@ -154,6 +154,9 @@ export default function App() {
   const [crmLtv, setCrmLtv] = useState(null)
   const [crmLtvLoading, setCrmLtvLoading] = useState(false)
   const [crmLtvError, setCrmLtvError] = useState('')
+  const [abandonedCartCoupons, setAbandonedCartCoupons] = useState(null)
+  const [abandonedCartCouponsLoading, setAbandonedCartCouponsLoading] = useState(false)
+  const [abandonedCartCouponsError, setAbandonedCartCouponsError] = useState('')
   const [crmFunnel, setCrmFunnel] = useState(null)
   const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
   const [crmFunnelError, setCrmFunnelError] = useState('')
@@ -344,6 +347,41 @@ export default function App() {
     }
   }, [reportMonth, reportYear])
 
+  const loadAbandonedCartCoupons = useCallback(async () => {
+    setAbandonedCartCouponsLoading(true)
+    setAbandonedCartCouponsError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+
+    try {
+      const response = await fetch(`/api/ga4/abandoned-cart-coupons?start=${period.start}&end=${period.end}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar pedidos com cupons de carrinho abandonado.'
+        if (isGa4NoDataError(detail)) {
+          setAbandonedCartCoupons(null)
+          setAbandonedCartCouponsError('')
+          return
+        }
+        throw new Error(detail)
+      }
+
+      setAbandonedCartCoupons(payload)
+    } catch (err) {
+      setAbandonedCartCoupons(null)
+      setAbandonedCartCouponsError(
+        err instanceof Error ? err.message : 'Falha ao carregar pedidos com cupons de carrinho abandonado.'
+      )
+    } finally {
+      setAbandonedCartCouponsLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
   const loadCrmFunnel = useCallback(async () => {
     setCrmFunnelLoading(true)
     setCrmFunnelError('')
@@ -377,8 +415,14 @@ export default function App() {
   }, [reportMonth, reportYear])
 
   const loadAllResults = useCallback(async () => {
-    await Promise.all([loadGa4MonthlyReport(), loadCrmAssists(), loadCrmLtv(), loadCrmFunnel()])
-  }, [loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
+    await Promise.all([
+      loadGa4MonthlyReport(),
+      loadCrmAssists(),
+      loadCrmLtv(),
+      loadAbandonedCartCoupons(),
+      loadCrmFunnel()
+    ])
+  }, [loadAbandonedCartCoupons, loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
 
   useEffect(() => {
     loadCurrentUser()
@@ -882,6 +926,68 @@ export default function App() {
                 </article>
               ))}
             </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Pedidos com Cupom de Carrinho Abandonado</h2>
+              <p className="text-sm text-slate-600">
+                Pedidos do mes selecionado que usaram os cupons CARRINHO-100, CARRINHO-50, CARRINHO-30 ou CARRINHO-15.
+              </p>
+            </div>
+          </div>
+
+          {abandonedCartCouponsError && (
+            <p className="mt-4 text-sm text-rose-700">{abandonedCartCouponsError}</p>
+          )}
+
+          {abandonedCartCouponsLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando pedidos com cupom...</p>
+          ) : abandonedCartCoupons ? (
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pedidos no periodo</h3>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.orders_with_coupon || 0))}
+                  </p>
+                </article>
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita com cupom</h3>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {formatCurrency(abandonedCartCoupons.purchaseRevenue)}
+                  </p>
+                </article>
+              </div>
+
+              <div className="rounded-xl border border-slate-200">
+                <div className="grid grid-cols-[minmax(0,1fr)_140px_160px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <span>Cupom</span>
+                  <span>Pedidos</span>
+                  <span>Receita</span>
+                </div>
+                {Array.isArray(abandonedCartCoupons.by_coupon) && abandonedCartCoupons.by_coupon.length > 0 ? (
+                  abandonedCartCoupons.by_coupon.map((coupon) => (
+                    <div
+                      key={coupon.coupon}
+                      className="grid grid-cols-[minmax(0,1fr)_140px_160px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                    >
+                      <span className="font-medium text-slate-900">{coupon.coupon}</span>
+                      <span className="text-slate-700">
+                        {new Intl.NumberFormat('pt-BR').format(Number(coupon.transactions || 0))}
+                      </span>
+                      <span className="text-slate-700">{formatCurrency(coupon.purchaseRevenue)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="px-4 py-4 text-sm text-slate-600">Nenhum pedido com esses cupons no periodo selecionado.</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
           )}
         </section>
 

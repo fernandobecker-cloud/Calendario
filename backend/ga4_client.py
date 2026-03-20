@@ -23,6 +23,12 @@ from google.oauth2.service_account import Credentials
 GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT", "").strip()
 CRM_REGEX = r"(?i).*(email|crm|sms|whatsapp|push).*"
 GA4_TIMEOUT_SECONDS = 30
+ABANDONED_CART_COUPONS = [
+    "CARRINHO-100",
+    "CARRINHO-50",
+    "CARRINHO-30",
+    "CARRINHO-15",
+]
 
 
 def _load_service_account_info() -> dict[str, Any]:
@@ -408,4 +414,82 @@ def get_crm_ltv(property_id: str, start_date: str, end_date: str) -> dict[str, i
         "crm_new_users": crm_new_users,
         "total_revenue_from_crm_users": round(total_revenue, 2),
         "crm_ltv": round(crm_ltv, 2),
+    }
+
+
+def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date: str) -> dict[str, Any]:
+    """Retorna pedidos e receita do periodo com cupons de carrinho abandonado."""
+    start = _validate_iso_date(start_date)
+    end = _validate_iso_date(end_date)
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
+        return {
+            "coupons": ABANDONED_CART_COUPONS,
+            "start_date": start,
+            "end_date": end,
+            "transactions": 0,
+            "purchaseRevenue": 0.0,
+            "orders_with_coupon": 0,
+            "by_coupon": [],
+        }
+
+    start, end = normalized_period
+    property_resource = _resolve_property_resource(property_id)
+    client = _get_ga4_client()
+
+    coupon_filter = _build_in_list_filter("orderCoupon", ABANDONED_CART_COUPONS)
+    purchase_filter = FilterExpression(
+        filter=Filter(
+            field_name="eventName",
+            string_filter=Filter.StringFilter(
+                match_type=Filter.StringFilter.MatchType.EXACT,
+                value="purchase",
+            ),
+        )
+    )
+    request = RunReportRequest(
+        property=property_resource,
+        dimensions=[Dimension(name="orderCoupon")],
+        metrics=[Metric(name="transactions"), Metric(name="purchaseRevenue")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimension_filter=FilterExpression(
+            and_group=FilterExpressionList(expressions=[coupon_filter, purchase_filter])
+        ),
+    )
+    response = _run_report(request, client)
+
+    by_coupon = []
+    total_transactions = 0
+    total_revenue = 0.0
+
+    for row in response.rows:
+        dimension_values = row.dimension_values
+        metric_values = row.metric_values
+        if len(dimension_values) < 1 or len(metric_values) < 2:
+            continue
+
+        coupon = (dimension_values[0].value or "").strip()
+        transactions = int(metric_values[0].value or 0)
+        purchase_revenue = float(metric_values[1].value or 0.0)
+
+        total_transactions += transactions
+        total_revenue += purchase_revenue
+        by_coupon.append(
+            {
+                "coupon": coupon,
+                "transactions": transactions,
+                "purchaseRevenue": round(purchase_revenue, 2),
+            }
+        )
+
+    by_coupon.sort(key=lambda item: (-item["transactions"], item["coupon"]))
+
+    return {
+        "coupons": ABANDONED_CART_COUPONS,
+        "start_date": start,
+        "end_date": end,
+        "transactions": total_transactions,
+        "purchaseRevenue": round(total_revenue, 2),
+        "orders_with_coupon": total_transactions,
+        "by_coupon": by_coupon,
     }

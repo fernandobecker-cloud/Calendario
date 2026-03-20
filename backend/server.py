@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from backend.emarsys_client import discover_emarsys, get_access_token, get_campaigns
 from backend.ga4_client import (
     get_crm_assisted_conversions,
+    get_abandoned_cart_coupon_orders,
     get_crm_ltv,
     get_crm_monthly_report,
     get_sessions_yesterday,
@@ -768,6 +769,24 @@ def ga4_crm_ltv(
 
     try:
         return get_crm_ltv(effective_property_id, start, end)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/abandoned-cart-coupons")
+def ga4_abandoned_cart_coupons(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    property_id: str | None = Query(default=None),
+) -> dict[str, Any]:
+    effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
+    if not effective_property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    try:
+        return get_abandoned_cart_coupon_orders(effective_property_id, start, end)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
