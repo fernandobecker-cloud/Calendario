@@ -947,18 +947,40 @@ export default function App() {
             <p className="mt-4 text-sm text-slate-600">Carregando pedidos com cupom...</p>
           ) : abandonedCartCoupons ? (
             <div className="mt-4 space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <article className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pedidos no periodo</h3>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Quantidade de transacoes</h3>
                   <p className="mt-2 text-2xl font-semibold text-slate-900">
-                    {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.orders_with_coupon || 0))}
+                    {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.transactions || 0))}
                   </p>
                 </article>
                 <article className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita com cupom</h3>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita total</h3>
                   <p className="mt-2 text-2xl font-semibold text-slate-900">
                     {formatCurrency(abandonedCartCoupons.purchaseRevenue)}
                   </p>
+                </article>
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Ticket medio</h3>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {formatCurrency(abandonedCartCoupons.average_ticket)}
+                  </p>
+                </article>
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Cupom lider</h3>
+                  {abandonedCartCoupons.top_coupon ? (
+                    <>
+                      <p className="mt-2 text-xl font-semibold text-slate-900">
+                        {abandonedCartCoupons.top_coupon.coupon}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.top_coupon.transactions || 0))}{' '}
+                        pedidos ({Number(abandonedCartCoupons.top_coupon.share_of_transactions || 0).toFixed(2)}%)
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-600">Sem destaque no periodo.</p>
+                  )}
                 </article>
               </div>
 

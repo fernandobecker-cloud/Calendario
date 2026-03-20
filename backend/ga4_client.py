@@ -430,6 +430,8 @@ def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date
             "transactions": 0,
             "purchaseRevenue": 0.0,
             "orders_with_coupon": 0,
+            "average_ticket": 0.0,
+            "top_coupon": None,
             "by_coupon": [],
         }
 
@@ -483,6 +485,18 @@ def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date
         )
 
     by_coupon.sort(key=lambda item: (-item["transactions"], item["coupon"]))
+    average_ticket = total_revenue / total_transactions if total_transactions > 0 else 0.0
+    top_coupon = None
+    if by_coupon:
+        leader = by_coupon[0]
+        top_coupon = {
+            "coupon": leader["coupon"],
+            "transactions": leader["transactions"],
+            "purchaseRevenue": leader["purchaseRevenue"],
+            "share_of_transactions": round((leader["transactions"] / total_transactions) * 100, 2)
+            if total_transactions > 0
+            else 0.0,
+        }
 
     return {
         "coupons": ABANDONED_CART_COUPONS,
@@ -491,5 +505,7 @@ def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date
         "transactions": total_transactions,
         "purchaseRevenue": round(total_revenue, 2),
         "orders_with_coupon": total_transactions,
+        "average_ticket": round(average_ticket, 2),
+        "top_coupon": top_coupon,
         "by_coupon": by_coupon,
     }
