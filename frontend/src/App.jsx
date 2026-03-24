@@ -157,6 +157,7 @@ export default function App() {
   const [abandonedCartCoupons, setAbandonedCartCoupons] = useState(null)
   const [abandonedCartCouponsLoading, setAbandonedCartCouponsLoading] = useState(false)
   const [abandonedCartCouponsError, setAbandonedCartCouponsError] = useState('')
+  const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
   const [crmFunnel, setCrmFunnel] = useState(null)
   const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
   const [crmFunnelError, setCrmFunnelError] = useState('')
@@ -353,7 +354,12 @@ export default function App() {
     const period = getMonthDateRange(reportYear, reportMonth)
 
     try {
-      const response = await fetch(`/api/ga4/abandoned-cart-coupons?start=${period.start}&end=${period.end}`)
+      const params = new URLSearchParams({
+        start: period.start,
+        end: period.end,
+        crm_scope: abandonedCartCrmScope
+      })
+      const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
       let payload = null
       try {
         payload = await response.json()
@@ -380,7 +386,7 @@ export default function App() {
     } finally {
       setAbandonedCartCouponsLoading(false)
     }
-  }, [reportMonth, reportYear])
+  }, [abandonedCartCrmScope, reportMonth, reportYear])
 
   const loadCrmFunnel = useCallback(async () => {
     setCrmFunnelLoading(true)
@@ -450,6 +456,12 @@ export default function App() {
     if (!userManagementEnabled) return BASE_MENU_ITEMS
     return [...BASE_MENU_ITEMS, { key: 'users', label: 'Usuarios e Perfis' }]
   }, [userManagementEnabled])
+
+  const abandonedCartScopeLabel = useMemo(() => {
+    if (abandonedCartCrmScope === 'only_crm') return 'somente CRM'
+    if (abandonedCartCrmScope === 'non_crm') return 'nao CRM'
+    return 'todos os canais'
+  }, [abandonedCartCrmScope])
 
   const filteredEvents = useMemo(() => {
     if (selectedChannel === 'all') return events
@@ -934,9 +946,22 @@ export default function App() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Pedidos com Cupom de Carrinho Abandonado</h2>
               <p className="text-sm text-slate-600">
-                Pedidos do mes selecionado que usaram os cupons CARRINHO-100, CARRINHO-50, CARRINHO-30 ou CARRINHO-15.
+                Pedidos do mes selecionado que usaram os cupons CARRINHO-100, CARRINHO-50, CARRINHO-30 ou CARRINHO-15,
+                filtrados em {abandonedCartScopeLabel}.
               </p>
             </div>
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              Recorte
+              <select
+                value={abandonedCartCrmScope}
+                onChange={(event) => setAbandonedCartCrmScope(event.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="all">Todos</option>
+                <option value="only_crm">Somente CRM</option>
+                <option value="non_crm">Nao CRM</option>
+              </select>
+            </label>
           </div>
 
           {abandonedCartCouponsError && (

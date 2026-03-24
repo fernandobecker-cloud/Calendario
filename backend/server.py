@@ -780,13 +780,14 @@ def ga4_abandoned_cart_coupons(
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     property_id: str | None = Query(default=None),
+    crm_scope: Literal["all", "only_crm", "non_crm"] = Query(default="all"),
 ) -> dict[str, Any]:
     effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
     if not effective_property_id:
         raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
 
     try:
-        return get_abandoned_cart_coupon_orders(effective_property_id, start, end)
+        return get_abandoned_cart_coupon_orders(effective_property_id, start, end, crm_scope)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:

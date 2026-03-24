@@ -29,6 +29,7 @@ ABANDONED_CART_COUPONS = [
     "CARRINHO-30",
     "CARRINHO-15",
 ]
+ABANDONED_CART_CRM_SCOPES = {"all", "only_crm", "non_crm"}
 
 
 def _load_service_account_info() -> dict[str, Any]:
@@ -135,6 +136,10 @@ def _build_first_user_crm_filter() -> FilterExpression:
             ),
         )
     )
+
+
+def _build_non_crm_filter() -> FilterExpression:
+    return FilterExpression(not_expression=_build_crm_filter())
 
 
 def _build_in_list_filter(field_name: str, values: list[str]) -> FilterExpression:
@@ -417,14 +422,21 @@ def get_crm_ltv(property_id: str, start_date: str, end_date: str) -> dict[str, i
     }
 
 
-def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date: str) -> dict[str, Any]:
+def get_abandoned_cart_coupon_orders(
+    property_id: str, start_date: str, end_date: str, crm_scope: str = "all"
+) -> dict[str, Any]:
     """Retorna pedidos e receita do periodo com cupons de carrinho abandonado."""
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
+    normalized_scope = str(crm_scope or "all").strip().lower()
+    if normalized_scope not in ABANDONED_CART_CRM_SCOPES:
+        raise RuntimeError("crm_scope invalido. Use all, only_crm ou non_crm")
+
     normalized_period = _normalize_period_to_today(start, end)
     if normalized_period is None:
         return {
             "coupons": ABANDONED_CART_COUPONS,
+            "crm_scope": normalized_scope,
             "start_date": start,
             "end_date": end,
             "transactions": 0,
@@ -449,14 +461,18 @@ def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date
             ),
         )
     )
+    expressions = [coupon_filter, purchase_filter]
+    if normalized_scope == "only_crm":
+        expressions.append(_build_crm_filter())
+    elif normalized_scope == "non_crm":
+        expressions.append(_build_non_crm_filter())
+
     request = RunReportRequest(
         property=property_resource,
         dimensions=[Dimension(name="orderCoupon")],
         metrics=[Metric(name="transactions"), Metric(name="purchaseRevenue")],
         date_ranges=[DateRange(start_date=start, end_date=end)],
-        dimension_filter=FilterExpression(
-            and_group=FilterExpressionList(expressions=[coupon_filter, purchase_filter])
-        ),
+        dimension_filter=FilterExpression(and_group=FilterExpressionList(expressions=expressions)),
     )
     response = _run_report(request, client)
 
@@ -500,6 +516,7 @@ def get_abandoned_cart_coupon_orders(property_id: str, start_date: str, end_date
 
     return {
         "coupons": ABANDONED_CART_COUPONS,
+        "crm_scope": normalized_scope,
         "start_date": start,
         "end_date": end,
         "transactions": total_transactions,
