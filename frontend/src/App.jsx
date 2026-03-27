@@ -168,13 +168,15 @@ export default function App() {
 
     try {
       const response = await fetch('/api/events')
-      if (!response.ok) throw new Error('Falha ao carregar campanhas')
       const contentType = response.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         throw new Error('API respondeu em formato inesperado. Verifique se o backend FastAPI esta rodando na porta 8000.')
       }
 
       const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Falha ao carregar campanhas')
+      }
       const apiEvents = Array.isArray(payload?.events) ? payload.events : []
 
       const normalized = apiEvents.map((event) => {

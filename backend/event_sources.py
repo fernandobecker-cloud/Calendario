@@ -21,6 +21,10 @@ BIGQUERY_TABLE = os.getenv("BIGQUERY_TABLE", "").strip()
 BIGQUERY_QUERY = os.getenv("BIGQUERY_QUERY", "").strip()
 
 
+def _excerpt_error(exc: Exception, limit: int = 300) -> str:
+    return str(exc).strip().replace("\n", " ").replace("\r", " ")[:limit] or exc.__class__.__name__
+
+
 def _load_service_account_info() -> dict[str, Any]:
     if not GOOGLE_SERVICE_ACCOUNT:
         raise HTTPException(status_code=500, detail="Variavel GOOGLE_SERVICE_ACCOUNT nao configurada")
@@ -108,7 +112,10 @@ def load_bigquery_table() -> pd.DataFrame:
         rows = job.result()
         dataframe = rows.to_dataframe(create_bqstorage_client=False)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Falha ao consultar BigQuery") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Falha ao consultar BigQuery: {_excerpt_error(exc)}",
+        ) from exc
 
     return dataframe.fillna("")
 
