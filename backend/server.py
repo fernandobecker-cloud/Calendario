@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import secrets
@@ -14,18 +13,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-import gspread
 import pandas as pd
 from dateutil import parser
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
 
-from backend.emarsys_client import discover_emarsys, get_access_token, get_campaigns
+from backend.event_sources import load_events_dataframe
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_abandoned_cart_coupon_orders,
@@ -34,9 +30,7 @@ from backend.ga4_client import (
     get_sessions_yesterday,
 )
 from backend.ga4_funnel import get_crm_funnel
-from backend.routers.emarsys import router as emarsys_token_router
 from backend.routers.projects import router as projects_router
-from backend.routes.emarsys import router as emarsys_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -52,8 +46,6 @@ USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
 PASSWORD_MIN_LENGTH = 6
 
 app = FastAPI(title="CRM Campaign Planner API")
-app.include_router(emarsys_router)
-app.include_router(emarsys_token_router)
 app.include_router(projects_router)
 
 
@@ -346,8 +338,6 @@ app.mount(
     name="assets",
 )
 
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
-GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT", "").strip()
 GA4_PROPERTY_ID = os.getenv("GA4_PROPERTY_ID", "").strip()
 
 
@@ -385,53 +375,8 @@ def get_channel_color(channel: str) -> str:
     return "#8E8E93"
 
 
-def load_google_sheet() -> pd.DataFrame:
-    """Carrega a primeira aba da planilha via Service Account usando env vars."""
-    if not GOOGLE_SERVICE_ACCOUNT:
-        raise HTTPException(status_code=500, detail="Variavel GOOGLE_SERVICE_ACCOUNT nao configurada")
-    if not SPREADSHEET_ID:
-        raise HTTPException(status_code=500, detail="Variavel SPREADSHEET_ID nao configurada")
-
-    try:
-        service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="GOOGLE_SERVICE_ACCOUNT contem JSON invalido") from exc
-
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-
-    try:
-        credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
-        client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.get_worksheet(0)
-        if worksheet is None:
-            raise HTTPException(status_code=500, detail="A planilha nao possui abas")
-        values = worksheet.get_all_values()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Falha ao autenticar ou ler Google Sheets com Service Account",
-        ) from exc
-
-    if not values:
-        return pd.DataFrame()
-
-    headers = values[0]
-    rows = values[1:]
-    dataframe = pd.DataFrame(rows, columns=headers).fillna("")
-    return dataframe
-
-
-def fetch_and_parse_csv() -> list[dict[str, Any]]:
-    """Le a planilha privada e converte para eventos FullCalendar."""
-    dataframe = load_google_sheet()
-    if dataframe.empty:
-        return []
+def fetch_and_parse_csv_from_dataframe(dataframe: pd.DataFrame) -> list[dict[str, Any]]:
+    """Converte um DataFrame de campanhas para eventos FullCalendar."""
     headers = dataframe.columns.tolist()
 
     col_data = find_column(headers, ["data"])
@@ -497,6 +442,14 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
         )
 
     return events
+
+
+def fetch_and_parse_csv() -> list[dict[str, Any]]:
+    """Le a fonte configurada e converte para eventos FullCalendar."""
+    dataframe, _source = load_events_dataframe()
+    if dataframe.empty:
+        return []
+    return fetch_and_parse_csv_from_dataframe(dataframe)
 
 
 def serve_frontend_file(path: str) -> FileResponse:
@@ -659,8 +612,12 @@ def delete_user(username: str, current_admin: AuthUser = Depends(get_admin_user)
 
 @app.get("/api/events")
 def get_events() -> dict[str, Any]:
-    events = fetch_and_parse_csv()
-    return {"events": events, "total": len(events)}
+    dataframe, source = load_events_dataframe()
+    if dataframe.empty:
+        return {"events": [], "total": 0, "source": source}
+
+    events = fetch_and_parse_csv_from_dataframe(dataframe)
+    return {"events": events, "total": len(events), "source": source}
 
 
 @app.get("/api/ga4/test")
@@ -675,50 +632,6 @@ def ga4_test(property_id: str | None = Query(default=None)) -> dict[str, int]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
-
-
-@app.get("/api/emarsys/test")
-def emarsys_test() -> dict[str, str]:
-    try:
-        token = get_access_token()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="Falha ao autenticar na Emarsys") from exc
-
-    return {
-        "status": "connected",
-        "token_preview": token[:10],
-    }
-
-
-@app.get("/api/emarsys/campaigns")
-def emarsys_campaigns() -> Any:
-    try:
-        campaigns = get_campaigns()
-        return {"campaigns": campaigns}
-    except Exception as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "status": "error",
-                "message": str(exc),
-            },
-        )
-
-
-@app.get("/api/emarsys/discover")
-def emarsys_discover() -> Any:
-    try:
-        return discover_emarsys()
-    except Exception as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "status": "error",
-                "message": str(exc),
-            },
-        )
 
 
 @app.get("/api/ga4/crm/monthly")

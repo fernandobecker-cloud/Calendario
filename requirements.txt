@@ -11,6 +11,7 @@ gspread==6.2.1
 google-analytics-data==0.20.0
 google-api-core==2.30.0
 google-auth==2.48.0
+google-cloud-bigquery==3.38.0
 googleapis-common-protos==1.72.0
 grpcio==1.78.1
 grpcio-status==1.78.1
@@ -23,9 +24,7 @@ pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.12.5
 pydantic_core==2.41.5
-PyJWT==2.10.1
 python-dateutil==2.9.0.post0
-requests==2.32.3
 pandas==2.2.3
 rsa==4.9.1
 six==1.17.0

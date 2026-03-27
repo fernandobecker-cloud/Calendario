@@ -159,7 +159,7 @@ Retorna todos os eventos/campanhas
 
 - **fastapi**: Framework web moderno para Python
 - **uvicorn**: Servidor ASGI para FastAPI
-- **requests**: Biblioteca para requisições HTTP
+- **google-cloud-bigquery**: Cliente oficial para consultar campanhas no BigQuery
 - **FullCalendar**: Biblioteca JavaScript para calendário
 
 ## 🎓 Uso
