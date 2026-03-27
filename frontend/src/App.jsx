@@ -13,6 +13,7 @@ const CHANNEL_COLORS = {
 
 const BASE_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
+  { key: 'open-data', label: 'Open Data Emarsys' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'results', label: 'Resumo de Resultados' },
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
@@ -83,6 +84,11 @@ function formatCurrency(value) {
     currency: 'BRL',
     minimumFractionDigits: 2
   }).format(Number(value || 0))
+}
+
+function formatOpenDataValue(value) {
+  if (value === null || value === undefined || value === '') return '-'
+  return String(value)
 }
 
 function getMonthDateRange(year, month) {
@@ -161,6 +167,10 @@ export default function App() {
   const [crmFunnel, setCrmFunnel] = useState(null)
   const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
   const [crmFunnelError, setCrmFunnelError] = useState('')
+  const [openDataHealth, setOpenDataHealth] = useState(null)
+  const [openDataItems, setOpenDataItems] = useState([])
+  const [openDataLoading, setOpenDataLoading] = useState(false)
+  const [openDataError, setOpenDataError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -432,6 +442,50 @@ export default function App() {
     ])
   }, [loadAbandonedCartCoupons, loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
 
+  const loadOpenData = useCallback(async () => {
+    setOpenDataLoading(true)
+    setOpenDataError('')
+
+    try {
+      const [healthResponse, campaignsResponse] = await Promise.all([
+        fetch('/api/open-data/emarsys/health'),
+        fetch('/api/open-data/emarsys/email-campaigns?limit=50')
+      ])
+
+      let healthPayload = null
+      let campaignsPayload = null
+
+      try {
+        healthPayload = await healthResponse.json()
+      } catch (_error) {
+        healthPayload = null
+      }
+
+      try {
+        campaignsPayload = await campaignsResponse.json()
+      } catch (_error) {
+        campaignsPayload = null
+      }
+
+      if (!healthResponse.ok) {
+        throw new Error(healthPayload?.detail || 'Nao foi possivel validar a conexao com o Open Data.')
+      }
+
+      if (!campaignsResponse.ok) {
+        throw new Error(campaignsPayload?.detail || 'Nao foi possivel carregar campanhas do Open Data.')
+      }
+
+      setOpenDataHealth(healthPayload)
+      setOpenDataItems(Array.isArray(campaignsPayload?.items) ? campaignsPayload.items : [])
+    } catch (err) {
+      setOpenDataHealth(null)
+      setOpenDataItems([])
+      setOpenDataError(err instanceof Error ? err.message : 'Falha ao carregar Open Data da Emarsys.')
+    } finally {
+      setOpenDataLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadCurrentUser()
   }, [loadCurrentUser])
@@ -447,6 +501,12 @@ export default function App() {
       loadAllResults()
     }
   }, [activeView, loadAllResults])
+
+  useEffect(() => {
+    if (activeView === 'open-data') {
+      loadOpenData()
+    }
+  }, [activeView, loadOpenData])
 
   useEffect(() => {
     if (!userManagementEnabled && activeView === 'users') {
@@ -863,6 +923,102 @@ export default function App() {
           Copiar URL
         </button>
       </div>
+    </section>
+  )
+
+  const renderOpenDataView = () => (
+    <section className="space-y-5">
+      <section className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 p-6 text-white shadow-soft md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Open Data Emarsys</h1>
+            <p className="mt-2 text-sm text-slate-200 md:text-base">
+              Consulta isolada do BigQuery para validar campanhas sem impactar o calendario do portal.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadOpenData}
+            className="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold transition hover:bg-white/25"
+          >
+            Atualizar
+          </button>
+        </div>
+      </section>
+
+      {openDataError && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{openDataError}</section>
+      )}
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {openDataHealth?.status === 'connected' ? 'Conectado' : openDataLoading ? 'Validando...' : 'Pendente'}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Projeto</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{formatOpenDataValue(openDataHealth?.project_id)}</p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Local</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{formatOpenDataValue(openDataHealth?.location)}</p>
+        </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas carregadas</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {new Intl.NumberFormat('pt-BR').format(openDataItems.length)}
+          </p>
+        </article>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Campanhas de Email</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Amostra das campanhas vindas do dataset Open Data da Emarsys.
+            </p>
+          </div>
+        </div>
+
+        {openDataLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando campanhas do Open Data...</p>
+        ) : openDataItems.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">Nenhuma campanha retornada no momento.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead>
+                <tr className="text-left text-slate-600">
+                  <th className="px-3 py-2 font-semibold">Data</th>
+                  <th className="px-3 py-2 font-semibold">Campanha</th>
+                  <th className="px-3 py-2 font-semibold">Canal</th>
+                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold">Direcionamento</th>
+                  <th className="px-3 py-2 font-semibold">Produto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {openDataItems.map((item, index) => (
+                  <tr key={`${item.campaign_id || item.id || 'campaign'}-${index}`} className="align-top">
+                    <td className="px-3 py-3 text-slate-700">{formatDate(item.data)}</td>
+                    <td className="px-3 py-3">
+                      <p className="font-medium text-slate-900">{formatOpenDataValue(item.campanha)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatOpenDataValue(item.observacao)}</p>
+                    </td>
+                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.canal)}</td>
+                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.status)}</td>
+                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.direcionamento)}</td>
+                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.produto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </section>
   )
 
@@ -1372,6 +1528,7 @@ export default function App() {
 
         <div className="space-y-5">
           {activeView === 'calendar' && renderCalendarView()}
+          {activeView === 'open-data' && renderOpenDataView()}
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'results' && renderResultsView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}

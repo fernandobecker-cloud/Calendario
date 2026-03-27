@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.event_sources import load_events_dataframe
+from backend.event_sources import load_google_sheet
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_abandoned_cart_coupon_orders,
@@ -31,6 +31,7 @@ from backend.ga4_client import (
 )
 from backend.ga4_funnel import get_crm_funnel
 from backend.routers.projects import router as projects_router
+from backend.routes.open_data import router as open_data_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -47,6 +48,7 @@ PASSWORD_MIN_LENGTH = 6
 
 app = FastAPI(title="CRM Campaign Planner API")
 app.include_router(projects_router)
+app.include_router(open_data_router)
 
 
 def is_single_auth_mode() -> bool:
@@ -445,8 +447,8 @@ def fetch_and_parse_csv_from_dataframe(dataframe: pd.DataFrame) -> list[dict[str
 
 
 def fetch_and_parse_csv() -> list[dict[str, Any]]:
-    """Le a fonte configurada e converte para eventos FullCalendar."""
-    dataframe, _source = load_events_dataframe()
+    """Le a planilha do Google Sheets e converte para eventos FullCalendar."""
+    dataframe = load_google_sheet()
     if dataframe.empty:
         return []
     return fetch_and_parse_csv_from_dataframe(dataframe)
@@ -612,12 +614,12 @@ def delete_user(username: str, current_admin: AuthUser = Depends(get_admin_user)
 
 @app.get("/api/events")
 def get_events() -> dict[str, Any]:
-    dataframe, source = load_events_dataframe()
+    dataframe = load_google_sheet()
     if dataframe.empty:
-        return {"events": [], "total": 0, "source": source}
+        return {"events": [], "total": 0, "source": "google_sheets"}
 
     events = fetch_and_parse_csv_from_dataframe(dataframe)
-    return {"events": events, "total": len(events), "source": source}
+    return {"events": events, "total": len(events), "source": "google_sheets"}
 
 
 @app.get("/api/ga4/test")
