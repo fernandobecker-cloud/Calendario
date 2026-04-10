@@ -557,6 +557,14 @@ export default function App() {
     return events.filter((event) => event?.extendedProps?.channelKey === selectedChannel)
   }, [events, selectedChannel])
 
+  const openDataOpenRatesByCampaign = useMemo(() => {
+    return openDataOpenRateItems.reduce((acc, item) => {
+      const key = `${item.campaign_id || ''}-${item.data || ''}`
+      acc[key] = item
+      return acc
+    }, {})
+  }, [openDataOpenRateItems])
+
   const saturationDays = useMemo(() => {
     const map = {}
     filteredEvents.forEach((event) => {
@@ -977,7 +985,7 @@ export default function App() {
         <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{openDataError}</section>
       )}
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
           <p className="mt-2 text-xl font-semibold text-slate-900">
@@ -1011,7 +1019,7 @@ export default function App() {
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Campanhas de Email</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Amostra das campanhas vindas do dataset Open Data da Emarsys.
+              Amostra das campanhas vindas do dataset Open Data da Emarsys com envios e taxa de abertura por campanha.
             </p>
           </div>
         </div>
@@ -1031,80 +1039,46 @@ export default function App() {
                   <th className="px-3 py-2 font-semibold">Status</th>
                   <th className="px-3 py-2 font-semibold">Direcionamento</th>
                   <th className="px-3 py-2 font-semibold">Produto</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {openDataItems.map((item, index) => (
-                  <tr key={`${item.campaign_id || item.id || 'campaign'}-${index}`} className="align-top">
-                    <td className="px-3 py-3 text-slate-700">{formatDate(item.data)}</td>
-                    <td className="px-3 py-3">
-                      <p className="font-medium text-slate-900">{formatOpenDataValue(item.campanha)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatOpenDataValue(item.observacao)}</p>
-                    </td>
-                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.canal)}</td>
-                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.status)}</td>
-                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.direcionamento)}</td>
-                    <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.produto)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Taxa de Abertura</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Performance por campanha com base em aberturas unicas sobre envios unicos.
-            </p>
-          </div>
-        </div>
-
-        {openDataLoading ? (
-          <p className="mt-4 text-sm text-slate-600">Carregando taxas de abertura do Open Data...</p>
-        ) : openDataOpenRateItems.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-600">Nenhuma taxa de abertura retornada no momento.</p>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead>
-                <tr className="text-left text-slate-600">
-                  <th className="px-3 py-2 font-semibold">Data</th>
-                  <th className="px-3 py-2 font-semibold">Campanha</th>
                   <th className="px-3 py-2 font-semibold">Enviados</th>
-                  <th className="px-3 py-2 font-semibold">Aberturas unicas</th>
+                  <th className="px-3 py-2 font-semibold">Aberturas</th>
                   <th className="px-3 py-2 font-semibold">Taxa de abertura</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {openDataOpenRateItems.map((item, index) => (
-                  <tr key={`${item.campaign_id || 'open-rate'}-${index}`} className="align-top">
-                    <td className="px-3 py-3 text-slate-700">{formatDate(item.data)}</td>
-                    <td className="px-3 py-3">
-                      <p className="font-medium text-slate-900">{formatOpenDataValue(item.campanha)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatOpenDataValue(item.observacao)}</p>
-                    </td>
-                    <td className="px-3 py-3 text-slate-700">
-                      {new Intl.NumberFormat('pt-BR').format(Number(item.enviados || 0))}
-                    </td>
-                    <td className="px-3 py-3 text-slate-700">
-                      {new Intl.NumberFormat('pt-BR').format(Number(item.aberturas_unicas || 0))}
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className="inline-flex rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
-                        {item.taxa_abertura_percentual === null || item.taxa_abertura_percentual === undefined
-                          ? '-'
-                          : `${Number(item.taxa_abertura_percentual).toLocaleString('pt-BR', {
-                              minimumFractionDigits: 0,
-                              maximumFractionDigits: 2
-                            })}%`}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {openDataItems.map((item, index) => {
+                  const metricsKey = `${item.campaign_id || ''}-${item.data || ''}`
+                  const metrics = openDataOpenRatesByCampaign[metricsKey]
+
+                  return (
+                    <tr key={`${item.campaign_id || item.id || 'campaign'}-${index}`} className="align-top">
+                      <td className="px-3 py-3 text-slate-700">{formatDate(item.data)}</td>
+                      <td className="px-3 py-3">
+                        <p className="font-medium text-slate-900">{formatOpenDataValue(item.campanha)}</p>
+                        <p className="mt-1 text-xs text-slate-500">{formatOpenDataValue(item.observacao)}</p>
+                      </td>
+                      <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.canal)}</td>
+                      <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.status)}</td>
+                      <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.direcionamento)}</td>
+                      <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.produto)}</td>
+                      <td className="px-3 py-3 text-slate-700">
+                        {new Intl.NumberFormat('pt-BR').format(Number(metrics?.enviados || 0))}
+                      </td>
+                      <td className="px-3 py-3 text-slate-700">
+                        {new Intl.NumberFormat('pt-BR').format(Number(metrics?.aberturas_unicas || 0))}
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="inline-flex rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
+                          {metrics?.taxa_abertura_percentual === null || metrics?.taxa_abertura_percentual === undefined
+                            ? '-'
+                            : `${Number(metrics.taxa_abertura_percentual).toLocaleString('pt-BR', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 2
+                              })}%`}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
