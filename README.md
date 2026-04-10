@@ -186,6 +186,11 @@ Retorna todos os eventos/campanhas
 - Confirme que o link do Google Sheets está acessível
 - Tente atualizar a página (🔄)
 
+### "Please install the 'db-dtypes' package to use this function"
+- Reinstale as dependencias do backend com `pip install -r requirements.txt`
+- Reinicie o servidor apos a instalacao
+- Se estiver em deploy, gere um novo build para o ambiente instalar a nova dependencia
+
 ### Nenhum evento aparece
 - Verifique se o CSV tem dados
 - Confirme que as datas estão em um dos formatos suportados
