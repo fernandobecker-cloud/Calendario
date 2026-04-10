@@ -169,6 +169,7 @@ export default function App() {
   const [crmFunnelError, setCrmFunnelError] = useState('')
   const [openDataHealth, setOpenDataHealth] = useState(null)
   const [openDataItems, setOpenDataItems] = useState([])
+  const [openDataOpenRateItems, setOpenDataOpenRateItems] = useState([])
   const [openDataLoading, setOpenDataLoading] = useState(false)
   const [openDataError, setOpenDataError] = useState('')
 
@@ -470,9 +471,10 @@ export default function App() {
     let nextHealthPayload = null
 
     try {
-      const [healthResponse, campaignsResponse] = await Promise.all([
+      const [healthResponse, campaignsResponse, openRatesResponse] = await Promise.all([
         fetch('/api/open-data/emarsys/health'),
-        fetch('/api/open-data/emarsys/email-campaigns?limit=50')
+        fetch('/api/open-data/emarsys/email-campaigns?limit=50'),
+        fetch('/api/open-data/emarsys/email-open-rates?limit=50')
       ])
 
       if (!healthResponse.ok) {
@@ -486,14 +488,25 @@ export default function App() {
       if (!campaignsResponse.ok) {
         const message = await readErrorMessage(campaignsResponse, 'Nao foi possivel carregar campanhas do Open Data.')
         setOpenDataItems([])
+        setOpenDataOpenRateItems([])
         throw new Error(message)
       }
 
       const campaignsPayload = await campaignsResponse.json()
       setOpenDataItems(Array.isArray(campaignsPayload?.items) ? campaignsPayload.items : [])
+
+      if (!openRatesResponse.ok) {
+        const message = await readErrorMessage(openRatesResponse, 'Nao foi possivel carregar taxas de abertura do Open Data.')
+        setOpenDataOpenRateItems([])
+        throw new Error(message)
+      }
+
+      const openRatesPayload = await openRatesResponse.json()
+      setOpenDataOpenRateItems(Array.isArray(openRatesPayload?.items) ? openRatesPayload.items : [])
     } catch (err) {
       setOpenDataHealth(nextHealthPayload)
       setOpenDataItems([])
+      setOpenDataOpenRateItems([])
       setOpenDataError(err instanceof Error ? err.message : 'Falha ao carregar Open Data da Emarsys.')
     } finally {
       setOpenDataLoading(false)
@@ -985,6 +998,12 @@ export default function App() {
             {new Intl.NumberFormat('pt-BR').format(openDataItems.length)}
           </p>
         </article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Taxas de abertura</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {new Intl.NumberFormat('pt-BR').format(openDataOpenRateItems.length)}
+          </p>
+        </article>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -1026,6 +1045,64 @@ export default function App() {
                     <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.status)}</td>
                     <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.direcionamento)}</td>
                     <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.produto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Taxa de Abertura</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Performance por campanha com base em aberturas unicas sobre envios unicos.
+            </p>
+          </div>
+        </div>
+
+        {openDataLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando taxas de abertura do Open Data...</p>
+        ) : openDataOpenRateItems.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">Nenhuma taxa de abertura retornada no momento.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead>
+                <tr className="text-left text-slate-600">
+                  <th className="px-3 py-2 font-semibold">Data</th>
+                  <th className="px-3 py-2 font-semibold">Campanha</th>
+                  <th className="px-3 py-2 font-semibold">Enviados</th>
+                  <th className="px-3 py-2 font-semibold">Aberturas unicas</th>
+                  <th className="px-3 py-2 font-semibold">Taxa de abertura</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {openDataOpenRateItems.map((item, index) => (
+                  <tr key={`${item.campaign_id || 'open-rate'}-${index}`} className="align-top">
+                    <td className="px-3 py-3 text-slate-700">{formatDate(item.data)}</td>
+                    <td className="px-3 py-3">
+                      <p className="font-medium text-slate-900">{formatOpenDataValue(item.campanha)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatOpenDataValue(item.observacao)}</p>
+                    </td>
+                    <td className="px-3 py-3 text-slate-700">
+                      {new Intl.NumberFormat('pt-BR').format(Number(item.enviados || 0))}
+                    </td>
+                    <td className="px-3 py-3 text-slate-700">
+                      {new Intl.NumberFormat('pt-BR').format(Number(item.aberturas_unicas || 0))}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="inline-flex rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
+                        {item.taxa_abertura_percentual === null || item.taxa_abertura_percentual === undefined
+                          ? '-'
+                          : `${Number(item.taxa_abertura_percentual).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 2
+                            })}%`}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
