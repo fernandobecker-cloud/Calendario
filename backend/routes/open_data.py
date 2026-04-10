@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
-from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Query
-import pandas as pd
+from fastapi import HTTPException
 
 from backend.event_sources import run_bigquery_query
 
@@ -30,24 +30,13 @@ def _quote_identifier(value: str) -> str:
     return safe
 
 
-def _normalize_open_data_value(value: Any) -> Any:
-    if pd.isna(value):
-        return ""
-    if isinstance(value, pd.Timestamp):
-        return value.date().isoformat() if value.hour == 0 and value.minute == 0 and value.second == 0 and value.microsecond == 0 else value.isoformat()
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    return value
-
-
-def _dataframe_to_records(dataframe: pd.DataFrame) -> list[dict[str, Any]]:
-    records = dataframe.to_dict(orient="records")
-    return [
-        {key: _normalize_open_data_value(value) for key, value in record.items()}
-        for record in records
-    ]
+def _dataframe_to_records(dataframe: Any) -> list[dict[str, Any]]:
+    """Serializa DataFrame com o encoder do pandas para evitar crashes no JSON."""
+    payload = dataframe.where(dataframe.notna(), "").to_json(orient="records", date_format="iso")
+    records = json.loads(payload)
+    if not isinstance(records, list):
+        raise ValueError("Falha ao converter DataFrame do Open Data em lista JSON")
+    return records
 
 
 def _build_email_campaigns_sql(limit: int) -> str:
@@ -105,38 +94,47 @@ LIMIT {limit}
 
 @router.get("/emarsys/email-campaigns")
 def emarsys_email_campaigns(limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
-    sql = _build_email_campaigns_sql(limit)
-    dataframe = run_bigquery_query(
-        sql,
-        EMARSYS_OPEN_DATA_PROJECT_ID,
-        location=EMARSYS_OPEN_DATA_LOCATION or None,
-    )
-
-    items = _dataframe_to_records(dataframe)
-    return {
-        "items": items,
-        "total": len(items),
-        "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
-        "dataset": EMARSYS_OPEN_DATA_DATASET,
-        "table": EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE,
-        "location": EMARSYS_OPEN_DATA_LOCATION or None,
-        "source": "bigquery_emarsys_open_data",
-    }
+    try:
+        sql = _build_email_campaigns_sql(limit)
+        dataframe = run_bigquery_query(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _dataframe_to_records(dataframe)
+        return {
+            "items": items,
+            "total": len(items),
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "dataset": EMARSYS_OPEN_DATA_DATASET,
+            "table": EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "source": "bigquery_emarsys_open_data",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao preparar resposta Open Data: {exc}") from exc
 
 
 @router.get("/emarsys/health")
 def emarsys_open_data_health() -> dict[str, Any]:
-    sql = "SELECT 1 AS ok"
-    dataframe = run_bigquery_query(
-        sql,
-        EMARSYS_OPEN_DATA_PROJECT_ID,
-        location=EMARSYS_OPEN_DATA_LOCATION or None,
-    )
-    rows = _dataframe_to_records(dataframe)
-    return {
-        "status": "connected",
-        "rows": rows,
-        "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
-        "location": EMARSYS_OPEN_DATA_LOCATION or None,
-        "source": "bigquery_emarsys_open_data",
-    }
+    try:
+        sql = "SELECT 1 AS ok"
+        dataframe = run_bigquery_query(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        rows = _dataframe_to_records(dataframe)
+        return {
+            "status": "connected",
+            "rows": rows,
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "source": "bigquery_emarsys_open_data",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao preparar health Open Data: {exc}") from exc
