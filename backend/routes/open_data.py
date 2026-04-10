@@ -8,9 +8,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
-import pandas as pd
 
-from backend.event_sources import run_bigquery_query
+from backend.event_sources import run_bigquery_records
 
 EMARSYS_OPEN_DATA_PROJECT_ID = os.getenv("EMARSYS_OPEN_DATA_PROJECT_ID", "sap-od-herval").strip()
 EMARSYS_OPEN_DATA_DATASET = os.getenv("EMARSYS_OPEN_DATA_DATASET", "emarsys_herval_1091660394").strip()
@@ -20,6 +19,10 @@ EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE = os.getenv(
 ).strip()
 EMARSYS_OPEN_DATA_LOCATION = os.getenv("EMARSYS_OPEN_DATA_LOCATION", "EU").strip()
 EMARSYS_OPEN_DATA_QUERY = os.getenv("EMARSYS_OPEN_DATA_QUERY", "").strip()
+EMARSYS_OPEN_DATA_LOOKBACK_DAYS = max(
+    1,
+    int(os.getenv("EMARSYS_OPEN_DATA_LOOKBACK_DAYS", "180").strip() or "180"),
+)
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 
@@ -32,12 +35,8 @@ def _quote_identifier(value: str) -> str:
 
 
 def _normalize_open_data_value(value: Any) -> Any:
-    if pd.isna(value):
+    if value is None:
         return None
-    if isinstance(value, pd.Timestamp):
-        if value.hour == 0 and value.minute == 0 and value.second == 0 and value.microsecond == 0:
-            return value.date().isoformat()
-        return value.isoformat()
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, date):
@@ -45,8 +44,7 @@ def _normalize_open_data_value(value: Any) -> Any:
     return value
 
 
-def _dataframe_to_records(dataframe: Any) -> list[dict[str, Any]]:
-    records = dataframe.to_dict(orient="records")
+def _records_to_response_items(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {key: _normalize_open_data_value(value) for key, value in record.items()}
         for record in records
@@ -82,6 +80,7 @@ WITH ranked AS (
       ORDER BY event_time DESC, loaded_at DESC
     ) AS rn
   FROM `{project_id}.{dataset}.{table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)
 )
 SELECT
   CAST(id AS STRING) AS campaign_id,
@@ -107,15 +106,15 @@ LIMIT {limit}
 
 
 @router.get("/emarsys/email-campaigns")
-def emarsys_email_campaigns(limit: int = Query(default=100, ge=1, le=500)) -> dict[str, Any]:
+def emarsys_email_campaigns(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
     try:
         sql = _build_email_campaigns_sql(limit)
-        dataframe = run_bigquery_query(
+        records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
-        items = _dataframe_to_records(dataframe)
+        items = _records_to_response_items(records)
         return {
             "items": items,
             "total": len(items),
@@ -124,6 +123,7 @@ def emarsys_email_campaigns(limit: int = Query(default=100, ge=1, le=500)) -> di
             "table": EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE,
             "location": EMARSYS_OPEN_DATA_LOCATION or None,
             "source": "bigquery_emarsys_open_data",
+            "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
         }
     except HTTPException:
         raise
@@ -135,12 +135,12 @@ def emarsys_email_campaigns(limit: int = Query(default=100, ge=1, le=500)) -> di
 def emarsys_open_data_health() -> dict[str, Any]:
     try:
         sql = "SELECT 1 AS ok"
-        dataframe = run_bigquery_query(
+        records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
-        rows = _dataframe_to_records(dataframe)
+        rows = _records_to_response_items(records)
         return {
             "status": "connected",
             "rows": rows,
