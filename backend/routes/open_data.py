@@ -49,7 +49,7 @@ WITH ranked AS (
     sub_type,
     program_id,
     customer_id,
-    partitiontime,
+    _PARTITIONTIME AS partitiontime,
     event_time,
     loaded_at,
     ROW_NUMBER() OVER (

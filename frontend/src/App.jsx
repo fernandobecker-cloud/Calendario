@@ -442,9 +442,32 @@ export default function App() {
     ])
   }, [loadAbandonedCartCoupons, loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
 
+  const readErrorMessage = async (response, fallbackMessage) => {
+    try {
+      const text = await response.text()
+      if (!text || !text.trim()) {
+        return fallbackMessage
+      }
+
+      try {
+        const payload = JSON.parse(text)
+        if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+          return payload.detail
+        }
+      } catch (_error) {
+        // resposta nao era JSON; devolve texto puro abaixo
+      }
+
+      return text.trim()
+    } catch (_error) {
+      return fallbackMessage
+    }
+  }
+
   const loadOpenData = useCallback(async () => {
     setOpenDataLoading(true)
     setOpenDataError('')
+    let nextHealthPayload = null
 
     try {
       const [healthResponse, campaignsResponse] = await Promise.all([
@@ -452,33 +475,24 @@ export default function App() {
         fetch('/api/open-data/emarsys/email-campaigns?limit=50')
       ])
 
-      let healthPayload = null
-      let campaignsPayload = null
-
-      try {
-        healthPayload = await healthResponse.json()
-      } catch (_error) {
-        healthPayload = null
-      }
-
-      try {
-        campaignsPayload = await campaignsResponse.json()
-      } catch (_error) {
-        campaignsPayload = null
-      }
-
       if (!healthResponse.ok) {
-        throw new Error(healthPayload?.detail || 'Nao foi possivel validar a conexao com o Open Data.')
+        const message = await readErrorMessage(healthResponse, 'Nao foi possivel validar a conexao com o Open Data.')
+        throw new Error(message)
       }
+
+      nextHealthPayload = await healthResponse.json()
+      setOpenDataHealth(nextHealthPayload)
 
       if (!campaignsResponse.ok) {
-        throw new Error(campaignsPayload?.detail || 'Nao foi possivel carregar campanhas do Open Data.')
+        const message = await readErrorMessage(campaignsResponse, 'Nao foi possivel carregar campanhas do Open Data.')
+        setOpenDataItems([])
+        throw new Error(message)
       }
 
-      setOpenDataHealth(healthPayload)
+      const campaignsPayload = await campaignsResponse.json()
       setOpenDataItems(Array.isArray(campaignsPayload?.items) ? campaignsPayload.items : [])
     } catch (err) {
-      setOpenDataHealth(null)
+      setOpenDataHealth(nextHealthPayload)
       setOpenDataItems([])
       setOpenDataError(err instanceof Error ? err.message : 'Falha ao carregar Open Data da Emarsys.')
     } finally {
