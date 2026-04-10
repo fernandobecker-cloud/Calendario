@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
+import pandas as pd
 
 from backend.event_sources import run_bigquery_query
 
@@ -30,13 +31,26 @@ def _quote_identifier(value: str) -> str:
     return safe
 
 
+def _normalize_open_data_value(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        if value.hour == 0 and value.minute == 0 and value.second == 0 and value.microsecond == 0:
+            return value.date().isoformat()
+        return value.isoformat()
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
 def _dataframe_to_records(dataframe: Any) -> list[dict[str, Any]]:
-    """Serializa DataFrame com o encoder do pandas para evitar crashes no JSON."""
-    payload = dataframe.where(dataframe.notna(), "").to_json(orient="records", date_format="iso")
-    records = json.loads(payload)
-    if not isinstance(records, list):
-        raise ValueError("Falha ao converter DataFrame do Open Data em lista JSON")
-    return records
+    records = dataframe.to_dict(orient="records")
+    return [
+        {key: _normalize_open_data_value(value) for key, value in record.items()}
+        for record in records
+    ]
 
 
 def _build_email_campaigns_sql(limit: int) -> str:
