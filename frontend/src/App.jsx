@@ -19,6 +19,14 @@ const BASE_MENU_ITEMS = [
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
 ]
 
+const OPEN_DATA_LIMIT = 200
+const ANNIVERSARY_AUTOMATION_COUPON = 'IPLACEANIVER'
+const ANNIVERSARY_AUTOMATION_STAGES = [
+  { key: 'parte1', label: 'Parte 1', matchers: ['PGR_0_ANIVERSARIO_Parte1'] },
+  { key: 'parte2', label: 'Parte 2', matchers: ['PGR_0_ANIVERSARIO_Parte2'] },
+  { key: 'parte3', label: 'Parte 3', matchers: ['PGR_0_ANIVERSARIO_Parte3'] }
+]
+
 function normalizeChannel(channel) {
   const value = String(channel || '').toLowerCase()
   if (value.includes('email')) return 'email'
@@ -89,6 +97,14 @@ function formatCurrency(value) {
 function formatOpenDataValue(value) {
   if (value === null || value === undefined || value === '') return '-'
   return String(value)
+}
+
+function normalizeLookup(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .toLowerCase()
 }
 
 function getMonthDateRange(year, month) {
@@ -186,6 +202,9 @@ export default function App() {
   const [openDataOpenRateItems, setOpenDataOpenRateItems] = useState([])
   const [openDataLoading, setOpenDataLoading] = useState(false)
   const [openDataError, setOpenDataError] = useState('')
+  const [anniversaryAutomationCouponStats, setAnniversaryAutomationCouponStats] = useState(null)
+  const [anniversaryAutomationCouponLoading, setAnniversaryAutomationCouponLoading] = useState(false)
+  const [anniversaryAutomationCouponError, setAnniversaryAutomationCouponError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -620,8 +639,8 @@ export default function App() {
     try {
       const [healthResponse, campaignsResponse, openRatesResponse] = await Promise.all([
         fetch('/api/open-data/emarsys/health'),
-        fetch('/api/open-data/emarsys/email-campaigns?limit=50'),
-        fetch('/api/open-data/emarsys/email-open-rates?limit=50')
+        fetch(`/api/open-data/emarsys/email-campaigns?limit=${OPEN_DATA_LIMIT}`),
+        fetch(`/api/open-data/emarsys/email-open-rates?limit=${OPEN_DATA_LIMIT}`)
       ])
 
       if (!healthResponse.ok) {
@@ -721,6 +740,102 @@ export default function App() {
       return acc
     }, {})
   }, [openDataOpenRateItems])
+
+  const anniversaryAutomationStages = useMemo(() => {
+    return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
+      const normalizedMatchers = stage.matchers.map(normalizeLookup)
+      const items = openDataOpenRateItems.filter((item) => {
+        const normalizedCampaign = normalizeLookup(item.campanha)
+        return normalizedMatchers.some((matcher) => normalizedCampaign.includes(matcher))
+      })
+      const sends = items.reduce((sum, item) => sum + Number(item.enviados || 0), 0)
+      const opens = items.reduce((sum, item) => sum + Number(item.aberturas_unicas || 0), 0)
+      const openRate = sends > 0 ? (opens / sends) * 100 : 0
+
+      return {
+        ...stage,
+        items,
+        sends,
+        opens,
+        openRate
+      }
+    })
+  }, [openDataOpenRateItems])
+
+  const anniversaryAutomationDateRange = useMemo(() => {
+    const dates = anniversaryAutomationStages
+      .flatMap((stage) => stage.items.map((item) => String(item.data || '').trim()))
+      .filter(Boolean)
+      .sort()
+
+    if (dates.length === 0) return null
+    return {
+      start: dates[0],
+      end: dates[dates.length - 1]
+    }
+  }, [anniversaryAutomationStages])
+
+  const anniversaryAutomationTotals = useMemo(() => {
+    const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)
+    const opens = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.opens, 0)
+    return {
+      sends,
+      opens,
+      openRate: sends > 0 ? (opens / sends) * 100 : 0
+    }
+  }, [anniversaryAutomationStages])
+
+  const loadAnniversaryAutomationCouponStats = useCallback(async () => {
+    if (!anniversaryAutomationDateRange?.start || !anniversaryAutomationDateRange?.end) {
+      setAnniversaryAutomationCouponStats(null)
+      setAnniversaryAutomationCouponError('')
+      return
+    }
+
+    setAnniversaryAutomationCouponLoading(true)
+    setAnniversaryAutomationCouponError('')
+
+    try {
+      const params = new URLSearchParams({
+        start: anniversaryAutomationDateRange.start,
+        end: anniversaryAutomationDateRange.end
+      })
+      params.append('coupon', ANNIVERSARY_AUTOMATION_COUPON)
+
+      const response = await fetch(`/api/ga4/coupon-orders?${params.toString()}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar a receita da automacao de aniversario.'
+        if (isGa4NoDataError(detail)) {
+          setAnniversaryAutomationCouponStats(null)
+          setAnniversaryAutomationCouponError('')
+          return
+        }
+        throw new Error(detail)
+      }
+
+      setAnniversaryAutomationCouponStats(payload)
+    } catch (err) {
+      setAnniversaryAutomationCouponStats(null)
+      setAnniversaryAutomationCouponError(
+        err instanceof Error ? err.message : 'Falha ao carregar a receita da automacao de aniversario.'
+      )
+    } finally {
+      setAnniversaryAutomationCouponLoading(false)
+    }
+  }, [anniversaryAutomationDateRange?.end, anniversaryAutomationDateRange?.start])
+
+  useEffect(() => {
+    if (activeView === 'open-data') {
+      loadAnniversaryAutomationCouponStats()
+    }
+  }, [activeView, loadAnniversaryAutomationCouponStats])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1169,6 +1284,107 @@ export default function App() {
             {new Intl.NumberFormat('pt-BR').format(openDataOpenRateItems.length)}
           </p>
         </article>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Automacao de Aniversario</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Taxas de abertura das pecas `Parte 1`, `Parte 2` e `Parte 3`, com receita do cupom {ANNIVERSARY_AUTOMATION_COUPON}.
+            </p>
+          </div>
+          {anniversaryAutomationDateRange && (
+            <p className="text-sm text-slate-600">
+              Periodo identificado: {formatDate(anniversaryAutomationDateRange.start)} a {formatDate(anniversaryAutomationDateRange.end)}
+            </p>
+          )}
+        </div>
+
+        {anniversaryAutomationCouponError && (
+          <p className="mt-4 text-sm text-rose-700">{anniversaryAutomationCouponError}</p>
+        )}
+
+        {openDataLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando automacao de aniversario...</p>
+        ) : anniversaryAutomationStages.every((stage) => stage.items.length === 0) ? (
+          <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no Open Data atual.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {anniversaryAutomationStages.map((stage) => (
+                <article key={stage.key} className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{stage.label}</h3>
+                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                    {Number(stage.openRate).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {new Intl.NumberFormat('pt-BR').format(stage.opens)} aberturas unicas de{' '}
+                    {new Intl.NumberFormat('pt-BR').format(stage.sends)} enviados
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">{stage.items.length} peca(s) encontrada(s)</p>
+                </article>
+              ))}
+
+              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Consolidado</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {Number(anniversaryAutomationTotals.openRate).toLocaleString('pt-BR', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2
+                  })}%
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.opens)} aberturas unicas de{' '}
+                  {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.sends)} enviados
+                </p>
+                {anniversaryAutomationCouponLoading ? (
+                  <p className="mt-3 text-sm text-slate-600">Carregando receita...</p>
+                ) : (
+                  <div className="mt-3 space-y-1 text-sm text-slate-600">
+                    <p>
+                      Pedidos com cupom: {new Intl.NumberFormat('pt-BR').format(Number(anniversaryAutomationCouponStats?.transactions || 0))}
+                    </p>
+                    <p>Receita: {formatCurrency(anniversaryAutomationCouponStats?.purchaseRevenue)}</p>
+                    <p>Ticket medio: {formatCurrency(anniversaryAutomationCouponStats?.average_ticket)}</p>
+                  </div>
+                )}
+              </article>
+            </div>
+
+            <div className="rounded-xl border border-slate-200">
+              <div className="grid grid-cols-[140px_minmax(0,1fr)_120px_120px_140px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span>Etapa</span>
+                <span>Campanha</span>
+                <span>Enviados</span>
+                <span>Aberturas</span>
+                <span>Taxa</span>
+              </div>
+              {anniversaryAutomationStages.flatMap((stage) =>
+                stage.items.map((item, index) => (
+                  <div
+                    key={`${stage.key}-${item.campaign_id || item.campanha || index}-${item.data || ''}`}
+                    className="grid grid-cols-[140px_minmax(0,1fr)_120px_120px_140px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                  >
+                    <span className="font-medium text-slate-900">{stage.label}</span>
+                    <span className="text-slate-700">{formatOpenDataValue(item.campanha)}</span>
+                    <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(Number(item.enviados || 0))}</span>
+                    <span className="text-slate-700">
+                      {new Intl.NumberFormat('pt-BR').format(Number(item.aberturas_unicas || 0))}
+                    </span>
+                    <span className="text-slate-700">
+                      {Number(item.taxa_abertura_percentual || 0).toLocaleString('pt-BR', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                      %
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">

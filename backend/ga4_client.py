@@ -426,16 +426,26 @@ def get_abandoned_cart_coupon_orders(
     property_id: str, start_date: str, end_date: str, crm_scope: str = "all"
 ) -> dict[str, Any]:
     """Retorna pedidos e receita do periodo com cupons de carrinho abandonado."""
+    return get_coupon_orders(property_id, start_date, end_date, ABANDONED_CART_COUPONS, crm_scope)
+
+
+def get_coupon_orders(
+    property_id: str, start_date: str, end_date: str, coupons: list[str], crm_scope: str = "all"
+) -> dict[str, Any]:
+    """Retorna pedidos e receita do periodo para uma lista de cupons."""
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
     normalized_scope = str(crm_scope or "all").strip().lower()
     if normalized_scope not in ABANDONED_CART_CRM_SCOPES:
         raise RuntimeError("crm_scope invalido. Use all, only_crm ou non_crm")
+    normalized_coupons = [str(coupon or "").strip() for coupon in coupons if str(coupon or "").strip()]
+    if not normalized_coupons:
+        raise RuntimeError("Informe ao menos um cupom valido")
 
     normalized_period = _normalize_period_to_today(start, end)
     if normalized_period is None:
         return {
-            "coupons": ABANDONED_CART_COUPONS,
+            "coupons": normalized_coupons,
             "crm_scope": normalized_scope,
             "start_date": start,
             "end_date": end,
@@ -451,7 +461,7 @@ def get_abandoned_cart_coupon_orders(
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
 
-    coupon_filter = _build_in_list_filter("orderCoupon", ABANDONED_CART_COUPONS)
+    coupon_filter = _build_in_list_filter("orderCoupon", normalized_coupons)
     purchase_filter = FilterExpression(
         filter=Filter(
             field_name="eventName",
@@ -515,7 +525,7 @@ def get_abandoned_cart_coupon_orders(
         }
 
     return {
-        "coupons": ABANDONED_CART_COUPONS,
+        "coupons": normalized_coupons,
         "crm_scope": normalized_scope,
         "start_date": start,
         "end_date": end,
