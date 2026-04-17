@@ -226,6 +226,7 @@ def _build_email_program_open_rates_sql(limit: int, start_date: str | None = Non
     return f"""
 WITH campaigns AS (
   SELECT
+    CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
     DATE(partitiontime) AS data,
     ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
@@ -246,28 +247,58 @@ WITH campaigns AS (
   FROM `{project_id}.{dataset}.{campaigns_table}`
   WHERE {partitiontime_filter}
     AND program_id IS NOT NULL
+  GROUP BY 1, 2, 3
+),
+program_daily AS (
+  SELECT
+    program_id,
+    data,
+    ARRAY_AGG(campanha IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
+    ARRAY_AGG(status IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS status,
+    ARRAY_AGG(direcionamento IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS direcionamento,
+    ARRAY_AGG(produto IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS produto,
+    ARRAY_AGG(observacao IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS observacao
+  FROM campaigns
   GROUP BY 1, 2
 ),
-sends AS (
+campaign_sends AS (
   SELECT
-    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
+    CAST(campaign_id AS STRING) AS campaign_id,
     DATE(partitiontime) AS data,
     COUNT(DISTINCT message_id) AS enviados
   FROM `{project_id}.{dataset}.{sends_table}`
   WHERE {partitiontime_filter}
-    AND program_id IS NOT NULL
+    AND campaign_id IS NOT NULL
     AND message_id IS NOT NULL
   GROUP BY 1, 2
 ),
-opens AS (
+campaign_opens AS (
   SELECT
-    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
+    CAST(campaign_id AS STRING) AS campaign_id,
     DATE(partitiontime) AS data,
     COUNT(DISTINCT message_id) AS aberturas_unicas
   FROM `{project_id}.{dataset}.{opens_table}`
   WHERE {partitiontime_filter}
-    AND program_id IS NOT NULL
+    AND campaign_id IS NOT NULL
     AND message_id IS NOT NULL
+  GROUP BY 1, 2
+),
+sends AS (
+  SELECT
+    c.program_id,
+    c.data,
+    SUM(COALESCE(s.enviados, 0)) AS enviados
+  FROM campaigns c
+  LEFT JOIN campaign_sends s ON s.campaign_id = c.campaign_id AND s.data = c.data
+  GROUP BY 1, 2
+),
+opens AS (
+  SELECT
+    c.program_id,
+    c.data,
+    SUM(COALESCE(o.aberturas_unicas, 0)) AS aberturas_unicas
+  FROM campaigns c
+  LEFT JOIN campaign_opens o ON o.campaign_id = c.campaign_id AND o.data = c.data
   GROUP BY 1, 2
 )
 SELECT
@@ -285,7 +316,7 @@ SELECT
     SAFE_DIVIDE(COALESCE(o.aberturas_unicas, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100,
     2
   ) AS taxa_abertura_percentual
-FROM campaigns c
+FROM program_daily c
 LEFT JOIN sends s ON s.program_id = c.program_id AND s.data = c.data
 LEFT JOIN opens o ON o.program_id = c.program_id AND o.data = c.data
 WHERE c.campanha IS NOT NULL
