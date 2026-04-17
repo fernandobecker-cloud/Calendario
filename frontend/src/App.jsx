@@ -23,9 +23,27 @@ const OPEN_DATA_LIMIT = 200
 const ANNIVERSARY_AUTOMATION_COUPON = 'IPLACEANIVER'
 const ANNIVERSARY_AUTOMATION_BASE_MATCHERS = ['00000000aniversario']
 const ANNIVERSARY_AUTOMATION_STAGES = [
-  { key: 'parte1', label: 'Parte 1', matchers: ['aniversarioparte1', 'aniversariopart1'], programIds: ['7036'] },
-  { key: 'parte2', label: 'Parte 2', matchers: ['aniversarioparte2', 'aniversariopart2'], programIds: ['7037'] },
-  { key: 'parte3', label: 'Parte 3', matchers: ['aniversarioparte3', 'aniversariopart3'], programIds: ['7038'] }
+  {
+    key: 'parte1',
+    label: 'Parte 1: 7 dias antes do aniversario',
+    shortLabel: 'Parte 1',
+    matchers: ['aniversarioparte1', 'aniversariopart1'],
+    programIds: ['7036']
+  },
+  {
+    key: 'parte2',
+    label: 'Parte 2: Dia do aniversario',
+    shortLabel: 'Parte 2',
+    matchers: ['aniversarioparte2', 'aniversariopart2'],
+    programIds: ['7037']
+  },
+  {
+    key: 'parte3',
+    label: 'Parte 3: 12 dias apos do aniversario',
+    shortLabel: 'Parte 3',
+    matchers: ['aniversarioparte3', 'aniversariopart3'],
+    programIds: ['7038']
+  }
 ]
 
 function normalizeChannel(channel) {
@@ -762,6 +780,9 @@ export default function App() {
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
       const items = filteredAnniversaryOpenRateItems.filter((item) => {
+        const sends = Number(item.enviados || 0)
+        if (sends <= 0) return false
+
         const normalizedCampaign = normalizeLookup(item.campanha)
         const normalizedObservation = normalizeLookup(item.observacao)
         const matchesBase = ANNIVERSARY_AUTOMATION_BASE_MATCHERS.some((matcher) => normalizedCampaign.includes(matcher))
@@ -1340,7 +1361,8 @@ export default function App() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {anniversaryAutomationStages.map((stage) => (
                 <article key={stage.key} className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{stage.label}</h3>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{stage.shortLabel}</h3>
+                  <p className="mt-1 text-sm text-slate-600">{stage.label.replace(`${stage.shortLabel}: `, '')}</p>
                   <p className="mt-2 text-2xl font-semibold text-slate-900">
                     {Number(stage.openRate).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%
                   </p>
@@ -1384,7 +1406,7 @@ export default function App() {
                 <span>Campanha</span>
                 <span>Enviados</span>
                 <span>Aberturas</span>
-                <span>Taxa</span>
+                <span>% abertura</span>
               </div>
               {anniversaryAutomationStages.flatMap((stage) =>
                 stage.items.map((item, index) => (
@@ -1392,7 +1414,7 @@ export default function App() {
                     key={`${stage.key}-${item.campaign_id || item.campanha || index}-${item.data || ''}`}
                     className="grid grid-cols-[140px_minmax(0,1fr)_120px_120px_140px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
                   >
-                    <span className="font-medium text-slate-900">{stage.label}</span>
+                    <span className="font-medium text-slate-900">{stage.shortLabel}</span>
                     <span className="text-slate-700">{formatOpenDataValue(item.campanha)}</span>
                     <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(Number(item.enviados || 0))}</span>
                     <span className="text-slate-700">
