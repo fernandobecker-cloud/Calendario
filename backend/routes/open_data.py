@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+import re
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -33,12 +34,20 @@ EMARSYS_OPEN_DATA_LOOKBACK_DAYS = max(
 )
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
+TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def _quote_identifier(value: str) -> str:
     safe = value.strip().replace("`", "")
     if not safe:
         raise ValueError("Identificador BigQuery vazio")
+    return safe
+
+
+def _validate_table_name(value: str) -> str:
+    safe = _quote_identifier(value)
+    if not TABLE_NAME_PATTERN.fullmatch(safe):
+        raise ValueError("Nome de tabela invalido")
     return safe
 
 
@@ -77,6 +86,72 @@ def _build_partitiontime_filter(start_date: str | None = None, end_date: str | N
     if normalized_end:
         return f"DATE(partitiontime) <= DATE('{normalized_end}')"
     return f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+
+
+def _build_columns_metadata_sql(table_name: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    table_filter = ""
+    if table_name:
+      safe_table = _validate_table_name(table_name)
+      table_filter = f"AND table_name = '{safe_table}'"
+
+    return f"""
+SELECT
+  table_name,
+  column_name,
+  data_type
+FROM `{project_id}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
+WHERE 1 = 1
+  {table_filter}
+ORDER BY table_name, ordinal_position
+""".strip()
+
+
+def _build_tables_sql() -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    return f"""
+SELECT
+  table_name,
+  table_type
+FROM `{project_id}.{dataset}.INFORMATION_SCHEMA.TABLES`
+ORDER BY table_name
+""".strip()
+
+
+def _get_table_columns(table_name: str) -> list[dict[str, Any]]:
+    sql = _build_columns_metadata_sql(table_name)
+    return run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+
+
+def _build_table_preview_sql(
+    table_name: str,
+    *,
+    limit: int,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    columns: list[dict[str, Any]] | None = None,
+) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    safe_table = _validate_table_name(table_name)
+    table_columns = columns or _get_table_columns(safe_table)
+    column_names = [_quote_identifier(str(item.get("column_name") or "")) for item in table_columns if item.get("column_name")]
+    if not column_names:
+        raise ValueError("Nao foi possivel identificar colunas da tabela")
+
+    selected_columns = ",\n  ".join(f"`{column_name}`" for column_name in column_names)
+    partitiontime_filter = ""
+    if "partitiontime" in {column.lower() for column in column_names}:
+        partitiontime_filter = f"\nWHERE {_build_partitiontime_filter(start_date, end_date)}"
+
+    return f"""
+SELECT
+  {selected_columns}
+FROM `{project_id}.{dataset}.{safe_table}`{partitiontime_filter}
+LIMIT {limit}
+""".strip()
 
 
 def _build_email_campaigns_sql(limit: int, start_date: str | None = None, end_date: str | None = None) -> str:
@@ -449,3 +524,72 @@ def emarsys_open_data_health() -> dict[str, Any]:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao preparar health Open Data: {exc}") from exc
+
+
+@router.get("/emarsys/tables")
+def emarsys_open_data_tables() -> dict[str, Any]:
+    try:
+        records = run_bigquery_records(
+            _build_tables_sql(),
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "dataset": EMARSYS_OPEN_DATA_DATASET,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "source": "bigquery_emarsys_open_data_information_schema",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao listar tabelas Open Data: {exc}") from exc
+
+
+@router.get("/emarsys/table-preview")
+def emarsys_open_data_table_preview(
+    table: str = Query(..., min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        safe_table = _validate_table_name(table)
+        columns = _get_table_columns(safe_table)
+        sql = _build_table_preview_sql(safe_table, limit=limit, start_date=start, end_date=end, columns=columns)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _records_to_response_items(records)
+        normalized_columns = [
+            {
+                "name": column.get("column_name"),
+                "type": column.get("data_type"),
+            }
+            for column in columns
+        ]
+        return {
+            "items": items,
+            "columns": normalized_columns,
+            "total": len(items),
+            "table": safe_table,
+            "dataset": EMARSYS_OPEN_DATA_DATASET,
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "limit": limit,
+            "partition_filter_applied": any(str(column.get("column_name") or "").lower() == "partitiontime" for column in columns),
+            "source": "bigquery_emarsys_open_data_table_preview",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc

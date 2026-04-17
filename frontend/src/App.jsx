@@ -15,6 +15,7 @@ const BASE_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'open-data', label: 'Open Data Emarsys' },
   { key: 'automation-results', label: 'Resultados de Automacoes' },
+  { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'results', label: 'Resumo de Resultados' },
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
@@ -160,6 +161,12 @@ function isGa4NoDataError(detail) {
   return message.includes('future currency exchange rate not exist')
 }
 
+function toCsvValue(value) {
+  const text = value === null || value === undefined ? '' : String(value)
+  const escaped = text.replace(/"/g, '""')
+  return `"${escaped}"`
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState('calendar')
   const [events, setEvents] = useState([])
@@ -234,6 +241,14 @@ export default function App() {
   const [openDataAutomationEndDate, setOpenDataAutomationEndDate] = useState(currentMonthRange.end)
   const [openDataLoading, setOpenDataLoading] = useState(false)
   const [openDataError, setOpenDataError] = useState('')
+  const [openDataTables, setOpenDataTables] = useState([])
+  const [openDataExplorerTable, setOpenDataExplorerTable] = useState('si_purchases_1091660394')
+  const [openDataExplorerStartDate, setOpenDataExplorerStartDate] = useState(currentMonthRange.start)
+  const [openDataExplorerEndDate, setOpenDataExplorerEndDate] = useState(currentMonthRange.end)
+  const [openDataExplorerLimit, setOpenDataExplorerLimit] = useState(100)
+  const [openDataExplorerPreview, setOpenDataExplorerPreview] = useState(null)
+  const [openDataExplorerLoading, setOpenDataExplorerLoading] = useState(false)
+  const [openDataExplorerError, setOpenDataExplorerError] = useState('')
   const [anniversaryAutomationCouponStats, setAnniversaryAutomationCouponStats] = useState(null)
   const [anniversaryAutomationCouponLoading, setAnniversaryAutomationCouponLoading] = useState(false)
   const [anniversaryAutomationCouponError, setAnniversaryAutomationCouponError] = useState('')
@@ -732,6 +747,54 @@ export default function App() {
     }
   }, [openDataAutomationEndDate, openDataAutomationStartDate])
 
+  const loadOpenDataTables = useCallback(async () => {
+    setOpenDataExplorerError('')
+
+    try {
+      const response = await fetch('/api/open-data/emarsys/tables')
+      const message = !response.ok ? await readErrorMessage(response, 'Nao foi possivel listar tabelas do Open Data.') : ''
+      if (!response.ok) throw new Error(message)
+      const payload = await response.json()
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      setOpenDataTables(items)
+      if (!items.some((item) => item.table_name === openDataExplorerTable) && items[0]?.table_name) {
+        setOpenDataExplorerTable(items[0].table_name)
+      }
+    } catch (err) {
+      setOpenDataTables([])
+      setOpenDataExplorerError(err instanceof Error ? err.message : 'Falha ao listar tabelas do Open Data.')
+    }
+  }, [openDataExplorerTable])
+
+  const loadOpenDataExplorerPreview = useCallback(async () => {
+    if (!openDataExplorerTable) {
+      setOpenDataExplorerPreview(null)
+      return
+    }
+
+    setOpenDataExplorerLoading(true)
+    setOpenDataExplorerError('')
+
+    try {
+      const params = new URLSearchParams({
+        table: openDataExplorerTable,
+        limit: String(openDataExplorerLimit),
+        start: openDataExplorerStartDate,
+        end: openDataExplorerEndDate
+      })
+      const response = await fetch(`/api/open-data/emarsys/table-preview?${params.toString()}`)
+      const message = !response.ok ? await readErrorMessage(response, 'Nao foi possivel carregar a tabela do Open Data.') : ''
+      if (!response.ok) throw new Error(message)
+      const payload = await response.json()
+      setOpenDataExplorerPreview(payload)
+    } catch (err) {
+      setOpenDataExplorerPreview(null)
+      setOpenDataExplorerError(err instanceof Error ? err.message : 'Falha ao carregar a tabela do Open Data.')
+    } finally {
+      setOpenDataExplorerLoading(false)
+    }
+  }, [openDataExplorerEndDate, openDataExplorerLimit, openDataExplorerStartDate, openDataExplorerTable])
+
   useEffect(() => {
     loadCurrentUser()
   }, [loadCurrentUser])
@@ -753,6 +816,18 @@ export default function App() {
       loadOpenData()
     }
   }, [activeView, loadOpenData])
+
+  useEffect(() => {
+    if (activeView === 'open-data-explorer') {
+      loadOpenDataTables()
+    }
+  }, [activeView, loadOpenDataTables])
+
+  useEffect(() => {
+    if (activeView === 'open-data-explorer') {
+      loadOpenDataExplorerPreview()
+    }
+  }, [activeView, loadOpenDataExplorerPreview])
 
   useEffect(() => {
     if (!userManagementEnabled && activeView === 'users') {
@@ -1527,6 +1602,154 @@ export default function App() {
     </section>
   )
 
+  const exportOpenDataExplorerCsv = useCallback(() => {
+    const columns = Array.isArray(openDataExplorerPreview?.columns) ? openDataExplorerPreview.columns : []
+    const items = Array.isArray(openDataExplorerPreview?.items) ? openDataExplorerPreview.items : []
+    if (columns.length === 0) return
+
+    const headers = columns.map((column) => String(column.name || ''))
+    const csvLines = [
+      headers.map(toCsvValue).join(','),
+      ...items.map((item) => headers.map((header) => toCsvValue(item?.[header])).join(','))
+    ]
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${openDataExplorerTable || 'open_data'}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }, [openDataExplorerPreview, openDataExplorerTable])
+
+  const renderOpenDataExplorerView = () => {
+    const previewColumns = Array.isArray(openDataExplorerPreview?.columns) ? openDataExplorerPreview.columns : []
+    const previewItems = Array.isArray(openDataExplorerPreview?.items) ? openDataExplorerPreview.items : []
+
+    return (
+      <section className="space-y-5">
+        <section className="rounded-2xl bg-gradient-to-r from-cyan-700 to-sky-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Explorador de Tabelas</h1>
+              <p className="mt-2 text-sm text-cyan-50 md:text-base">
+                Explore tabelas do Open Data, filtre periodo quando houver `partitiontime` e exporte o resultado carregado.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex min-w-[260px] flex-col gap-1 text-sm text-white/90">
+                Tabela
+                <select
+                  value={openDataExplorerTable}
+                  onChange={(event) => setOpenDataExplorerTable(event.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                >
+                  {openDataTables.map((item) => (
+                    <option key={item.table_name} value={item.table_name}>
+                      {item.table_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Inicio
+                <input
+                  type="date"
+                  value={openDataExplorerStartDate}
+                  onChange={(event) => setOpenDataExplorerStartDate(event.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input
+                  type="date"
+                  value={openDataExplorerEndDate}
+                  onChange={(event) => setOpenDataExplorerEndDate(event.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Limite
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={openDataExplorerLimit}
+                  onChange={(event) => setOpenDataExplorerLimit(Number(event.target.value || 100))}
+                  className="w-24 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={loadOpenDataExplorerPreview}
+                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-slate-100"
+              >
+                Atualizar
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {openDataExplorerError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{openDataExplorerError}</section>
+        )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">{openDataExplorerTable || 'Tabela'}</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {previewColumns.length > 0
+                  ? `${previewColumns.length} colunas mapeadas e ${new Intl.NumberFormat('pt-BR').format(previewItems.length)} linhas carregadas`
+                  : 'Selecione uma tabela para visualizar os dados.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={exportOpenDataExplorerCsv}
+              disabled={previewItems.length === 0}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              Exportar CSV
+            </button>
+          </div>
+
+          {openDataExplorerLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando tabela...</p>
+          ) : previewItems.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-600">Nenhum dado retornado para os filtros atuais.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead>
+                  <tr className="text-left text-slate-600">
+                    {previewColumns.map((column) => (
+                      <th key={column.name} className="px-3 py-2 font-semibold">
+                        <div>{column.name}</div>
+                        <div className="text-xs font-normal text-slate-400">{column.type}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {previewItems.map((item, index) => (
+                    <tr key={`${openDataExplorerTable}-${index}`} className="align-top">
+                      {previewColumns.map((column) => (
+                        <td key={`${index}-${column.name}`} className="max-w-[320px] px-3 py-3 text-slate-700">
+                          <span className="break-words">{formatOpenDataValue(item?.[column.name])}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </section>
+    )
+  }
+
   const renderResultsView = () => {
     const metrics = [
       { key: 'sessions', label: 'Sessoes' },
@@ -2076,6 +2299,7 @@ export default function App() {
           {activeView === 'calendar' && renderCalendarView()}
           {activeView === 'open-data' && renderOpenDataView()}
           {activeView === 'automation-results' && renderAutomationResultsView()}
+          {activeView === 'open-data-explorer' && renderOpenDataExplorerView()}
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'results' && renderResultsView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
