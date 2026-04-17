@@ -163,6 +163,9 @@ export default function App() {
   const [abandonedCartCoupons, setAbandonedCartCoupons] = useState(null)
   const [abandonedCartCouponsLoading, setAbandonedCartCouponsLoading] = useState(false)
   const [abandonedCartCouponsError, setAbandonedCartCouponsError] = useState('')
+  const [abandonedCartNonCrmSummary, setAbandonedCartNonCrmSummary] = useState(null)
+  const [abandonedCartNonCrmSummaryLoading, setAbandonedCartNonCrmSummaryLoading] = useState(false)
+  const [abandonedCartNonCrmSummaryError, setAbandonedCartNonCrmSummaryError] = useState('')
   const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
   const [crmFunnel, setCrmFunnel] = useState(null)
   const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
@@ -401,6 +404,46 @@ export default function App() {
     }
   }, [abandonedCartCrmScope, reportMonth, reportYear])
 
+  const loadAbandonedCartNonCrmSummary = useCallback(async () => {
+    setAbandonedCartNonCrmSummaryLoading(true)
+    setAbandonedCartNonCrmSummaryError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+
+    try {
+      const params = new URLSearchParams({
+        start: period.start,
+        end: period.end,
+        crm_scope: 'non_crm'
+      })
+      const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
+      let payload = null
+      try {
+        payload = await response.json()
+      } catch (_error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar o resumo de carrinho abandonado nao CRM.'
+        if (isGa4NoDataError(detail)) {
+          setAbandonedCartNonCrmSummary(null)
+          setAbandonedCartNonCrmSummaryError('')
+          return
+        }
+        throw new Error(detail)
+      }
+
+      setAbandonedCartNonCrmSummary(payload)
+    } catch (err) {
+      setAbandonedCartNonCrmSummary(null)
+      setAbandonedCartNonCrmSummaryError(
+        err instanceof Error ? err.message : 'Falha ao carregar o resumo de carrinho abandonado nao CRM.'
+      )
+    } finally {
+      setAbandonedCartNonCrmSummaryLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
   const loadCrmFunnel = useCallback(async () => {
     setCrmFunnelLoading(true)
     setCrmFunnelError('')
@@ -439,9 +482,17 @@ export default function App() {
       loadCrmAssists(),
       loadCrmLtv(),
       loadAbandonedCartCoupons(),
+      loadAbandonedCartNonCrmSummary(),
       loadCrmFunnel()
     ])
-  }, [loadAbandonedCartCoupons, loadCrmAssists, loadCrmFunnel, loadCrmLtv, loadGa4MonthlyReport])
+  }, [
+    loadAbandonedCartCoupons,
+    loadAbandonedCartNonCrmSummary,
+    loadCrmAssists,
+    loadCrmFunnel,
+    loadCrmLtv,
+    loadGa4MonthlyReport
+  ])
 
   const readErrorMessage = async (response, fallbackMessage) => {
     try {
@@ -551,6 +602,16 @@ export default function App() {
     if (abandonedCartCrmScope === 'non_crm') return 'nao CRM'
     return 'todos os canais'
   }, [abandonedCartCrmScope])
+
+  const crmResultsSummary = useMemo(() => {
+    const purchaseRevenue = Number(ga4Report?.current_year?.purchaseRevenue || 0)
+    const nonCrmRevenue = Number(abandonedCartNonCrmSummary?.purchaseRevenue || 0)
+    return {
+      purchaseRevenue,
+      nonCrmRevenue,
+      totalRevenue: purchaseRevenue + nonCrmRevenue
+    }
+  }, [abandonedCartNonCrmSummary?.purchaseRevenue, ga4Report?.current_year?.purchaseRevenue])
 
   const filteredEvents = useMemo(() => {
     if (selectedChannel === 'all') return events
@@ -1160,6 +1221,47 @@ export default function App() {
                   </p>
                 </article>
               ))}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Resumo de Resultados CRM</h2>
+              <p className="mt-1 max-w-3xl text-sm text-slate-600">
+                Nesse resultado geral vc vai somar o valor de "RECEITA DE COMPRAS" + o valor dos pedidos que estao no
+                recorte com carrinho abandonado marcados como "nao CRM".
+              </p>
+            </div>
+            {!ga4Loading && !abandonedCartNonCrmSummaryLoading && !ga4Error && !abandonedCartNonCrmSummaryError && (
+              <div className="rounded-xl bg-slate-50 px-4 py-3 text-right">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resultado geral CRM</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.totalRevenue)}</p>
+              </div>
+            )}
+          </div>
+
+          {abandonedCartNonCrmSummaryError && (
+            <p className="mt-4 text-sm text-rose-700">{abandonedCartNonCrmSummaryError}</p>
+          )}
+
+          {ga4Loading || abandonedCartNonCrmSummaryLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Calculando resumo geral...</p>
+          ) : ga4Error ? null : (
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita de compras</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.purchaseRevenue)}</p>
+              </article>
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carrinho abandonado nao CRM</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.nonCrmRevenue)}</p>
+              </article>
+              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Total consolidado</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.totalRevenue)}</p>
+              </article>
             </div>
           )}
         </section>
