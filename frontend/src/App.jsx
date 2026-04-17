@@ -228,6 +228,7 @@ export default function App() {
   const [openDataHealth, setOpenDataHealth] = useState(null)
   const [openDataItems, setOpenDataItems] = useState([])
   const [openDataOpenRateItems, setOpenDataOpenRateItems] = useState([])
+  const [openDataProgramOpenRateItems, setOpenDataProgramOpenRateItems] = useState([])
   const currentMonthRange = useMemo(() => getMonthDateRange(now.getFullYear(), now.getMonth() + 1), [now])
   const [openDataAutomationStartDate, setOpenDataAutomationStartDate] = useState(currentMonthRange.start)
   const [openDataAutomationEndDate, setOpenDataAutomationEndDate] = useState(currentMonthRange.end)
@@ -673,10 +674,11 @@ export default function App() {
         start: openDataAutomationStartDate,
         end: openDataAutomationEndDate
       })
-      const [healthResponse, campaignsResponse, openRatesResponse] = await Promise.all([
+      const [healthResponse, campaignsResponse, openRatesResponse, programOpenRatesResponse] = await Promise.all([
         fetch('/api/open-data/emarsys/health'),
         fetch(`/api/open-data/emarsys/email-campaigns?${openDataParams.toString()}`),
-        fetch(`/api/open-data/emarsys/email-open-rates?${openDataParams.toString()}`)
+        fetch(`/api/open-data/emarsys/email-open-rates?${openDataParams.toString()}`),
+        fetch(`/api/open-data/emarsys/email-program-open-rates?${openDataParams.toString()}`)
       ])
 
       if (!healthResponse.ok) {
@@ -691,6 +693,7 @@ export default function App() {
         const message = await readErrorMessage(campaignsResponse, 'Nao foi possivel carregar campanhas do Open Data.')
         setOpenDataItems([])
         setOpenDataOpenRateItems([])
+        setOpenDataProgramOpenRateItems([])
         throw new Error(message)
       }
 
@@ -700,15 +703,29 @@ export default function App() {
       if (!openRatesResponse.ok) {
         const message = await readErrorMessage(openRatesResponse, 'Nao foi possivel carregar taxas de abertura do Open Data.')
         setOpenDataOpenRateItems([])
+        setOpenDataProgramOpenRateItems([])
         throw new Error(message)
       }
 
       const openRatesPayload = await openRatesResponse.json()
       setOpenDataOpenRateItems(Array.isArray(openRatesPayload?.items) ? openRatesPayload.items : [])
+
+      if (!programOpenRatesResponse.ok) {
+        const message = await readErrorMessage(
+          programOpenRatesResponse,
+          'Nao foi possivel carregar taxas de abertura por programa do Open Data.'
+        )
+        setOpenDataProgramOpenRateItems([])
+        throw new Error(message)
+      }
+
+      const programOpenRatesPayload = await programOpenRatesResponse.json()
+      setOpenDataProgramOpenRateItems(Array.isArray(programOpenRatesPayload?.items) ? programOpenRatesPayload.items : [])
     } catch (err) {
       setOpenDataHealth(nextHealthPayload)
       setOpenDataItems([])
       setOpenDataOpenRateItems([])
+      setOpenDataProgramOpenRateItems([])
       setOpenDataError(err instanceof Error ? err.message : 'Falha ao carregar Open Data da Emarsys.')
     } finally {
       setOpenDataLoading(false)
@@ -778,10 +795,10 @@ export default function App() {
   }, [openDataOpenRateItems])
 
   const filteredAutomationOpenRateItems = useMemo(() => {
-    return openDataOpenRateItems.filter((item) =>
+    return openDataProgramOpenRateItems.filter((item) =>
       isIsoDateWithinRange(item.data, openDataAutomationStartDate, openDataAutomationEndDate)
     )
-  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataOpenRateItems])
+  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataProgramOpenRateItems])
 
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {

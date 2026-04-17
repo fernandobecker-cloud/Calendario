@@ -215,6 +215,86 @@ LIMIT {limit}
 """.strip()
 
 
+def _build_email_program_open_rates_sql(limit: int, start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    partitiontime_filter = _build_partitiontime_filter(start_date, end_date)
+
+    return f"""
+WITH campaigns AS (
+  SELECT
+    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
+    DATE(partitiontime) AS data,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
+    ARRAY_AGG(CAST(type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS status,
+    ARRAY_AGG(CAST(sub_type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS direcionamento,
+    ARRAY_AGG(CAST(category_id AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS produto,
+    ARRAY_AGG(
+      CONCAT(
+        'language=', COALESCE(language, ''),
+        ' | version_name=', COALESCE(version_name, ''),
+        ' | program_id=', CAST(COALESCE(program_id, 0) AS STRING),
+        ' | parent_campaign_id=', CAST(COALESCE(parent_campaign_id, 0) AS STRING)
+      )
+      IGNORE NULLS
+      ORDER BY event_time DESC, loaded_at DESC
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS observacao
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+  WHERE {partitiontime_filter}
+    AND program_id IS NOT NULL
+  GROUP BY 1, 2
+),
+sends AS (
+  SELECT
+    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
+    DATE(partitiontime) AS data,
+    COUNT(DISTINCT message_id) AS enviados
+  FROM `{project_id}.{dataset}.{sends_table}`
+  WHERE {partitiontime_filter}
+    AND program_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1, 2
+),
+opens AS (
+  SELECT
+    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
+    DATE(partitiontime) AS data,
+    COUNT(DISTINCT message_id) AS aberturas_unicas
+  FROM `{project_id}.{dataset}.{opens_table}`
+  WHERE {partitiontime_filter}
+    AND program_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1, 2
+)
+SELECT
+  c.program_id,
+  c.data,
+  c.campanha,
+  'Email' AS canal,
+  c.status,
+  c.direcionamento,
+  c.produto,
+  c.observacao,
+  COALESCE(s.enviados, 0) AS enviados,
+  COALESCE(o.aberturas_unicas, 0) AS aberturas_unicas,
+  ROUND(
+    SAFE_DIVIDE(COALESCE(o.aberturas_unicas, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100,
+    2
+  ) AS taxa_abertura_percentual
+FROM campaigns c
+LEFT JOIN sends s ON s.program_id = c.program_id AND s.data = c.data
+LEFT JOIN opens o ON o.program_id = c.program_id AND o.data = c.data
+WHERE c.campanha IS NOT NULL
+  AND TRIM(c.campanha) != ''
+ORDER BY c.data DESC, c.campanha
+LIMIT {limit}
+""".strip()
+
+
 @router.get("/emarsys/email-campaigns")
 def emarsys_email_campaigns(
     limit: int = Query(default=50, ge=1, le=200),
@@ -280,6 +360,41 @@ def emarsys_email_open_rates(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao preparar taxa de abertura Open Data: {exc}") from exc
+
+
+@router.get("/emarsys/email-program-open-rates")
+def emarsys_email_program_open_rates(
+    limit: int = Query(default=50, ge=1, le=500),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_email_program_open_rates_sql(limit, start, end)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "dataset": EMARSYS_OPEN_DATA_DATASET,
+            "campaigns_table": EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE,
+            "opens_table": EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE,
+            "sends_table": EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "source": "bigquery_emarsys_open_data_program_level",
+            "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
+            "metric_definition": "aberturas_unicas / enviados * 100",
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao preparar taxa de abertura por programa Open Data: {exc}") from exc
 
 
 @router.get("/emarsys/health")
