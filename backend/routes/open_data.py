@@ -59,13 +59,34 @@ def _records_to_response_items(records: list[dict[str, Any]]) -> list[dict[str, 
     ]
 
 
-def _build_email_campaigns_sql(limit: int) -> str:
+def _validate_optional_iso_date(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return date.fromisoformat(raw).isoformat()
+
+
+def _build_partitiontime_filter(start_date: str | None = None, end_date: str | None = None) -> str:
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        return f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+    if normalized_start:
+        return f"DATE(partitiontime) >= DATE('{normalized_start}')"
+    if normalized_end:
+        return f"DATE(partitiontime) <= DATE('{normalized_end}')"
+    return f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+
+
+def _build_email_campaigns_sql(limit: int, start_date: str | None = None, end_date: str | None = None) -> str:
     if EMARSYS_OPEN_DATA_QUERY:
         return EMARSYS_OPEN_DATA_QUERY
 
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    partitiontime_filter = _build_partitiontime_filter(start_date, end_date)
 
     return f"""
 WITH ranked AS (
@@ -88,7 +109,7 @@ WITH ranked AS (
       ORDER BY event_time DESC, loaded_at DESC
     ) AS rn
   FROM `{project_id}.{dataset}.{table}`
-  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)
+  WHERE {partitiontime_filter}
 )
 SELECT
   CAST(id AS STRING) AS campaign_id,
@@ -113,12 +134,13 @@ LIMIT {limit}
 """.strip()
 
 
-def _build_email_open_rates_sql(limit: int) -> str:
+def _build_email_open_rates_sql(limit: int, start_date: str | None = None, end_date: str | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
     opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    partitiontime_filter = _build_partitiontime_filter(start_date, end_date)
 
     return f"""
 WITH campaigns AS (
@@ -140,27 +162,29 @@ WITH campaigns AS (
       ORDER BY event_time DESC, loaded_at DESC
     ) AS rn
   FROM `{project_id}.{dataset}.{campaigns_table}`
-  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)
+  WHERE {partitiontime_filter}
 ),
 sends AS (
   SELECT
     CAST(campaign_id AS STRING) AS campaign_id,
+    DATE(partitiontime) AS data,
     COUNT(DISTINCT message_id) AS enviados
   FROM `{project_id}.{dataset}.{sends_table}`
-  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)
+  WHERE {partitiontime_filter}
     AND campaign_id IS NOT NULL
     AND message_id IS NOT NULL
-  GROUP BY 1
+  GROUP BY 1, 2
 ),
 opens AS (
   SELECT
     CAST(campaign_id AS STRING) AS campaign_id,
+    DATE(partitiontime) AS data,
     COUNT(DISTINCT message_id) AS aberturas_unicas
   FROM `{project_id}.{dataset}.{opens_table}`
-  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)
+  WHERE {partitiontime_filter}
     AND campaign_id IS NOT NULL
     AND message_id IS NOT NULL
-  GROUP BY 1
+  GROUP BY 1, 2
 )
 SELECT
   c.campaign_id,
@@ -178,8 +202,8 @@ SELECT
     2
   ) AS taxa_abertura_percentual
 FROM campaigns c
-LEFT JOIN sends s ON s.campaign_id = c.campaign_id
-LEFT JOIN opens o ON o.campaign_id = c.campaign_id
+LEFT JOIN sends s ON s.campaign_id = c.campaign_id AND s.data = c.data
+LEFT JOIN opens o ON o.campaign_id = c.campaign_id AND o.data = c.data
 WHERE c.rn = 1
   AND c.campanha IS NOT NULL
   AND TRIM(c.campanha) != ''
@@ -189,9 +213,13 @@ LIMIT {limit}
 
 
 @router.get("/emarsys/email-campaigns")
-def emarsys_email_campaigns(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+def emarsys_email_campaigns(
+    limit: int = Query(default=50, ge=1, le=200),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
     try:
-        sql = _build_email_campaigns_sql(limit)
+        sql = _build_email_campaigns_sql(limit, start, end)
         records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -207,6 +235,8 @@ def emarsys_email_campaigns(limit: int = Query(default=50, ge=1, le=200)) -> dic
             "location": EMARSYS_OPEN_DATA_LOCATION or None,
             "source": "bigquery_emarsys_open_data",
             "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
         }
     except HTTPException:
         raise
@@ -215,9 +245,13 @@ def emarsys_email_campaigns(limit: int = Query(default=50, ge=1, le=200)) -> dic
 
 
 @router.get("/emarsys/email-open-rates")
-def emarsys_email_open_rates(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, Any]:
+def emarsys_email_open_rates(
+    limit: int = Query(default=50, ge=1, le=200),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
     try:
-        sql = _build_email_open_rates_sql(limit)
+        sql = _build_email_open_rates_sql(limit, start, end)
         records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -236,6 +270,8 @@ def emarsys_email_open_rates(limit: int = Query(default=50, ge=1, le=200)) -> di
             "source": "bigquery_emarsys_open_data",
             "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
             "metric_definition": "aberturas_unicas / enviados * 100",
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
         }
     except HTTPException:
         raise
