@@ -14,6 +14,7 @@ const CHANNEL_COLORS = {
 const BASE_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'open-data', label: 'Open Data Emarsys' },
+  { key: 'automation-results', label: 'Resultados de Automacoes' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'results', label: 'Resumo de Resultados' },
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
@@ -144,14 +145,6 @@ function getRelativeMonth(year, month, offset) {
     year: baseDate.getFullYear(),
     month: baseDate.getMonth() + 1
   }
-}
-
-function isIsoDateWithinRange(value, start, end) {
-  const dateText = String(value || '').trim()
-  if (!dateText) return false
-  if (start && dateText < start) return false
-  if (end && dateText > end) return false
-  return true
 }
 
 function isGa4NoDataError(detail) {
@@ -667,10 +660,15 @@ export default function App() {
     let nextHealthPayload = null
 
     try {
+      const openDataParams = new URLSearchParams({
+        limit: String(OPEN_DATA_LIMIT),
+        start: openDataAutomationStartDate,
+        end: openDataAutomationEndDate
+      })
       const [healthResponse, campaignsResponse, openRatesResponse] = await Promise.all([
         fetch('/api/open-data/emarsys/health'),
-        fetch(`/api/open-data/emarsys/email-campaigns?limit=${OPEN_DATA_LIMIT}`),
-        fetch(`/api/open-data/emarsys/email-open-rates?limit=${OPEN_DATA_LIMIT}`)
+        fetch(`/api/open-data/emarsys/email-campaigns?${openDataParams.toString()}`),
+        fetch(`/api/open-data/emarsys/email-open-rates?${openDataParams.toString()}`)
       ])
 
       if (!healthResponse.ok) {
@@ -707,7 +705,7 @@ export default function App() {
     } finally {
       setOpenDataLoading(false)
     }
-  }, [])
+  }, [openDataAutomationEndDate, openDataAutomationStartDate])
 
   useEffect(() => {
     loadCurrentUser()
@@ -726,7 +724,7 @@ export default function App() {
   }, [activeView, loadAllResults])
 
   useEffect(() => {
-    if (activeView === 'open-data') {
+    if (activeView === 'open-data' || activeView === 'automation-results') {
       loadOpenData()
     }
   }, [activeView, loadOpenData])
@@ -771,15 +769,9 @@ export default function App() {
     }, {})
   }, [openDataOpenRateItems])
 
-  const filteredAnniversaryOpenRateItems = useMemo(() => {
-    return openDataOpenRateItems.filter((item) =>
-      isIsoDateWithinRange(item.data, openDataAutomationStartDate, openDataAutomationEndDate)
-    )
-  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataOpenRateItems])
-
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
-      const items = filteredAnniversaryOpenRateItems.filter((item) => {
+      const items = openDataOpenRateItems.filter((item) => {
         const sends = Number(item.enviados || 0)
         if (sends <= 0) return false
 
@@ -805,7 +797,7 @@ export default function App() {
         openRate
       }
     })
-  }, [filteredAnniversaryOpenRateItems])
+  }, [openDataOpenRateItems])
 
   const anniversaryAutomationTotals = useMemo(() => {
     const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)
@@ -1321,123 +1313,6 @@ export default function App() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Automacao de Aniversario</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Taxas de abertura das pecas `Parte 1`, `Parte 2` e `Parte 3`, com receita do cupom {ANNIVERSARY_AUTOMATION_COUPON}.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-sm text-slate-600">
-              Inicio
-              <input
-                type="date"
-                value={openDataAutomationStartDate}
-                onChange={(event) => setOpenDataAutomationStartDate(event.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-slate-600">
-              Fim
-              <input
-                type="date"
-                value={openDataAutomationEndDate}
-                onChange={(event) => setOpenDataAutomationEndDate(event.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-          </div>
-        </div>
-
-        {anniversaryAutomationCouponError && (
-          <p className="mt-4 text-sm text-rose-700">{anniversaryAutomationCouponError}</p>
-        )}
-
-        {openDataLoading ? (
-          <p className="mt-4 text-sm text-slate-600">Carregando automacao de aniversario...</p>
-        ) : anniversaryAutomationStages.every((stage) => stage.items.length === 0) ? (
-          <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no periodo selecionado.</p>
-        ) : (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {anniversaryAutomationStages.map((stage) => (
-                <article key={stage.key} className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{stage.shortLabel}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{stage.label.replace(`${stage.shortLabel}: `, '')}</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-900">
-                    {Number(stage.openRate).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {new Intl.NumberFormat('pt-BR').format(stage.opens)} aberturas unicas de{' '}
-                    {new Intl.NumberFormat('pt-BR').format(stage.sends)} enviados
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">{stage.items.length} peca(s) encontrada(s)</p>
-                </article>
-              ))}
-
-              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Consolidado</h3>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {Number(anniversaryAutomationTotals.openRate).toLocaleString('pt-BR', {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 2
-                  })}%
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.opens)} aberturas unicas de{' '}
-                  {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.sends)} enviados
-                </p>
-                {anniversaryAutomationCouponLoading ? (
-                  <p className="mt-3 text-sm text-slate-600">Carregando receita...</p>
-                ) : (
-                  <div className="mt-3 space-y-1 text-sm text-slate-600">
-                    <p>
-                      Pedidos com cupom: {new Intl.NumberFormat('pt-BR').format(Number(anniversaryAutomationCouponStats?.transactions || 0))}
-                    </p>
-                    <p>Receita: {formatCurrency(anniversaryAutomationCouponStats?.purchaseRevenue)}</p>
-                    <p>Ticket medio: {formatCurrency(anniversaryAutomationCouponStats?.average_ticket)}</p>
-                  </div>
-                )}
-              </article>
-            </div>
-
-            <div className="rounded-xl border border-slate-200">
-              <div className="grid grid-cols-[140px_minmax(0,1fr)_120px_120px_140px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <span>Etapa</span>
-                <span>Campanha</span>
-                <span>Enviados</span>
-                <span>Aberturas</span>
-                <span>% abertura</span>
-              </div>
-              {anniversaryAutomationStages.flatMap((stage) =>
-                stage.items.map((item, index) => (
-                  <div
-                    key={`${stage.key}-${item.campaign_id || item.campanha || index}-${item.data || ''}`}
-                    className="grid grid-cols-[140px_minmax(0,1fr)_120px_120px_140px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
-                  >
-                    <span className="font-medium text-slate-900">{stage.shortLabel}</span>
-                    <span className="text-slate-700">{formatOpenDataValue(item.campanha)}</span>
-                    <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(Number(item.enviados || 0))}</span>
-                    <span className="text-slate-700">
-                      {new Intl.NumberFormat('pt-BR').format(Number(item.aberturas_unicas || 0))}
-                    </span>
-                    <span className="text-slate-700">
-                      {Number(item.taxa_abertura_percentual || 0).toLocaleString('pt-BR', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2
-                      })}
-                      %
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
             <h2 className="text-lg font-semibold text-slate-900">Campanhas de Email</h2>
             <p className="mt-1 text-sm text-slate-600">
               Amostra das campanhas vindas do dataset Open Data da Emarsys com envios e taxa de abertura por campanha.
@@ -1502,6 +1377,119 @@ export default function App() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </section>
+    </section>
+  )
+
+  const renderAutomationResultsView = () => (
+    <section className="space-y-5">
+      <section className="rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white shadow-soft md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Resultados de Automacoes</h1>
+            <p className="mt-2 text-sm text-amber-50 md:text-base">
+              Leitura consolidada das automacoes CRM com filtros proprios e receita associada.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Inicio
+              <input
+                type="date"
+                value={openDataAutomationStartDate}
+                onChange={(event) => setOpenDataAutomationStartDate(event.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Fim
+              <input
+                type="date"
+                value={openDataAutomationEndDate}
+                onChange={(event) => setOpenDataAutomationEndDate(event.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {openDataError && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{openDataError}</section>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Automacao de Aniversario</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Taxas de abertura das pecas `Parte 1`, `Parte 2` e `Parte 3`, com receita do cupom {ANNIVERSARY_AUTOMATION_COUPON}.
+            </p>
+          </div>
+        </div>
+
+        {anniversaryAutomationCouponError && (
+          <p className="mt-4 text-sm text-rose-700">{anniversaryAutomationCouponError}</p>
+        )}
+
+        {openDataLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando automacao de aniversario...</p>
+        ) : anniversaryAutomationStages.every((stage) => stage.items.length === 0) ? (
+          <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no periodo selecionado.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-xl border border-slate-200">
+              <div className="grid grid-cols-[minmax(0,1fr)_140px_140px_140px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span>Etapa</span>
+                <span>Enviados</span>
+                <span>Aberturas</span>
+                <span>% abertura</span>
+              </div>
+              {anniversaryAutomationStages.map((stage) => (
+                <div
+                  key={stage.key}
+                  className="grid grid-cols-[minmax(0,1fr)_140px_140px_140px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                >
+                  <span className="font-medium text-slate-900">{stage.label}</span>
+                  <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(stage.sends)}</span>
+                  <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(stage.opens)}</span>
+                  <span className="text-slate-700">
+                    {Number(stage.openRate).toLocaleString('pt-BR', {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 2
+                    })}
+                    %
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Consolidado</h3>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">
+                {Number(anniversaryAutomationTotals.openRate).toLocaleString('pt-BR', {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2
+                })}%
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.opens)} aberturas unicas de{' '}
+                {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.sends)} enviados
+              </p>
+              {anniversaryAutomationCouponLoading ? (
+                <p className="mt-3 text-sm text-slate-600">Carregando receita...</p>
+              ) : (
+                <div className="mt-3 space-y-1 text-sm text-slate-600">
+                  <p>
+                    Pedidos com cupom: {new Intl.NumberFormat('pt-BR').format(Number(anniversaryAutomationCouponStats?.transactions || 0))}
+                  </p>
+                  <p>Receita: {formatCurrency(anniversaryAutomationCouponStats?.purchaseRevenue)}</p>
+                  <p>Ticket medio: {formatCurrency(anniversaryAutomationCouponStats?.average_ticket)}</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -2056,6 +2044,7 @@ export default function App() {
         <div className="space-y-5">
           {activeView === 'calendar' && renderCalendarView()}
           {activeView === 'open-data' && renderOpenDataView()}
+          {activeView === 'automation-results' && renderAutomationResultsView()}
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'results' && renderResultsView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
