@@ -21,10 +21,11 @@ const BASE_MENU_ITEMS = [
 
 const OPEN_DATA_LIMIT = 200
 const ANNIVERSARY_AUTOMATION_COUPON = 'IPLACEANIVER'
+const ANNIVERSARY_AUTOMATION_BASE_MATCHERS = ['00000000aniversario']
 const ANNIVERSARY_AUTOMATION_STAGES = [
-  { key: 'parte1', label: 'Parte 1', matchers: ['PGR_0_ANIVERSARIO_Parte1'] },
-  { key: 'parte2', label: 'Parte 2', matchers: ['PGR_0_ANIVERSARIO_Parte2'] },
-  { key: 'parte3', label: 'Parte 3', matchers: ['PGR_0_ANIVERSARIO_Parte3'] }
+  { key: 'parte1', label: 'Parte 1', matchers: ['aniversarioparte1', 'aniversariopart1'], programIds: ['7036'] },
+  { key: 'parte2', label: 'Parte 2', matchers: ['aniversarioparte2', 'aniversariopart2'], programIds: ['7037'] },
+  { key: 'parte3', label: 'Parte 3', matchers: ['aniversarioparte3', 'aniversariopart3'], programIds: ['7038'] }
 ]
 
 function normalizeChannel(channel) {
@@ -127,6 +128,14 @@ function getRelativeMonth(year, month, offset) {
   }
 }
 
+function isIsoDateWithinRange(value, start, end) {
+  const dateText = String(value || '').trim()
+  if (!dateText) return false
+  if (start && dateText < start) return false
+  if (end && dateText > end) return false
+  return true
+}
+
 function isGa4NoDataError(detail) {
   const message = String(detail || '').toLowerCase()
   return message.includes('future currency exchange rate not exist')
@@ -200,6 +209,9 @@ export default function App() {
   const [openDataHealth, setOpenDataHealth] = useState(null)
   const [openDataItems, setOpenDataItems] = useState([])
   const [openDataOpenRateItems, setOpenDataOpenRateItems] = useState([])
+  const currentMonthRange = useMemo(() => getMonthDateRange(now.getFullYear(), now.getMonth() + 1), [now])
+  const [openDataAutomationStartDate, setOpenDataAutomationStartDate] = useState(currentMonthRange.start)
+  const [openDataAutomationEndDate, setOpenDataAutomationEndDate] = useState(currentMonthRange.end)
   const [openDataLoading, setOpenDataLoading] = useState(false)
   const [openDataError, setOpenDataError] = useState('')
   const [anniversaryAutomationCouponStats, setAnniversaryAutomationCouponStats] = useState(null)
@@ -741,12 +753,24 @@ export default function App() {
     }, {})
   }, [openDataOpenRateItems])
 
+  const filteredAnniversaryOpenRateItems = useMemo(() => {
+    return openDataOpenRateItems.filter((item) =>
+      isIsoDateWithinRange(item.data, openDataAutomationStartDate, openDataAutomationEndDate)
+    )
+  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataOpenRateItems])
+
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
-      const normalizedMatchers = stage.matchers.map(normalizeLookup)
-      const items = openDataOpenRateItems.filter((item) => {
+      const items = filteredAnniversaryOpenRateItems.filter((item) => {
         const normalizedCampaign = normalizeLookup(item.campanha)
-        return normalizedMatchers.some((matcher) => normalizedCampaign.includes(matcher))
+        const normalizedObservation = normalizeLookup(item.observacao)
+        const matchesBase = ANNIVERSARY_AUTOMATION_BASE_MATCHERS.some((matcher) => normalizedCampaign.includes(matcher))
+        const matchesStageName = stage.matchers.some((matcher) => normalizedCampaign.includes(matcher))
+        const matchesProgramId = Array.isArray(stage.programIds)
+          ? stage.programIds.some((programId) => normalizedObservation.includes(`programid${programId}`))
+          : false
+
+        return (matchesBase && matchesStageName) || matchesProgramId
       })
       const sends = items.reduce((sum, item) => sum + Number(item.enviados || 0), 0)
       const opens = items.reduce((sum, item) => sum + Number(item.aberturas_unicas || 0), 0)
@@ -760,20 +784,7 @@ export default function App() {
         openRate
       }
     })
-  }, [openDataOpenRateItems])
-
-  const anniversaryAutomationDateRange = useMemo(() => {
-    const dates = anniversaryAutomationStages
-      .flatMap((stage) => stage.items.map((item) => String(item.data || '').trim()))
-      .filter(Boolean)
-      .sort()
-
-    if (dates.length === 0) return null
-    return {
-      start: dates[0],
-      end: dates[dates.length - 1]
-    }
-  }, [anniversaryAutomationStages])
+  }, [filteredAnniversaryOpenRateItems])
 
   const anniversaryAutomationTotals = useMemo(() => {
     const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)
@@ -786,7 +797,7 @@ export default function App() {
   }, [anniversaryAutomationStages])
 
   const loadAnniversaryAutomationCouponStats = useCallback(async () => {
-    if (!anniversaryAutomationDateRange?.start || !anniversaryAutomationDateRange?.end) {
+    if (!openDataAutomationStartDate || !openDataAutomationEndDate) {
       setAnniversaryAutomationCouponStats(null)
       setAnniversaryAutomationCouponError('')
       return
@@ -797,8 +808,8 @@ export default function App() {
 
     try {
       const params = new URLSearchParams({
-        start: anniversaryAutomationDateRange.start,
-        end: anniversaryAutomationDateRange.end
+        start: openDataAutomationStartDate,
+        end: openDataAutomationEndDate
       })
       params.append('coupon', ANNIVERSARY_AUTOMATION_COUPON)
 
@@ -829,7 +840,7 @@ export default function App() {
     } finally {
       setAnniversaryAutomationCouponLoading(false)
     }
-  }, [anniversaryAutomationDateRange?.end, anniversaryAutomationDateRange?.start])
+  }, [openDataAutomationEndDate, openDataAutomationStartDate])
 
   useEffect(() => {
     if (activeView === 'open-data') {
@@ -1294,11 +1305,26 @@ export default function App() {
               Taxas de abertura das pecas `Parte 1`, `Parte 2` e `Parte 3`, com receita do cupom {ANNIVERSARY_AUTOMATION_COUPON}.
             </p>
           </div>
-          {anniversaryAutomationDateRange && (
-            <p className="text-sm text-slate-600">
-              Periodo identificado: {formatDate(anniversaryAutomationDateRange.start)} a {formatDate(anniversaryAutomationDateRange.end)}
-            </p>
-          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              Inicio
+              <input
+                type="date"
+                value={openDataAutomationStartDate}
+                onChange={(event) => setOpenDataAutomationStartDate(event.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              Fim
+              <input
+                type="date"
+                value={openDataAutomationEndDate}
+                onChange={(event) => setOpenDataAutomationEndDate(event.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+          </div>
         </div>
 
         {anniversaryAutomationCouponError && (
@@ -1308,7 +1334,7 @@ export default function App() {
         {openDataLoading ? (
           <p className="mt-4 text-sm text-slate-600">Carregando automacao de aniversario...</p>
         ) : anniversaryAutomationStages.every((stage) => stage.items.length === 0) ? (
-          <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no Open Data atual.</p>
+          <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no periodo selecionado.</p>
         ) : (
           <div className="mt-4 space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
