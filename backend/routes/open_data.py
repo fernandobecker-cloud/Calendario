@@ -113,6 +113,7 @@ WITH ranked AS (
 )
 SELECT
   CAST(id AS STRING) AS campaign_id,
+  CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
   DATE(partitiontime) AS data,
   name AS campanha,
   'Email' AS canal,
@@ -146,6 +147,7 @@ def _build_email_open_rates_sql(limit: int, start_date: str | None = None, end_d
 WITH campaigns AS (
   SELECT
     CAST(id AS STRING) AS campaign_id,
+    CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
     DATE(partitiontime) AS data,
     name AS campanha,
     CAST(type AS STRING) AS status,
@@ -188,6 +190,7 @@ opens AS (
 )
 SELECT
   c.campaign_id,
+  c.program_id,
   c.data,
   c.campanha,
   'Email' AS canal,

@@ -147,6 +147,14 @@ function getRelativeMonth(year, month, offset) {
   }
 }
 
+function isIsoDateWithinRange(value, start, end) {
+  const dateText = String(value || '').trim()
+  if (!dateText) return false
+  if (start && dateText < start) return false
+  if (end && dateText > end) return false
+  return true
+}
+
 function isGa4NoDataError(detail) {
   const message = String(detail || '').toLowerCase()
   return message.includes('future currency exchange rate not exist')
@@ -769,18 +777,24 @@ export default function App() {
     }, {})
   }, [openDataOpenRateItems])
 
+  const filteredAutomationOpenRateItems = useMemo(() => {
+    return openDataOpenRateItems.filter((item) =>
+      isIsoDateWithinRange(item.data, openDataAutomationStartDate, openDataAutomationEndDate)
+    )
+  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataOpenRateItems])
+
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
-      const items = openDataOpenRateItems.filter((item) => {
+      const items = filteredAutomationOpenRateItems.filter((item) => {
         const sends = Number(item.enviados || 0)
         if (sends <= 0) return false
 
         const normalizedCampaign = normalizeLookup(item.campanha)
-        const normalizedObservation = normalizeLookup(item.observacao)
+        const programId = String(item.program_id || '').trim()
         const matchesBase = ANNIVERSARY_AUTOMATION_BASE_MATCHERS.some((matcher) => normalizedCampaign.includes(matcher))
         const matchesStageName = stage.matchers.some((matcher) => normalizedCampaign.includes(matcher))
         const matchesProgramId = Array.isArray(stage.programIds)
-          ? stage.programIds.some((programId) => normalizedObservation.includes(`programid${programId}`))
+          ? stage.programIds.includes(programId)
           : false
 
         return (matchesBase && matchesStageName) || matchesProgramId
@@ -797,7 +811,7 @@ export default function App() {
         openRate
       }
     })
-  }, [openDataOpenRateItems])
+  }, [filteredAutomationOpenRateItems])
 
   const anniversaryAutomationTotals = useMemo(() => {
     const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)
@@ -856,7 +870,7 @@ export default function App() {
   }, [openDataAutomationEndDate, openDataAutomationStartDate])
 
   useEffect(() => {
-    if (activeView === 'open-data') {
+    if (activeView === 'automation-results') {
       loadAnniversaryAutomationCouponStats()
     }
   }, [activeView, loadAnniversaryAutomationCouponStats])
