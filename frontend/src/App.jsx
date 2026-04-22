@@ -148,13 +148,6 @@ function getRelativeMonth(year, month, offset) {
   }
 }
 
-function isIsoDateWithinRange(value, start, end) {
-  const dateText = String(value || '').trim()
-  if (!dateText) return false
-  if (start && dateText < start) return false
-  if (end && dateText > end) return false
-  return true
-}
 
 function isGa4NoDataError(detail) {
   const message = String(detail || '').toLowerCase()
@@ -872,11 +865,8 @@ export default function App() {
     }, {})
   }, [openDataOpenRateItems])
 
-  const filteredAutomationOpenRateItems = useMemo(() => {
-    return openDataProgramOpenRateItems.filter((item) =>
-      isIsoDateWithinRange(item.data, openDataAutomationStartDate, openDataAutomationEndDate)
-    )
-  }, [openDataAutomationEndDate, openDataAutomationStartDate, openDataProgramOpenRateItems])
+  // The server already filters by date range; no client-side date filter needed.
+  const filteredAutomationOpenRateItems = openDataProgramOpenRateItems
 
   const anniversaryAutomationStages = useMemo(() => {
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
@@ -906,7 +896,7 @@ export default function App() {
         openRate
       }
     })
-  }, [filteredAutomationOpenRateItems])
+  }, [openDataProgramOpenRateItems])
 
   const anniversaryAutomationTotals = useMemo(() => {
     const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)

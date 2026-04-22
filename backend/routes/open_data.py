@@ -296,14 +296,20 @@ def _build_email_program_open_rates_sql(start_date: str | None = None, end_date:
     campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
     opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
-    partitiontime_filter = _build_partitiontime_filter(start_date, end_date)
+    # Campaigns use the full lookback so that automation programs created
+    # before the selected period are still resolved to their program_id.
+    campaigns_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+    # Sends and opens are filtered by the user-selected date range.
+    activity_filter = _build_partitiontime_filter(start_date, end_date)
 
     return f"""
-WITH campaigns AS (
+WITH campaign_programs AS (
+  -- One row per (campaign_id, program_id) across the full lookback window.
+  -- Automation programs are created once and run indefinitely, so we must
+  -- not restrict this CTE to the user-selected date range.
   SELECT
     CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
-    DATE(partitiontime) AS data,
     ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
     ARRAY_AGG(CAST(type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS status,
     ARRAY_AGG(CAST(sub_type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS direcionamento,
@@ -320,83 +326,69 @@ WITH campaigns AS (
       LIMIT 1
     )[SAFE_OFFSET(0)] AS observacao
   FROM `{project_id}.{dataset}.{campaigns_table}`
-  WHERE {partitiontime_filter}
+  WHERE {campaigns_filter}
     AND program_id IS NOT NULL
-  GROUP BY 1, 2, 3
+  GROUP BY 1, 2
 ),
-program_daily AS (
+program_info AS (
+  -- Pick one representative name per program.
   SELECT
     program_id,
-    data,
     ARRAY_AGG(campanha IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
     ARRAY_AGG(status IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS status,
     ARRAY_AGG(direcionamento IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS direcionamento,
     ARRAY_AGG(produto IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS produto,
     ARRAY_AGG(observacao IGNORE NULLS ORDER BY campaign_id DESC LIMIT 1)[SAFE_OFFSET(0)] AS observacao
-  FROM campaigns
-  GROUP BY 1, 2
+  FROM campaign_programs
+  GROUP BY 1
 ),
-campaign_sends AS (
+program_sends AS (
+  -- Total sends per program within the selected date range.
+  -- Joined on campaign_id only (no date) so that automation sends that
+  -- happen every day are all counted, regardless of the campaign partition date.
   SELECT
-    CAST(campaign_id AS STRING) AS campaign_id,
-    DATE(partitiontime) AS data,
-    COUNT(DISTINCT message_id) AS enviados
-  FROM `{project_id}.{dataset}.{sends_table}`
-  WHERE {partitiontime_filter}
-    AND campaign_id IS NOT NULL
-    AND message_id IS NOT NULL
-  GROUP BY 1, 2
+    cp.program_id,
+    COUNT(DISTINCT s.message_id) AS enviados
+  FROM `{project_id}.{dataset}.{sends_table}` s
+  JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
+  WHERE {activity_filter}
+    AND s.campaign_id IS NOT NULL
+    AND s.message_id IS NOT NULL
+  GROUP BY 1
 ),
-campaign_opens AS (
+program_opens AS (
+  -- Total unique opens per program within the selected date range.
   SELECT
-    CAST(campaign_id AS STRING) AS campaign_id,
-    DATE(partitiontime) AS data,
-    COUNT(DISTINCT message_id) AS aberturas_unicas
-  FROM `{project_id}.{dataset}.{opens_table}`
-  WHERE {partitiontime_filter}
-    AND campaign_id IS NOT NULL
-    AND message_id IS NOT NULL
-  GROUP BY 1, 2
-),
-sends AS (
-  SELECT
-    c.program_id,
-    c.data,
-    SUM(COALESCE(s.enviados, 0)) AS enviados
-  FROM campaigns c
-  LEFT JOIN campaign_sends s ON s.campaign_id = c.campaign_id AND s.data = c.data
-  GROUP BY 1, 2
-),
-opens AS (
-  SELECT
-    c.program_id,
-    c.data,
-    SUM(COALESCE(o.aberturas_unicas, 0)) AS aberturas_unicas
-  FROM campaigns c
-  LEFT JOIN campaign_opens o ON o.campaign_id = c.campaign_id AND o.data = c.data
-  GROUP BY 1, 2
+    cp.program_id,
+    COUNT(DISTINCT o.message_id) AS aberturas_unicas
+  FROM `{project_id}.{dataset}.{opens_table}` o
+  JOIN campaign_programs cp ON CAST(o.campaign_id AS STRING) = cp.campaign_id
+  WHERE {activity_filter}
+    AND o.campaign_id IS NOT NULL
+    AND o.message_id IS NOT NULL
+  GROUP BY 1
 )
 SELECT
-  c.program_id,
-  c.data,
-  c.campanha,
+  pi.program_id,
+  pi.campanha,
   'Email' AS canal,
-  c.status,
-  c.direcionamento,
-  c.produto,
-  c.observacao,
+  pi.status,
+  pi.direcionamento,
+  pi.produto,
+  pi.observacao,
   COALESCE(s.enviados, 0) AS enviados,
   COALESCE(o.aberturas_unicas, 0) AS aberturas_unicas,
   ROUND(
     SAFE_DIVIDE(COALESCE(o.aberturas_unicas, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100,
     2
   ) AS taxa_abertura_percentual
-FROM program_daily c
-LEFT JOIN sends s ON s.program_id = c.program_id AND s.data = c.data
-LEFT JOIN opens o ON o.program_id = c.program_id AND o.data = c.data
-WHERE c.campanha IS NOT NULL
-  AND TRIM(c.campanha) != ''
-ORDER BY c.data DESC, c.campanha
+FROM program_info pi
+LEFT JOIN program_sends s ON s.program_id = pi.program_id
+LEFT JOIN program_opens o ON o.program_id = pi.program_id
+WHERE pi.campanha IS NOT NULL
+  AND TRIM(pi.campanha) != ''
+  AND (COALESCE(s.enviados, 0) > 0 OR COALESCE(o.aberturas_unicas, 0) > 0)
+ORDER BY pi.campanha
 """.strip()
 
 
