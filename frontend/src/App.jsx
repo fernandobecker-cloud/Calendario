@@ -704,26 +704,25 @@ export default function App() {
       nextHealthPayload = await healthResponse.json()
       setOpenDataHealth(nextHealthPayload)
 
+      const errors = []
+
       if (!campaignsResponse.ok) {
         const message = await readErrorMessage(campaignsResponse, 'Nao foi possivel carregar campanhas do Open Data.')
         setOpenDataItems([])
-        setOpenDataOpenRateItems([])
-        setOpenDataProgramOpenRateItems([])
-        throw new Error(message)
+        errors.push(message)
+      } else {
+        const campaignsPayload = await campaignsResponse.json()
+        setOpenDataItems(Array.isArray(campaignsPayload?.items) ? campaignsPayload.items : [])
       }
-
-      const campaignsPayload = await campaignsResponse.json()
-      setOpenDataItems(Array.isArray(campaignsPayload?.items) ? campaignsPayload.items : [])
 
       if (!openRatesResponse.ok) {
         const message = await readErrorMessage(openRatesResponse, 'Nao foi possivel carregar taxas de abertura do Open Data.')
         setOpenDataOpenRateItems([])
-        setOpenDataProgramOpenRateItems([])
-        throw new Error(message)
+        errors.push(message)
+      } else {
+        const openRatesPayload = await openRatesResponse.json()
+        setOpenDataOpenRateItems(Array.isArray(openRatesPayload?.items) ? openRatesPayload.items : [])
       }
-
-      const openRatesPayload = await openRatesResponse.json()
-      setOpenDataOpenRateItems(Array.isArray(openRatesPayload?.items) ? openRatesPayload.items : [])
 
       if (!programOpenRatesResponse.ok) {
         const message = await readErrorMessage(
@@ -731,11 +730,15 @@ export default function App() {
           'Nao foi possivel carregar taxas de abertura por programa do Open Data.'
         )
         setOpenDataProgramOpenRateItems([])
-        throw new Error(message)
+        errors.push(message)
+      } else {
+        const programOpenRatesPayload = await programOpenRatesResponse.json()
+        setOpenDataProgramOpenRateItems(Array.isArray(programOpenRatesPayload?.items) ? programOpenRatesPayload.items : [])
       }
 
-      const programOpenRatesPayload = await programOpenRatesResponse.json()
-      setOpenDataProgramOpenRateItems(Array.isArray(programOpenRatesPayload?.items) ? programOpenRatesPayload.items : [])
+      if (errors.length > 0) {
+        setOpenDataError(errors.join(' | '))
+      }
     } catch (err) {
       setOpenDataHealth(nextHealthPayload)
       setOpenDataItems([])
@@ -1518,6 +1521,13 @@ export default function App() {
                 className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => { loadOpenData(); loadAnniversaryAutomationCouponStats() }}
+              className="self-end rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold transition hover:bg-white/25"
+            >
+              Atualizar
+            </button>
           </div>
         </div>
       </section>

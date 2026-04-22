@@ -290,7 +290,7 @@ LIMIT {limit}
 """.strip()
 
 
-def _build_email_program_open_rates_sql(limit: int, start_date: str | None = None, end_date: str | None = None) -> str:
+def _build_email_program_open_rates_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
@@ -397,7 +397,6 @@ LEFT JOIN opens o ON o.program_id = c.program_id AND o.data = c.data
 WHERE c.campanha IS NOT NULL
   AND TRIM(c.campanha) != ''
 ORDER BY c.data DESC, c.campanha
-LIMIT {limit}
 """.strip()
 
 
@@ -470,12 +469,11 @@ def emarsys_email_open_rates(
 
 @router.get("/emarsys/email-program-open-rates")
 def emarsys_email_program_open_rates(
-    limit: int = Query(default=50, ge=1, le=500),
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        sql = _build_email_program_open_rates_sql(limit, start, end)
+        sql = _build_email_program_open_rates_sql(start, end)
         records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
