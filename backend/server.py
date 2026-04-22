@@ -25,6 +25,7 @@ from backend.event_sources import load_google_sheet
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_abandoned_cart_coupon_orders,
+    get_automation_revenue_by_campaign,
     get_coupon_orders,
     get_crm_ltv,
     get_crm_monthly_report,
@@ -724,6 +725,25 @@ def ga4_coupon_orders(
 
     try:
         return get_coupon_orders(effective_property_id, start, end, coupon, crm_scope)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/automation-revenue-by-campaign")
+def ga4_automation_revenue_by_campaign(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    campaign_regex: str = Query(default=r"(?i).*aniversario.*"),
+    property_id: str | None = Query(default=None),
+) -> dict[str, Any]:
+    effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
+    if not effective_property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    try:
+        return get_automation_revenue_by_campaign(effective_property_id, start, end, campaign_regex)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:

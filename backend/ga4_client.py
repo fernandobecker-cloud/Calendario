@@ -536,3 +536,59 @@ def get_coupon_orders(
         "top_coupon": top_coupon,
         "by_coupon": by_coupon,
     }
+
+
+def get_automation_revenue_by_campaign(
+    property_id: str,
+    start_date: str,
+    end_date: str,
+    campaign_name_regex: str = r"(?i).*aniversario.*",
+) -> dict[str, Any]:
+    """Returns purchaseRevenue per sessionCampaignName for CRM sessions matching a regex."""
+    start = _validate_iso_date(start_date)
+    end = _validate_iso_date(end_date)
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
+        return {"items": [], "start_date": start, "end_date": end}
+    start, end = normalized_period
+    property_resource = _resolve_property_resource(property_id)
+    client = _get_ga4_client()
+
+    campaign_filter = FilterExpression(
+        filter=Filter(
+            field_name="sessionCampaignName",
+            string_filter=Filter.StringFilter(
+                match_type=Filter.StringFilter.MatchType.FULL_REGEXP,
+                value=campaign_name_regex,
+            ),
+        )
+    )
+    combined_filter = FilterExpression(
+        and_group=FilterExpressionList(expressions=[_build_crm_filter(), campaign_filter])
+    )
+
+    request = RunReportRequest(
+        property=property_resource,
+        dimensions=[Dimension(name="sessionCampaignName")],
+        metrics=[Metric(name="transactions"), Metric(name="purchaseRevenue")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimension_filter=combined_filter,
+    )
+    response = _run_report(request, client)
+
+    items = []
+    for row in response.rows:
+        dim_vals = row.dimension_values
+        met_vals = row.metric_values
+        if len(dim_vals) < 1 or len(met_vals) < 2:
+            continue
+        campaign_name = (dim_vals[0].value or "").strip()
+        transactions = int(met_vals[0].value or 0)
+        purchase_revenue = float(met_vals[1].value or 0.0)
+        items.append({
+            "campaignName": campaign_name,
+            "transactions": transactions,
+            "purchaseRevenue": round(purchase_revenue, 2),
+        })
+
+    return {"items": items, "start_date": start, "end_date": end}

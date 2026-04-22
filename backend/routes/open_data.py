@@ -26,6 +26,10 @@ EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE",
     "email_sends_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE",
+    "si_purchases_1091660394",
+).strip()
 EMARSYS_OPEN_DATA_LOCATION = os.getenv("EMARSYS_OPEN_DATA_LOCATION", "EU").strip()
 EMARSYS_OPEN_DATA_QUERY = os.getenv("EMARSYS_OPEN_DATA_QUERY", "").strip()
 EMARSYS_OPEN_DATA_LOOKBACK_DAYS = max(
@@ -578,6 +582,98 @@ LIMIT 100
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha no debug: {exc}") from exc
+
+
+def _build_automation_revenue_by_program_sql(
+    program_ids: list[str],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+
+    safe_program_ids = [str(pid).strip() for pid in program_ids if str(pid).strip()]
+    if not safe_program_ids:
+        raise ValueError("Informe ao menos um program_id")
+
+    program_id_values = ", ".join(f"'{pid}'" for pid in safe_program_ids)
+    campaigns_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+    activity_filter = _build_partitiontime_filter(start_date, end_date)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+    if normalized_start and normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+    elif normalized_start:
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+    else:
+        purchase_date_filter = "p.purchase_date IS NOT NULL"
+
+    return f"""
+WITH campaign_programs AS (
+  SELECT DISTINCT
+    CAST(id AS STRING) AS campaign_id,
+    CAST(COALESCE(program_id, 0) AS STRING) AS program_id
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+  WHERE {campaigns_filter}
+    AND program_id IS NOT NULL
+    AND CAST(COALESCE(program_id, 0) AS STRING) IN ({program_id_values})
+),
+program_contacts AS (
+  SELECT DISTINCT cp.program_id, CAST(s.contact_id AS STRING) AS contact_id
+  FROM `{project_id}.{dataset}.{sends_table}` s
+  JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
+  WHERE {activity_filter}
+    AND s.contact_id IS NOT NULL
+),
+program_revenue AS (
+  SELECT
+    pc.program_id,
+    COALESCE(SUM(p.sales_amount), 0) AS receita
+  FROM program_contacts pc
+  LEFT JOIN `{project_id}.{dataset}.{purchases_table}` p
+    ON CAST(p.si_contact_id AS STRING) = pc.contact_id
+    AND {purchase_date_filter}
+  GROUP BY 1
+)
+SELECT program_id, receita FROM program_revenue
+ORDER BY program_id
+""".strip()
+
+
+@router.get("/emarsys/automation-program-revenue")
+def emarsys_automation_program_revenue(
+    program_id: list[str] = Query(...),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_automation_revenue_by_program_sql(program_id, start, end)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "program_ids": program_id,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_si_purchases",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita por programa: {exc}") from exc
 
 
 @router.get("/emarsys/tables")

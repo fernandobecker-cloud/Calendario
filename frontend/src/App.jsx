@@ -245,6 +245,8 @@ export default function App() {
   const [anniversaryAutomationCouponStats, setAnniversaryAutomationCouponStats] = useState(null)
   const [anniversaryAutomationCouponLoading, setAnniversaryAutomationCouponLoading] = useState(false)
   const [anniversaryAutomationCouponError, setAnniversaryAutomationCouponError] = useState('')
+  const [automationEmarsysRevenueItems, setAutomationEmarsysRevenueItems] = useState([])
+  const [automationGa4RevenueItems, setAutomationGa4RevenueItems] = useState([])
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -682,12 +684,29 @@ export default function App() {
         start: openDataAutomationStartDate,
         end: openDataAutomationEndDate
       })
-      const [healthResponse, campaignsResponse, openRatesResponse, programOpenRatesResponse] = await Promise.all([
-        fetch('/api/open-data/emarsys/health'),
-        fetch(`/api/open-data/emarsys/email-campaigns?${openDataParams.toString()}`),
-        fetch(`/api/open-data/emarsys/email-open-rates?${openDataParams.toString()}`),
-        fetch(`/api/open-data/emarsys/email-program-open-rates?${openDataParams.toString()}`)
-      ])
+
+      const emarsysRevenueParams = new URLSearchParams({
+        start: openDataAutomationStartDate,
+        end: openDataAutomationEndDate
+      })
+      ANNIVERSARY_AUTOMATION_STAGES.flatMap((stage) => stage.programIds).forEach((pid) =>
+        emarsysRevenueParams.append('program_id', pid)
+      )
+
+      const ga4RevenueParams = new URLSearchParams({
+        start: openDataAutomationStartDate,
+        end: openDataAutomationEndDate
+      })
+
+      const [healthResponse, campaignsResponse, openRatesResponse, programOpenRatesResponse, emarsysRevenueResponse, ga4RevenueResponse] =
+        await Promise.all([
+          fetch('/api/open-data/emarsys/health'),
+          fetch(`/api/open-data/emarsys/email-campaigns?${openDataParams.toString()}`),
+          fetch(`/api/open-data/emarsys/email-open-rates?${openDataParams.toString()}`),
+          fetch(`/api/open-data/emarsys/email-program-open-rates?${openDataParams.toString()}`),
+          fetch(`/api/open-data/emarsys/automation-program-revenue?${emarsysRevenueParams.toString()}`),
+          fetch(`/api/ga4/automation-revenue-by-campaign?${ga4RevenueParams.toString()}`)
+        ])
 
       if (!healthResponse.ok) {
         const message = await readErrorMessage(healthResponse, 'Nao foi possivel validar a conexao com o Open Data.')
@@ -729,6 +748,22 @@ export default function App() {
         setOpenDataProgramOpenRateItems(Array.isArray(programOpenRatesPayload?.items) ? programOpenRatesPayload.items : [])
       }
 
+      if (!emarsysRevenueResponse.ok) {
+        setAutomationEmarsysRevenueItems([])
+        const message = await readErrorMessage(emarsysRevenueResponse, 'Nao foi possivel carregar a receita Emarsys.')
+        errors.push(message)
+      } else {
+        const payload = await emarsysRevenueResponse.json()
+        setAutomationEmarsysRevenueItems(Array.isArray(payload?.items) ? payload.items : [])
+      }
+
+      if (!ga4RevenueResponse.ok) {
+        setAutomationGa4RevenueItems([])
+      } else {
+        const payload = await ga4RevenueResponse.json()
+        setAutomationGa4RevenueItems(Array.isArray(payload?.items) ? payload.items : [])
+      }
+
       if (errors.length > 0) {
         setOpenDataError(errors.join(' | '))
       }
@@ -737,6 +772,8 @@ export default function App() {
       setOpenDataItems([])
       setOpenDataOpenRateItems([])
       setOpenDataProgramOpenRateItems([])
+      setAutomationEmarsysRevenueItems([])
+      setAutomationGa4RevenueItems([])
       setOpenDataError(err instanceof Error ? err.message : 'Falha ao carregar Open Data da Emarsys.')
     } finally {
       setOpenDataLoading(false)
@@ -869,6 +906,24 @@ export default function App() {
   const filteredAutomationOpenRateItems = openDataProgramOpenRateItems
 
   const anniversaryAutomationStages = useMemo(() => {
+    const emarsysRevenueByProgram = automationEmarsysRevenueItems.reduce((acc, item) => {
+      const programId = String(item.program_id || '').trim()
+      if (programId) acc[programId] = Number(item.receita || 0)
+      return acc
+    }, {})
+
+    const ga4RevenueByStage = {}
+    for (const item of automationGa4RevenueItems) {
+      const normalizedName = normalizeLookup(item.campaignName || '')
+      for (const stage of ANNIVERSARY_AUTOMATION_STAGES) {
+        const matchesStage = stage.matchers.some((matcher) => normalizedName.includes(matcher))
+        if (matchesStage) {
+          ga4RevenueByStage[stage.key] = (ga4RevenueByStage[stage.key] || 0) + Number(item.purchaseRevenue || 0)
+          break
+        }
+      }
+    }
+
     return ANNIVERSARY_AUTOMATION_STAGES.map((stage) => {
       const items = filteredAutomationOpenRateItems.filter((item) => {
         const sends = Number(item.enviados || 0)
@@ -887,24 +942,32 @@ export default function App() {
       const sends = items.reduce((sum, item) => sum + Number(item.enviados || 0), 0)
       const opens = items.reduce((sum, item) => sum + Number(item.aberturas_unicas || 0), 0)
       const openRate = sends > 0 ? (opens / sends) * 100 : 0
+      const emarsysRevenue = (stage.programIds || []).reduce((sum, pid) => sum + (emarsysRevenueByProgram[pid] || 0), 0)
+      const ga4Revenue = ga4RevenueByStage[stage.key] || 0
 
       return {
         ...stage,
         items,
         sends,
         opens,
-        openRate
+        openRate,
+        emarsysRevenue,
+        ga4Revenue
       }
     })
-  }, [openDataProgramOpenRateItems])
+  }, [openDataProgramOpenRateItems, automationEmarsysRevenueItems, automationGa4RevenueItems])
 
   const anniversaryAutomationTotals = useMemo(() => {
     const sends = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.sends, 0)
     const opens = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.opens, 0)
+    const emarsysRevenue = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.emarsysRevenue, 0)
+    const ga4Revenue = anniversaryAutomationStages.reduce((sum, stage) => sum + stage.ga4Revenue, 0)
     return {
       sends,
       opens,
-      openRate: sends > 0 ? (opens / sends) * 100 : 0
+      openRate: sends > 0 ? (opens / sends) * 100 : 0,
+      emarsysRevenue,
+      ga4Revenue
     }
   }, [anniversaryAutomationStages])
 
@@ -1546,17 +1609,19 @@ export default function App() {
           <p className="mt-4 text-sm text-slate-600">Nao encontrei campanhas da automacao de aniversario no periodo selecionado.</p>
         ) : (
           <div className="mt-4 space-y-4">
-            <div className="rounded-xl border border-slate-200">
-              <div className="grid grid-cols-[minmax(0,1fr)_140px_140px_140px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-xl border border-slate-200 overflow-x-auto">
+              <div className="grid grid-cols-[minmax(180px,1fr)_120px_120px_110px_150px_150px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 min-w-[830px]">
                 <span>Etapa</span>
                 <span>Enviados</span>
                 <span>Aberturas</span>
-                <span>% abertura</span>
+                <span>% Abertura</span>
+                <span>Receita Emarsys</span>
+                <span>Receita GA4</span>
               </div>
               {anniversaryAutomationStages.map((stage) => (
                 <div
                   key={stage.key}
-                  className="grid grid-cols-[minmax(0,1fr)_140px_140px_140px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                  className="grid grid-cols-[minmax(180px,1fr)_120px_120px_110px_150px_150px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 min-w-[830px]"
                 >
                   <span className="font-medium text-slate-900">{stage.label}</span>
                   <span className="text-slate-700">{new Intl.NumberFormat('pt-BR').format(stage.sends)}</span>
@@ -1568,6 +1633,8 @@ export default function App() {
                     })}
                     %
                   </span>
+                  <span className="text-slate-700">{formatCurrency(stage.emarsysRevenue)}</span>
+                  <span className="text-slate-700">{formatCurrency(stage.ga4Revenue)}</span>
                 </div>
               ))}
             </div>
@@ -1584,10 +1651,21 @@ export default function App() {
                 {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.opens)} aberturas unicas de{' '}
                 {new Intl.NumberFormat('pt-BR').format(anniversaryAutomationTotals.sends)} enviados
               </p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="font-medium text-slate-500">Receita Emarsys</p>
+                  <p className="text-slate-900 font-semibold">{formatCurrency(anniversaryAutomationTotals.emarsysRevenue)}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-slate-500">Receita GA4</p>
+                  <p className="text-slate-900 font-semibold">{formatCurrency(anniversaryAutomationTotals.ga4Revenue)}</p>
+                </div>
+              </div>
               {anniversaryAutomationCouponLoading ? (
-                <p className="mt-3 text-sm text-slate-600">Carregando receita...</p>
+                <p className="mt-3 text-sm text-slate-600">Carregando receita do cupom...</p>
               ) : (
                 <div className="mt-3 space-y-1 text-sm text-slate-600">
+                  <p className="font-medium text-slate-500">Cupom {ANNIVERSARY_AUTOMATION_COUPON} (GA4)</p>
                   <p>
                     Pedidos com cupom: {new Intl.NumberFormat('pt-BR').format(Number(anniversaryAutomationCouponStats?.transactions || 0))}
                   </p>
