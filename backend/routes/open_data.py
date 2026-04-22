@@ -342,30 +342,44 @@ program_info AS (
   FROM campaign_programs
   GROUP BY 1
 ),
+campaign_sends AS (
+  -- COUNT(DISTINCT message_id) per campaign individually.
+  -- message_id is only unique within a campaign, not globally, so we must
+  -- count per campaign first and then sum — not COUNT(DISTINCT) across all.
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT message_id) AS enviados
+  FROM `{project_id}.{dataset}.{sends_table}`
+  WHERE {activity_filter}
+    AND campaign_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1
+),
+campaign_opens AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT message_id) AS aberturas_unicas
+  FROM `{project_id}.{dataset}.{opens_table}`
+  WHERE {activity_filter}
+    AND campaign_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1
+),
 program_sends AS (
-  -- Total sends per program within the selected date range.
-  -- Joined on campaign_id only (no date) so that automation sends that
-  -- happen every day are all counted, regardless of the campaign partition date.
+  -- Sum per-campaign counts across all campaigns in the program.
   SELECT
     cp.program_id,
-    COUNT(DISTINCT s.message_id) AS enviados
-  FROM `{project_id}.{dataset}.{sends_table}` s
-  JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
-  WHERE {activity_filter}
-    AND s.campaign_id IS NOT NULL
-    AND s.message_id IS NOT NULL
+    SUM(cs.enviados) AS enviados
+  FROM campaign_sends cs
+  JOIN campaign_programs cp ON cs.campaign_id = cp.campaign_id
   GROUP BY 1
 ),
 program_opens AS (
-  -- Total unique opens per program within the selected date range.
   SELECT
     cp.program_id,
-    COUNT(DISTINCT o.message_id) AS aberturas_unicas
-  FROM `{project_id}.{dataset}.{opens_table}` o
-  JOIN campaign_programs cp ON CAST(o.campaign_id AS STRING) = cp.campaign_id
-  WHERE {activity_filter}
-    AND o.campaign_id IS NOT NULL
-    AND o.message_id IS NOT NULL
+    SUM(co.aberturas_unicas) AS aberturas_unicas
+  FROM campaign_opens co
+  JOIN campaign_programs cp ON co.campaign_id = cp.campaign_id
   GROUP BY 1
 )
 SELECT
