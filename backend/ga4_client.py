@@ -563,16 +563,13 @@ def get_automation_revenue_by_campaign(
             ),
         )
     )
-    combined_filter = FilterExpression(
-        and_group=FilterExpressionList(expressions=[_build_crm_filter(), campaign_filter])
-    )
 
     request = RunReportRequest(
         property=property_resource,
         dimensions=[Dimension(name="sessionCampaignName")],
         metrics=[Metric(name="transactions"), Metric(name="purchaseRevenue")],
         date_ranges=[DateRange(start_date=start, end_date=end)],
-        dimension_filter=combined_filter,
+        dimension_filter=campaign_filter,
     )
     response = _run_report(request, client)
 
