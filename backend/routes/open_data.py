@@ -516,6 +516,56 @@ def emarsys_open_data_health() -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Falha ao preparar health Open Data: {exc}") from exc
 
 
+@router.get("/emarsys/debug-program-sends")
+def emarsys_debug_program_sends(
+    program_id: str = Query(...),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Diagnostic: shows campaign_ids matched for a program and their send counts."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    campaigns_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+    activity_filter = _build_partitiontime_filter(start, end)
+    safe_program_id = str(program_id).strip()
+
+    sql = f"""
+WITH campaign_programs AS (
+  SELECT DISTINCT CAST(id AS STRING) AS campaign_id
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+  WHERE {campaigns_filter}
+    AND CAST(COALESCE(program_id, 0) AS STRING) = '{safe_program_id}'
+),
+sends_by_campaign AS (
+  SELECT
+    CAST(s.campaign_id AS STRING) AS campaign_id,
+    DATE(s.partitiontime) AS data,
+    COUNT(DISTINCT s.message_id) AS enviados
+  FROM `{project_id}.{dataset}.{sends_table}` s
+  JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
+  WHERE {activity_filter}
+    AND s.campaign_id IS NOT NULL
+    AND s.message_id IS NOT NULL
+  GROUP BY 1, 2
+)
+SELECT * FROM sends_by_campaign
+ORDER BY data DESC, campaign_id
+LIMIT 100
+""".strip()
+
+    try:
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        total_sends = sum(int(r.get("enviados") or 0) for r in items)
+        return {"program_id": safe_program_id, "start": start, "end": end, "rows": items, "total_campaigns": len({r["campaign_id"] for r in items}), "total_sends": total_sends}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no debug: {exc}") from exc
+
+
 @router.get("/emarsys/tables")
 def emarsys_open_data_tables() -> dict[str, Any]:
     try:
