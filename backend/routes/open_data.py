@@ -982,7 +982,6 @@ def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_dat
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
-    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
 
@@ -992,14 +991,6 @@ WITH all_campaign_names AS (
     CAST(id AS STRING) AS campaign_id,
     ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
   FROM `{project_id}.{dataset}.{email_campaigns_table}`
-  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
-    AND id IS NOT NULL
-  GROUP BY 1
-  UNION ALL
-  SELECT
-    CAST(id AS STRING) AS campaign_id,
-    ANY_VALUE(name) AS nome_campanha
-  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
   WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
     AND id IS NOT NULL
   GROUP BY 1
