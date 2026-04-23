@@ -40,6 +40,10 @@ EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE",
     "revenue_attribution_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE",
+    "sms_campaigns_1091660394",
+).strip()
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -886,3 +890,210 @@ def emarsys_open_data_table_preview(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
+
+
+def _build_attribution_date_filters(
+    start_date: str | None,
+    end_date: str | None,
+    table_alias: str = "r",
+) -> tuple[str, str]:
+    """Returns (event_time_filter, partition_filter) for revenue_attribution queries."""
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+    p = f"{table_alias}.partitiontime" if table_alias else "partitiontime"
+    e = f"DATE({table_alias}.event_time)" if table_alias else "DATE(event_time)"
+
+    if normalized_start and normalized_end:
+        event_time_filter = f"{e} BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        partition_filter = f"DATE({p}) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    elif normalized_start:
+        event_time_filter = f"{e} >= DATE('{normalized_start}')"
+        partition_filter = f"DATE({p}) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        event_time_filter = f"{e} <= DATE('{normalized_end}')"
+        partition_filter = f"DATE({p}) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    else:
+        event_time_filter = f"{e} >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        partition_filter = f"{p} >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+
+    return event_time_filter, partition_filter
+
+
+def _build_audit_discrepancia_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
+
+    return f"""
+SELECT
+  r.order_id,
+  r.contact_id,
+  DATE(r.event_time) AS data_pedido,
+  CAST(t.campaign_id AS STRING) AS campaign_id,
+  LOWER(t.channel) AS canal,
+  ROUND((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i), 2) AS valor_real,
+  ROUND(t.attributed_amount, 2) AS valor_atribuido,
+  ROUND(ABS((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) - t.attributed_amount), 2) AS diferenca_absoluta
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND t.attributed_amount IS NOT NULL
+  AND (SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) > 0
+  AND ABS((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) - t.attributed_amount) > 1.0
+  AND {event_time_filter}
+  AND {partition_filter}
+ORDER BY diferenca_absoluta DESC
+LIMIT 500
+""".strip()
+
+
+def _build_audit_janela_violada_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
+
+    return f"""
+SELECT
+  r.order_id,
+  r.contact_id,
+  DATE(r.event_time) AS data_pedido,
+  CAST(t.campaign_id AS STRING) AS campaign_id,
+  LOWER(t.channel) AS canal,
+  LOWER(t.reason.type) AS tipo_engajamento,
+  DATE(t.reason.event_time) AS data_engajamento,
+  DATE_DIFF(DATE(r.event_time), DATE(t.reason.event_time), DAY) AS dias_apos_engajamento,
+  ROUND(t.attributed_amount, 2) AS valor_atribuido
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND t.reason.event_time IS NOT NULL
+  AND DATE_DIFF(DATE(r.event_time), DATE(t.reason.event_time), DAY) > 7
+  AND {event_time_filter}
+  AND {partition_filter}
+ORDER BY dias_apos_engajamento DESC
+LIMIT 500
+""".strip()
+
+
+def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    return f"""
+WITH all_campaign_names AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+  UNION ALL
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ANY_VALUE(name) AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+),
+revenue_by_campaign AS (
+  SELECT
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    LOWER(t.channel) AS canal,
+    COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
+    COUNT(DISTINCT r.contact_id) AS compradores_unicos,
+    ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY 1, 2
+)
+SELECT
+  rc.campaign_id,
+  rc.canal,
+  COALESCE(cn.nome_campanha, CONCAT('Campanha #', rc.campaign_id)) AS nome_campanha,
+  rc.pedidos_atribuidos,
+  rc.compradores_unicos,
+  rc.receita_atribuida
+FROM revenue_by_campaign rc
+LEFT JOIN all_campaign_names cn ON rc.campaign_id = cn.campaign_id
+ORDER BY rc.receita_atribuida DESC
+LIMIT 200
+""".strip()
+
+
+@router.get("/emarsys/audit-discrepancia")
+def emarsys_audit_discrepancia(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_audit_discrepancia_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_revenue_attribution",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha na auditoria de discrepância: {exc}") from exc
+
+
+@router.get("/emarsys/audit-janela-violada")
+def emarsys_audit_janela_violada(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_audit_janela_violada_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_revenue_attribution",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha na auditoria de janela violada: {exc}") from exc
+
+
+@router.get("/emarsys/audit-receita-por-campanha")
+def emarsys_audit_receita_por_campanha(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_audit_receita_por_campanha_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_revenue_attribution",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha na auditoria de receita por campanha: {exc}") from exc

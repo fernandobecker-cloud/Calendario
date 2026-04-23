@@ -2,12 +2,14 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-do
 import App from './App'
 import GanttPage from './components/gantt/GanttPage'
 import ResultadoGeralPage from './components/ResultadoGeralPage'
+import AuditoriaPage from './components/AuditoriaPage'
 
 function TopNavigation() {
   const tabs = [
     { to: '/resultado-geral', label: 'Resultado Geral' },
     { to: '/campanhas', label: 'Campanhas' },
     { to: '/gantt', label: 'Operacao' },
+    { to: '/auditoria', label: 'Auditoria' },
   ]
 
   return (
@@ -41,6 +43,7 @@ export default function AppRouter() {
           <Route path="/campanhas" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
+          <Route path="/auditoria" element={<AuditoriaPage />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>
