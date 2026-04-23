@@ -202,7 +202,7 @@ SELECT
   CAST(id AS STRING) AS campaign_id,
   CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
   DATE(partitiontime) AS data,
-  name AS campanha,
+  {_fix_encoding("name")} AS campanha,
   'Email' AS canal,
   CAST(type AS STRING) AS status,
   CAST(sub_type AS STRING) AS direcionamento,
@@ -236,7 +236,7 @@ WITH campaigns AS (
     CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
     DATE(partitiontime) AS data,
-    name AS campanha,
+    {_fix_encoding("name")} AS campanha,
     CAST(type AS STRING) AS status,
     CAST(sub_type AS STRING) AS direcionamento,
     CAST(category_id AS STRING) AS produto,
@@ -322,7 +322,7 @@ WITH campaign_programs AS (
   SELECT
     CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id,
-    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS campanha,
+    {_fix_encoding("ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)]")} AS campanha,
     ARRAY_AGG(CAST(type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS status,
     ARRAY_AGG(CAST(sub_type AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS direcionamento,
     ARRAY_AGG(CAST(category_id AS STRING) IGNORE NULLS ORDER BY event_time DESC, loaded_at DESC LIMIT 1)[SAFE_OFFSET(0)] AS produto,
@@ -892,6 +892,34 @@ def emarsys_open_data_table_preview(
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
 
 
+_PORTUGUESE_MOJIBAKE = [
+    ('Ã§', 'ç'),
+    ('Ã£', 'ã'),
+    ('Ãµ', 'õ'),
+    ('Ã¡', 'á'),
+    ('Ã©', 'é'),
+    ('Ã­', 'í'),
+    ('Ã³', 'ó'),
+    ('Ãº', 'ú'),
+    ('Ã¢', 'â'),
+    ('Ãª', 'ê'),
+    ('Ã´', 'ô'),
+    ('Ã‡', 'Ç'),
+    ('Ã‰', 'É'),
+    ('Ã"', 'Ó'),
+    ('Ã•', 'Õ'),
+    ('Ãš', 'Ú'),
+]
+
+
+def _fix_encoding(field: str) -> str:
+    """Chains REPLACE calls to fix UTF-8-as-Latin-1 mojibake common in Portuguese text."""
+    expr = field
+    for wrong, correct in _PORTUGUESE_MOJIBAKE:
+        expr = f"REPLACE({expr}, '{wrong}', '{correct}')"
+    return expr
+
+
 def _build_attribution_date_filters(
     start_date: str | None,
     end_date: str | None,
@@ -1022,7 +1050,7 @@ revenue_by_campaign AS (
 SELECT
   rc.campaign_id,
   rc.canal,
-  COALESCE(en.nome_campanha, sn.nome_campanha, CONCAT('Campanha #', rc.campaign_id)) AS nome_campanha,
+  {_fix_encoding("COALESCE(en.nome_campanha, sn.nome_campanha, CONCAT('Campanha #', rc.campaign_id))")} AS nome_campanha,
   rc.pedidos_atribuidos,
   rc.compradores_unicos,
   rc.receita_atribuida
