@@ -36,10 +36,10 @@ EMARSYS_OPEN_DATA_LOOKBACK_DAYS = max(
     1,
     int(os.getenv("EMARSYS_OPEN_DATA_LOOKBACK_DAYS", "180").strip() or "180"),
 )
-# Optional tables for SMS/WhatsApp attribution. Leave empty to exclude the channel.
-EMARSYS_OPEN_DATA_SMS_SENDS_TABLE = os.getenv("EMARSYS_OPEN_DATA_SMS_SENDS_TABLE", "").strip()
-EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE = os.getenv("EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE", "").strip()
-ATTRIBUTION_WINDOW_DAYS = 7
+EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE",
+    "revenue_attribution_1091660394",
+).strip()
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -685,104 +685,52 @@ def _build_monthly_revenue_sql(
     end_date: str | None = None,
 ) -> str:
     """
-    Receita atribuída: compras realizadas até 7 dias após engajamento por canal.
-    - Email: abertura (email_opens JOIN email_sends para obter contact_id)
-    - SMS:   envio    (sms_sends, se EMARSYS_OPEN_DATA_SMS_SENDS_TABLE configurado)
-    - WhatsApp: abertura (whatsapp_opens, se EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE configurado)
-    A mesma compra é contada apenas uma vez mesmo que o contato tenha engajado em
-    múltiplos canais ou múltiplas vezes dentro da janela de 7 dias.
+    Receita atribuída usando a tabela revenue_attribution do Emarsys Open Data.
+    Essa view já aplica a janela de atribuição nativa do Emarsys por canal
+    (email abertura, SMS envio, WhatsApp abertura). Pedidos com múltiplos
+    treatments são deduplicados por order_id para não duplicar receita.
     """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
-    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
-    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-
-    engagement_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
 
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
+
+    # event_time = data do pedido; partitiontime = data de carga (até ~7 dias de delay).
+    # Filtramos por event_time para precisão e por partitiontime para eficiência de custo.
     if normalized_start and normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        event_time_filter = f"DATE(event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        partition_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
     elif normalized_start:
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        event_time_filter = f"DATE(event_time) >= DATE('{normalized_start}')"
+        partition_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
     elif normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        event_time_filter = f"DATE(event_time) <= DATE('{normalized_end}')"
+        partition_filter = f"DATE(partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
     else:
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
-
-    # Each channel contributes (contact_id, event_date) rows that open the 7-day window.
-    channel_ctes: list[str] = []
-    union_parts: list[str] = []
-
-    # Email: contact_id comes from email_sends via message_id join (opens table may lack it).
-    channel_ctes.append(f"""email_open_events AS (
-  SELECT DISTINCT
-    CAST(s.contact_id AS STRING) AS contact_id,
-    DATE(o.partitiontime) AS event_date
-  FROM `{project_id}.{dataset}.{opens_table}` o
-  JOIN `{project_id}.{dataset}.{sends_table}` s
-    ON CAST(o.message_id AS STRING) = CAST(s.message_id AS STRING)
-  WHERE o.{engagement_filter}
-    AND s.{engagement_filter}
-    AND s.contact_id IS NOT NULL
-    AND o.message_id IS NOT NULL
-)""")
-    union_parts.append("SELECT contact_id, event_date FROM email_open_events")
-
-    if EMARSYS_OPEN_DATA_SMS_SENDS_TABLE:
-        sms_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
-        channel_ctes.append(f"""sms_send_events AS (
-  SELECT DISTINCT
-    CAST(contact_id AS STRING) AS contact_id,
-    DATE(partitiontime) AS event_date
-  FROM `{project_id}.{dataset}.{sms_table}`
-  WHERE {engagement_filter}
-    AND contact_id IS NOT NULL
-)""")
-        union_parts.append("SELECT contact_id, event_date FROM sms_send_events")
-
-    if EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE:
-        wa_table = _quote_identifier(EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE)
-        channel_ctes.append(f"""wa_open_events AS (
-  SELECT DISTINCT
-    CAST(contact_id AS STRING) AS contact_id,
-    DATE(partitiontime) AS event_date
-  FROM `{project_id}.{dataset}.{wa_table}`
-  WHERE {engagement_filter}
-    AND contact_id IS NOT NULL
-)""")
-        union_parts.append("SELECT contact_id, event_date FROM wa_open_events")
-
-    all_events_union = "\n  UNION ALL\n  ".join(union_parts)
-    channel_ctes_sql = ",\n".join(channel_ctes)
+        event_time_filter = f"DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        partition_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
-WITH
-{channel_ctes_sql},
-all_channel_events AS (
-  {all_events_union}
-),
-attributed_purchases AS (
-  -- DISTINCT deduplicates the same purchase matched by multiple engagement events.
+WITH attributed_orders AS (
   SELECT DISTINCT
-    FORMAT_DATE('%Y-%m', DATE(p.purchase_date)) AS mes,
-    CAST(p.si_contact_id AS STRING) AS contact_id,
-    DATE(p.purchase_date) AS purchase_date,
-    p.sales_amount
-  FROM `{project_id}.{dataset}.{purchases_table}` p
-  JOIN all_channel_events ace
-    ON CAST(p.si_contact_id AS STRING) = ace.contact_id
-    AND DATE(p.purchase_date) BETWEEN ace.event_date
-        AND DATE_ADD(ace.event_date, INTERVAL {ATTRIBUTION_WINDOW_DAYS} DAY)
-  WHERE {purchase_date_filter}
-    AND p.purchase_date IS NOT NULL
+    FORMAT_DATE('%Y-%m', DATE(event_time)) AS mes,
+    order_id,
+    contact_id,
+    (SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(items) AS i) AS valor_pedido
+  FROM `{project_id}.{dataset}.{revenue_table}`
+  WHERE ARRAY_LENGTH(treatments) > 0
+    AND event_time IS NOT NULL
+    AND {event_time_filter}
+    AND {partition_filter}
 )
 SELECT
   mes,
-  SUM(sales_amount) AS receita_atribuida,
+  SUM(valor_pedido) AS receita_atribuida,
+  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
   COUNT(DISTINCT contact_id) AS compradores_unicos
-FROM attributed_purchases
+FROM attributed_orders
 GROUP BY mes
 ORDER BY mes
 """.strip()
@@ -802,24 +750,18 @@ def emarsys_monthly_revenue(
         )
         items = _records_to_response_items(records)
         total_receita = sum(float(r.get("receita_atribuida") or 0) for r in items)
-        active_channels = ["email"]
-        if EMARSYS_OPEN_DATA_SMS_SENDS_TABLE:
-            active_channels.append("sms")
-        if EMARSYS_OPEN_DATA_WHATSAPP_OPENS_TABLE:
-            active_channels.append("whatsapp")
         return {
             "items": items,
             "total_meses": len(items),
             "total_receita_atribuida": round(total_receita, 2),
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
-            "attribution_window_days": ATTRIBUTION_WINDOW_DAYS,
-            "active_channels": active_channels,
+            "channels": ["email", "sms", "whatsapp"],
             "metric_definition": (
-                f"SUM(sales_amount) de compras realizadas até {ATTRIBUTION_WINDOW_DAYS} dias após "
-                "abertura de email / envio de SMS / abertura de WhatsApp, por mes da purchase_date"
+                "SUM(itens do pedido) de pedidos com atribuicao nativa Emarsys "
+                "(email abertura / SMS envio / WhatsApp abertura), agrupado por mes do pedido"
             ),
-            "source": "bigquery_emarsys_open_data_si_purchases",
+            "source": "bigquery_emarsys_open_data_revenue_attribution",
         }
     except HTTPException:
         raise
