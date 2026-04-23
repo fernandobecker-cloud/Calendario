@@ -6,7 +6,7 @@ import ResultadoGeralPage from './components/ResultadoGeralPage'
 function TopNavigation() {
   const tabs = [
     { to: '/resultado-geral', label: 'Resultado Geral' },
-    { to: '/', label: 'Campanhas' },
+    { to: '/campanhas', label: 'Campanhas' },
     { to: '/gantt', label: 'Operacao' },
   ]
 
@@ -37,7 +37,8 @@ export default function AppRouter() {
       <div className="min-h-screen bg-slate-50">
         <TopNavigation />
         <Routes>
-          <Route path="/" element={<App />} />
+          <Route path="/" element={<Navigate to="/resultado-geral" replace />} />
+          <Route path="/campanhas" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
