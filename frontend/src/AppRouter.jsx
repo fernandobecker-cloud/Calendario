@@ -5,9 +5,9 @@ import ResultadoGeralPage from './components/ResultadoGeralPage'
 
 function TopNavigation() {
   const tabs = [
+    { to: '/resultado-geral', label: 'Resultado Geral' },
     { to: '/', label: 'Campanhas' },
     { to: '/gantt', label: 'Operacao' },
-    { to: '/resultado-geral', label: 'Resultado Geral CRM iPlace' },
   ]
 
   return (
@@ -40,7 +40,7 @@ export default function AppRouter() {
           <Route path="/" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>
     </BrowserRouter>
