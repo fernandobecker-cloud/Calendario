@@ -736,27 +736,77 @@ ORDER BY mes
 """.strip()
 
 
+def _build_monthly_revenue_by_channel_sql(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    elif normalized_start:
+        event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    else:
+        event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+
+    return f"""
+SELECT
+  FORMAT_DATE('%Y-%m', DATE(r.event_time)) AS mes,
+  LOWER(t.channel) AS canal,
+  ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida,
+  COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
+  COUNT(DISTINCT r.contact_id) AS compradores_unicos
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND r.event_time IS NOT NULL
+  AND t.attributed_amount > 0
+  AND {event_time_filter}
+  AND {partition_filter}
+GROUP BY mes, canal
+ORDER BY mes, canal
+""".strip()
+
+
 @router.get("/emarsys/monthly-revenue")
 def emarsys_monthly_revenue(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        sql = _build_monthly_revenue_sql(start, end)
-        records = run_bigquery_records(
-            sql,
+        sql_total = _build_monthly_revenue_sql(start, end)
+        sql_canal = _build_monthly_revenue_by_channel_sql(start, end)
+        records_total = run_bigquery_records(
+            sql_total,
             EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
-        items = _records_to_response_items(records)
+        records_canal = run_bigquery_records(
+            sql_canal,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+        )
+        items = _records_to_response_items(records_total)
+        by_channel = _records_to_response_items(records_canal)
         total_receita = sum(float(r.get("receita_atribuida") or 0) for r in items)
         return {
             "items": items,
+            "by_channel": by_channel,
             "total_meses": len(items),
             "total_receita_atribuida": round(total_receita, 2),
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
-            "channels": ["email", "sms", "whatsapp"],
             "metric_definition": (
                 "SUM(itens do pedido) de pedidos com atribuicao nativa Emarsys "
                 "(email abertura / SMS envio / WhatsApp abertura), agrupado por mes do pedido"
