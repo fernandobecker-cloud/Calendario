@@ -432,8 +432,6 @@ def emarsys_email_campaigns(
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
         items = _records_to_response_items(records)
-        for item in items:
-            item['campanha'] = _fix_name_encoding(item.get('campanha'))
         return {
             "items": items,
             "total": len(items),
@@ -466,8 +464,6 @@ def emarsys_email_open_rates(
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
         items = _records_to_response_items(records)
-        for item in items:
-            item['campanha'] = _fix_name_encoding(item.get('campanha'))
         return {
             "items": items,
             "total": len(items),
@@ -502,8 +498,6 @@ def emarsys_email_program_open_rates(
             location=EMARSYS_OPEN_DATA_LOCATION or None,
         )
         items = _records_to_response_items(records)
-        for item in items:
-            item['campanha'] = _fix_name_encoding(item.get('campanha'))
         return {
             "items": items,
             "total": len(items),
@@ -898,15 +892,6 @@ def emarsys_open_data_table_preview(
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
 
 
-def _fix_name_encoding(text: str | None) -> str | None:
-    if not text:
-        return text
-    try:
-        return text.encode('latin-1').decode('utf-8')
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return text
-
-
 def _build_attribution_date_filters(
     start_date: str | None,
     end_date: str | None,
@@ -1102,8 +1087,6 @@ def emarsys_audit_receita_por_campanha(
         sql = _build_audit_receita_por_campanha_sql(start, end)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = _records_to_response_items(records)
-        for item in items:
-            item['nome_campanha'] = _fix_name_encoding(item.get('nome_campanha'))
         return {
             "items": items,
             "total": len(items),
@@ -1115,63 +1098,3 @@ def emarsys_audit_receita_por_campanha(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha na auditoria de receita por campanha: {exc}") from exc
-
-
-@router.get("/emarsys/debug-encoding")
-def emarsys_debug_encoding(
-    text: str | None = Query(default=None),
-) -> dict[str, Any]:
-    """Diagnostic: shows codepoints before/after _fix_name_encoding."""
-    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
-    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    email_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
-    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
-
-    raw_bq: str | None = None
-    bq_codepoints: list[int] = []
-    bq_fixed: str | None = None
-    bq_fixed_codepoints: list[int] = []
-    bq_error: str | None = None
-
-    try:
-        sql = f"""
-SELECT name
-FROM `{project_id}.{dataset}.{email_table}`
-WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
-  AND name IS NOT NULL
-  AND name != ''
-LIMIT 3
-""".strip()
-        from backend.event_sources import run_bigquery_records as _rbr
-        records = _rbr(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
-        samples = []
-        for r in records:
-            n = r.get('name')
-            if isinstance(n, str):
-                fixed = _fix_name_encoding(n)
-                samples.append({
-                    "raw": n,
-                    "raw_codepoints": [ord(c) for c in n[:40]],
-                    "fixed": fixed,
-                    "fixed_codepoints": [ord(c) for c in (fixed or '')[:40]],
-                })
-    except Exception as exc:
-        bq_error = str(exc)
-        samples = []
-
-    param_result: dict[str, Any] = {}
-    if text:
-        fixed_param = _fix_name_encoding(text)
-        param_result = {
-            "input": text,
-            "input_codepoints": [ord(c) for c in text],
-            "fixed": fixed_param,
-            "fixed_codepoints": [ord(c) for c in (fixed_param or '')],
-        }
-
-    return {
-        "version": "2026-04-23-v1",
-        "bq_samples": samples,
-        "bq_error": bq_error,
-        "param_test": param_result,
-    }
