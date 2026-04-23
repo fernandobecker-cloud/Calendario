@@ -898,32 +898,13 @@ def emarsys_open_data_table_preview(
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
 
 
-_PORTUGUESE_MOJIBAKE = [
-    ('Ã§', 'ç'),
-    ('Ã£', 'ã'),
-    ('Ãµ', 'õ'),
-    ('Ã¡', 'á'),
-    ('Ã©', 'é'),
-    ('Ã­', 'í'),
-    ('Ã³', 'ó'),
-    ('Ãº', 'ú'),
-    ('Ã¢', 'â'),
-    ('Ãª', 'ê'),
-    ('Ã´', 'ô'),
-    ('Ã‡', 'Ç'),
-    ('Ã‰', 'É'),
-    ('Ã"', 'Ó'),
-    ('Ã•', 'Õ'),
-    ('Ãš', 'Ú'),
-]
-
-
 def _fix_name_encoding(text: str | None) -> str | None:
     if not text:
         return text
-    for wrong, correct in _PORTUGUESE_MOJIBAKE:
-        text = text.replace(wrong, correct)
-    return text
+    try:
+        return text.encode('latin-1').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
 
 
 def _build_attribution_date_filters(
