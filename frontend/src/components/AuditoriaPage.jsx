@@ -94,15 +94,13 @@ export default function AuditoriaPage() {
 
     try {
       const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-      const [discrepancia, janela, campanha] = await Promise.all([
+      const [discrepancia, campanha] = await Promise.all([
         fetchJson(`/api/open-data/emarsys/audit-discrepancia?${params}`),
-        fetchJson(`/api/open-data/emarsys/audit-janela-violada?${params}`),
         fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
       ])
 
-      if (!discrepancia.ok || !janela.ok || !campanha.ok) {
+      if (!discrepancia.ok || !campanha.ok) {
         const msg = (!discrepancia.ok && discrepancia.error) ||
-          (!janela.ok && janela.error) ||
           (!campanha.ok && campanha.error)
         setError(msg || 'Falha ao carregar dados de auditoria.')
         return
@@ -110,7 +108,6 @@ export default function AuditoriaPage() {
 
       setData({
         discrepancia: discrepancia.data?.items ?? [],
-        janela: janela.data?.items ?? [],
         campanha: campanha.data?.items ?? [],
       })
     } catch (err) {
@@ -126,19 +123,8 @@ export default function AuditoriaPage() {
     { key: 'data_pedido', label: 'Data' },
     { key: 'canal', label: 'Canal', format: canalLabel },
     { key: 'campaign_id', label: 'Campanha ID' },
-    { key: 'order_id', label: 'Pedido' },
-    { key: 'valor_real', label: 'Valor Real', right: true, format: formatCurrency },
-    { key: 'valor_atribuido', label: 'Valor Atribuído', right: true, format: formatCurrency },
-    { key: 'diferenca_absoluta', label: 'Diferença', right: true, format: formatCurrency },
-  ]
-
-  const janelaCols = [
-    { key: 'data_pedido', label: 'Data Pedido' },
-    { key: 'canal', label: 'Canal', format: canalLabel },
-    { key: 'campaign_id', label: 'Campanha ID' },
     { key: 'tipo_engajamento', label: 'Engajamento' },
-    { key: 'data_engajamento', label: 'Data Engajamento' },
-    { key: 'dias_apos_engajamento', label: 'Dias', right: true },
+    { key: 'valor_pedido', label: 'Valor Pedido', right: true, format: formatCurrency },
     { key: 'valor_atribuido', label: 'Valor Atribuído', right: true, format: formatCurrency },
   ]
 
@@ -212,26 +198,14 @@ export default function AuditoriaPage() {
           </SectionCard>
 
           <SectionCard
-            title="Discrepância de Valor"
+            title="Atribuição sem Valor"
             badge={data.discrepancia.length}
-            description="Pedidos onde a diferença entre o valor real dos itens e o valor atribuído pelo Emarsys é maior que R$ 1,00."
+            description="Pedidos com tratamento registrado pelo Emarsys mas com valor atribuído igual a zero. Podem indicar registros incompletos ou falha de atribuição."
           >
             <Table
               columns={discrepanciaCols}
               rows={data.discrepancia}
-              emptyText="Nenhuma discrepância encontrada no período."
-            />
-          </SectionCard>
-
-          <SectionCard
-            title="Janela de Atribuição Violada"
-            badge={data.janela.length}
-            description="Pedidos atribuídos a um engajamento ocorrido há mais de 7 dias antes da compra."
-          >
-            <Table
-              columns={janelaCols}
-              rows={data.janela}
-              emptyText="Nenhuma violação de janela encontrada no período."
+              emptyText="Nenhum caso encontrado no período."
             />
           </SectionCard>
         </div>

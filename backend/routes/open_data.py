@@ -932,18 +932,17 @@ SELECT
   DATE(r.event_time) AS data_pedido,
   CAST(t.campaign_id AS STRING) AS campaign_id,
   LOWER(t.channel) AS canal,
-  ROUND((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i), 2) AS valor_real,
-  ROUND(t.attributed_amount, 2) AS valor_atribuido,
-  ROUND(ABS((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) - t.attributed_amount), 2) AS diferenca_absoluta
+  ROUND((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i), 2) AS valor_pedido,
+  ROUND(COALESCE(t.attributed_amount, 0), 2) AS valor_atribuido,
+  LOWER(t.reason.type) AS tipo_engajamento
 FROM `{project_id}.{dataset}.{revenue_table}` r
 CROSS JOIN UNNEST(r.treatments) AS t
 WHERE ARRAY_LENGTH(r.treatments) > 0
-  AND t.attributed_amount IS NOT NULL
+  AND (t.attributed_amount IS NULL OR t.attributed_amount = 0)
   AND (SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) > 0
-  AND ABS((SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(r.items) AS i) - t.attributed_amount) > 1.0
   AND {event_time_filter}
   AND {partition_filter}
-ORDER BY diferenca_absoluta DESC
+ORDER BY data_pedido DESC
 LIMIT 500
 """.strip()
 
@@ -982,17 +981,27 @@ def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_dat
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
 
     return f"""
-WITH all_campaign_names AS (
+WITH email_names AS (
   SELECT
     CAST(id AS STRING) AS campaign_id,
     ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
   FROM `{project_id}.{dataset}.{email_campaigns_table}`
   WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
     AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
   GROUP BY 1
 ),
 revenue_by_campaign AS (
@@ -1013,12 +1022,13 @@ revenue_by_campaign AS (
 SELECT
   rc.campaign_id,
   rc.canal,
-  COALESCE(cn.nome_campanha, CONCAT('Campanha #', rc.campaign_id)) AS nome_campanha,
+  COALESCE(en.nome_campanha, sn.nome_campanha, CONCAT('Campanha #', rc.campaign_id)) AS nome_campanha,
   rc.pedidos_atribuidos,
   rc.compradores_unicos,
   rc.receita_atribuida
 FROM revenue_by_campaign rc
-LEFT JOIN all_campaign_names cn ON rc.campaign_id = cn.campaign_id
+LEFT JOIN email_names en ON rc.campaign_id = en.campaign_id
+LEFT JOIN sms_names sn ON rc.campaign_id = sn.campaign_id
 ORDER BY rc.receita_atribuida DESC
 LIMIT 200
 """.strip()
