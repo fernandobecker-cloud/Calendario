@@ -1423,3 +1423,168 @@ def emarsys_audit_cruzamento(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha no cruzamento de atribuição: {exc}") from exc
+
+
+def _build_audit_deveria_atribuir_detail_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Detail rows for orders that should have been attributed — had CRM touch in 7-day window but weren't attributed."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    elif normalized_start:
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+    elif normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    else:
+        purchase_date_filter = "p.purchase_date IS NOT NULL"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+
+    return f"""
+WITH orders_net AS (
+  SELECT order_id, DATE(MIN(purchase_date)) AS purchase_date,
+    ROUND(SUM(sales_amount), 2) AS receita_liquida
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY order_id
+),
+attribution_per_order AS (
+  SELECT order_id, MAX(contact_id) AS contact_id,
+    ROUND(MAX(COALESCE(
+      (SELECT SUM(t.attributed_amount) FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0), 0
+    )), 2) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY order_id
+),
+order_contact AS (
+  SELECT o.order_id, o.purchase_date, o.receita_liquida,
+    a.contact_id, COALESCE(a.receita_atribuida, 0) AS receita_atribuida
+  FROM orders_net o LEFT JOIN attribution_per_order a USING (order_id)
+),
+unattributed AS (
+  SELECT * FROM order_contact
+  WHERE receita_atribuida = 0 AND contact_id IS NOT NULL
+),
+last_email AS (
+  SELECT
+    oc.order_id,
+    MAX(e.event_time) AS email_open_datetime,
+    CAST(ARRAY_AGG(e.campaign_id ORDER BY e.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS STRING) AS email_campaign_id
+  FROM unattributed oc
+  JOIN `{project_id}.{dataset}.{email_opens_table}` e ON e.contact_id = oc.contact_id
+    AND DATE(e.event_time) BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
+    AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  GROUP BY oc.order_id
+),
+last_sms AS (
+  SELECT
+    oc.order_id,
+    MAX(s.event_time) AS sms_send_datetime,
+    CAST(ARRAY_AGG(s.campaign_id ORDER BY s.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS STRING) AS sms_campaign_id
+  FROM unattributed oc
+  JOIN `{project_id}.{dataset}.{sms_sends_table}` s ON s.contact_id = oc.contact_id
+    AND DATE(s.event_time) BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
+    AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  GROUP BY oc.order_id
+),
+email_names AS (
+  SELECT CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND campaign_id IS NOT NULL
+  GROUP BY 1
+)
+SELECT
+  oc.contact_id,
+  oc.order_id,
+  oc.purchase_date                                                   AS data_compra,
+  oc.receita_liquida                                                 AS valor_pedido,
+  DATE(le.email_open_datetime)                                       AS email_open_date,
+  le.email_campaign_id,
+  COALESCE(en.nome_campanha,
+    IF(le.email_campaign_id IS NOT NULL, CONCAT('Campanha #', le.email_campaign_id), NULL))  AS email_campanha,
+  DATE(ls.sms_send_datetime)                                         AS sms_send_date,
+  ls.sms_campaign_id,
+  COALESCE(sn.nome_campanha,
+    IF(ls.sms_campaign_id IS NOT NULL, CONCAT('Campanha #', ls.sms_campaign_id), NULL))     AS sms_campanha,
+  CASE
+    WHEN le.email_open_datetime IS NOT NULL AND ls.sms_send_datetime IS NOT NULL THEN
+      CASE WHEN le.email_open_datetime >= ls.sms_send_datetime THEN 'email' ELSE 'sms' END
+    WHEN le.email_open_datetime IS NOT NULL THEN 'email'
+    WHEN ls.sms_send_datetime  IS NOT NULL THEN 'sms'
+  END AS canal_deveria_atribuir,
+  CASE
+    WHEN le.email_open_datetime IS NOT NULL AND ls.sms_send_datetime IS NOT NULL THEN
+      CASE
+        WHEN le.email_open_datetime >= ls.sms_send_datetime
+          THEN COALESCE(en.nome_campanha, CONCAT('Campanha #', le.email_campaign_id))
+        ELSE COALESCE(sn.nome_campanha, CONCAT('Campanha #', ls.sms_campaign_id))
+      END
+    WHEN le.email_open_datetime IS NOT NULL THEN COALESCE(en.nome_campanha, CONCAT('Campanha #', le.email_campaign_id))
+    WHEN ls.sms_send_datetime  IS NOT NULL THEN COALESCE(sn.nome_campanha, CONCAT('Campanha #', ls.sms_campaign_id))
+  END AS campanha_deveria_atribuir
+FROM unattributed oc
+LEFT JOIN last_email le USING (order_id)
+LEFT JOIN last_sms    ls USING (order_id)
+LEFT JOIN email_names en ON en.campaign_id = le.email_campaign_id
+LEFT JOIN sms_names   sn ON sn.campaign_id = ls.sms_campaign_id
+WHERE le.email_open_datetime IS NOT NULL OR ls.sms_send_datetime IS NOT NULL
+ORDER BY oc.receita_liquida DESC
+LIMIT 1000
+""".strip()
+
+
+@router.get("/emarsys/audit-deveria-atribuir")
+def emarsys_audit_deveria_atribuir(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_audit_deveria_atribuir_detail_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_deveria_atribuir",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no detalhe de deveria atribuir: {exc}") from exc

@@ -177,6 +177,168 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   )
 }
 
+function DetalheDeviaAtribuir({ startDate, endDate }) {
+  const [state, setState] = useState({ data: null, loading: false, error: '' })
+
+  const handleCarregar = async () => {
+    setState({ data: null, loading: true, error: '' })
+    try {
+      const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
+      const res = await fetchJson(`/api/open-data/emarsys/audit-deveria-atribuir?${params}`)
+      if (!res.ok) {
+        setState({ data: null, loading: false, error: res.error || 'Erro ao carregar.' })
+        return
+      }
+      setState({ data: res.data, loading: false, error: '' })
+    } catch (e) {
+      setState({ data: null, loading: false, error: e.message || 'Erro.' })
+    }
+  }
+
+  const handleExport = () => {
+    const items = state.data?.items
+    if (!items?.length) return
+    const cols = [
+      { key: 'contact_id',              label: 'ID Contato' },
+      { key: 'order_id',                label: 'Pedido' },
+      { key: 'data_compra',             label: 'Data Compra' },
+      { key: 'valor_pedido',            label: 'Valor Pedido (R$)' },
+      { key: 'email_open_date',         label: 'Data Abertura Email' },
+      { key: 'email_campanha',          label: 'Campanha Email' },
+      { key: 'sms_send_date',           label: 'Data Envio SMS' },
+      { key: 'sms_campanha',            label: 'Campanha SMS' },
+      { key: 'canal_deveria_atribuir',  label: 'Canal Deveria Atribuir' },
+      { key: 'campanha_deveria_atribuir', label: 'Campanha Deveria Atribuir' },
+    ]
+    const escape = (v) => {
+      if (v == null) return ''
+      const s = String(v)
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const csv = '﻿' + [
+      cols.map((c) => c.label).join(','),
+      ...items.map((r) => cols.map((c) => escape(r[c.key])).join(',')),
+    ].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `deveria-atribuir-${startDate}-${endDate || startDate}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const { data, loading, error } = state
+
+  const CANAL_BADGE = {
+    email: 'bg-blue-50 text-blue-700',
+    sms:   'bg-orange-50 text-orange-700',
+  }
+
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+            Detalhamento — Deveria ter Atribuído
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Pedidos não atribuídos com touchpoint CRM nos 7 dias anteriores à compra. Top 1.000 por valor.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            onClick={handleCarregar}
+            disabled={loading}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+          >
+            {loading ? 'Carregando...' : data ? 'Recarregar' : 'Carregar detalhes'}
+          </button>
+          {data?.items?.length > 0 && (
+            <button
+              onClick={handleExport}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Exportar CSV
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
+      )}
+
+      {!data && !loading && (
+        <p className="text-sm text-slate-500">Clique em "Carregar detalhes" para ver os pedidos.</p>
+      )}
+
+      {data && (
+        <>
+          <p className="mb-3 text-xs text-slate-500">
+            {data.total.toLocaleString('pt-BR')} pedido{data.total !== 1 ? 's' : ''} encontrado{data.total !== 1 ? 's' : ''}
+            {data.total >= 1000 && ' (limitado a 1.000 — use a exportação para ver todos)'}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  {[
+                    { label: 'ID Contato',    right: false },
+                    { label: 'Pedido',        right: false },
+                    { label: 'Data Compra',   right: false },
+                    { label: 'Valor',         right: true  },
+                    { label: 'Abertura Email',right: false },
+                    { label: 'Envio SMS',     right: false },
+                    { label: 'Canal',         right: false },
+                    { label: 'Campanha Deveria Atribuir', right: false },
+                  ].map((col, i) => (
+                    <th
+                      key={i}
+                      className={`whitespace-nowrap px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 ${col.right ? 'text-right' : 'text-left'}`}
+                    >
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((row, i) => (
+                  <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">{row.contact_id ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">{row.order_id ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-700">{row.data_compra ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-slate-900">
+                      {formatCurrency(row.valor_pedido)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{row.email_open_date ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{row.sms_send_date ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {row.canal_deveria_atribuir ? (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${CANAL_BADGE[row.canal_deveria_atribuir] ?? 'bg-slate-100 text-slate-600'}`}>
+                          {row.canal_deveria_atribuir === 'email' ? 'Email' : 'SMS'}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td
+                      className="max-w-xs truncate px-3 py-2 text-xs text-slate-600"
+                      title={row.campanha_deveria_atribuir ?? undefined}
+                    >
+                      {row.campanha_deveria_atribuir ?? '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
 function AuditoriaCruzamento({ cruzamento }) {
   const {
     total_iplace, total_pedidos_iplace,
@@ -401,6 +563,11 @@ export default function AuditoriaPage() {
           {/* Cruzamento geral si_purchases × revenue_attribution */}
           {data.cruzamento && (
             <AuditoriaCruzamento cruzamento={data.cruzamento} />
+          )}
+
+          {/* Detalhamento lazy dos pedidos que deveriam ter sido atribuídos */}
+          {data.cruzamento && (
+            <DetalheDeviaAtribuir startDate={startDate} endDate={endDate} />
           )}
 
           {/* Resumo comparativo */}
