@@ -97,39 +97,63 @@ function SectionCard({ title, badge, badgeColor = 'bg-rose-100 text-rose-700', d
 
 function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   const ruido = totais.ruido
+  const totalCrm = totais.total_crm ?? 0
   const pctRuido = totais.reportado > 0 ? (ruido / totais.reportado) * 100 : 0
   const pctMarketing = totais.reportado > 0 ? (totais.marketing / totais.reportado) * 100 : 0
+  const pctCobertura = totalCrm > 0 ? (totais.marketing / totalCrm) * 100 : 0
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Receita Atribuída — Reportado vs. Real
+        Receita Atribuída — Reportado vs. Real vs. Total CRM
       </h2>
 
-      {/* Barra de composição */}
-      <div className="mb-5 h-3 w-full overflow-hidden rounded-full bg-slate-100">
-        <div
-          className="h-full rounded-full bg-emerald-500 transition-all"
-          style={{ width: `${pctMarketing.toFixed(1)}%` }}
-        />
+      {/* Barra de composição: marketing sobre total CRM */}
+      <div className="mb-1 h-3 w-full overflow-hidden rounded-full bg-slate-100">
+        <div className="relative h-full w-full">
+          {totalCrm > 0 && (
+            <div
+              className="absolute h-full rounded-full bg-slate-300 transition-all"
+              style={{ width: `${Math.min((totais.reportado / totalCrm) * 100, 100).toFixed(1)}%` }}
+            />
+          )}
+          {totalCrm > 0 && (
+            <div
+              className="absolute h-full rounded-full bg-emerald-500 transition-all"
+              style={{ width: `${Math.min(pctCobertura, 100).toFixed(1)}%` }}
+            />
+          )}
+        </div>
       </div>
+      <p className="mb-5 text-xs text-slate-400">
+        Verde = marketing real · Cinza = atribuída reportada · Base = total CRM (si_purchases)
+      </p>
 
       {/* Cards principais */}
-      <div className="mb-5 grid gap-4 sm:grid-cols-3">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total CRM</p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totalCrm)}</p>
+          <p className="mt-0.5 text-xs text-violet-600">todas as compras de clientes Emarsys</p>
+        </div>
         <div className="rounded-xl border border-slate-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total Reportado</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída Reportada</p>
           <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totais.reportado)}</p>
-          <p className="mt-0.5 text-xs text-slate-400">conforme Emarsys</p>
+          <p className="mt-0.5 text-xs text-slate-400">
+            {totalCrm > 0 ? `${((totais.reportado / totalCrm) * 100).toFixed(1)}% do total CRM` : 'conforme Emarsys'}
+          </p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Real (Marketing)</p>
           <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totais.marketing)}</p>
-          <p className="mt-0.5 text-xs text-emerald-600">{pctMarketing.toFixed(1)}% do total</p>
+          <p className="mt-0.5 text-xs text-emerald-600">
+            {totalCrm > 0 ? `${pctCobertura.toFixed(1)}% do total CRM` : `${pctMarketing.toFixed(1)}% da atribuída`}
+          </p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Ruído de Atribuição</p>
           <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(ruido)}</p>
-          <p className="mt-0.5 text-xs text-amber-600">{pctRuido.toFixed(1)}% do total</p>
+          <p className="mt-0.5 text-xs text-amber-600">{pctRuido.toFixed(1)}% da atribuída</p>
         </div>
       </div>
 

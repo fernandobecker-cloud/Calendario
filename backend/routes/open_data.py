@@ -1152,6 +1152,30 @@ def emarsys_audit_janela_violada(
         raise HTTPException(status_code=502, detail=f"Falha na auditoria de janela violada: {exc}") from exc
 
 
+def _build_si_purchases_total_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        date_filter = f"DATE(purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+    elif normalized_start:
+        date_filter = f"DATE(purchase_date) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        date_filter = f"DATE(purchase_date) <= DATE('{normalized_end}')"
+    else:
+        date_filter = "purchase_date IS NOT NULL"
+
+    return f"""
+SELECT ROUND(COALESCE(SUM(sales_amount), 0), 2) AS total_crm
+FROM `{project_id}.{dataset}.{purchases_table}`
+WHERE {date_filter}
+""".strip()
+
+
 @router.get("/emarsys/audit-receita-por-campanha")
 def emarsys_audit_receita_por_campanha(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -1160,19 +1184,27 @@ def emarsys_audit_receita_por_campanha(
     try:
         sql_detalhe = _build_audit_receita_por_campanha_sql(start, end)
         sql_resumo = _build_audit_receita_resumo_sql(start, end)
-        records = run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
-        resumo_records = run_bigquery_records(sql_resumo, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        sql_total_crm = _build_si_purchases_total_sql(start, end)
+
+        records, resumo_records, total_crm_records = (
+            run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
+            run_bigquery_records(sql_resumo, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
+            run_bigquery_records(sql_total_crm, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
+        )
+
         items = _records_to_response_items(records)
         resumo = _records_to_response_items(resumo_records)
 
         total_reportado = sum(float(r.get("receita_total") or 0) for r in resumo)
         total_marketing = sum(float(r.get("receita_total") or 0) for r in resumo if r.get("categoria") == "marketing")
+        total_crm = float(total_crm_records[0].get("total_crm") or 0) if total_crm_records else 0.0
 
         return {
             "items": items,
             "total": len(items),
             "resumo_por_categoria": resumo,
             "totais": {
+                "total_crm": round(total_crm, 2),
                 "reportado": round(total_reportado, 2),
                 "marketing": round(total_marketing, 2),
                 "ruido": round(total_reportado - total_marketing, 2),
