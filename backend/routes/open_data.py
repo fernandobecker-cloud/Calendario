@@ -44,6 +44,10 @@ EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE",
     "sms_campaigns_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_SMS_SENDS_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SMS_SENDS_TABLE",
+    "sms_sends_1091660394",
+).strip()
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -1153,82 +1157,134 @@ def emarsys_audit_janela_violada(
 
 
 def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | None = None) -> str:
-    """Cross-reference si_purchases against revenue_attribution to categorize all orders.
+    """Cross-reference si_purchases against revenue_attribution + email_opens + sms_sends.
+
+    Categories:
+      atribuida        — attributed_amount > 0 in revenue_attribution
+      deveria_atribuir — not attributed, but contact had email open or SMS send within 7 days before purchase
+      nao_crm          — not attributed and no CRM touchpoint in the window
 
     Returns per category:
-      - receita_pedidos: net order value from si_purchases (includes negative cancellations)
-      - receita_atribuida: sum of attributed_amount from revenue_attribution treatments
+      receita_pedidos   — net order value from si_purchases
+      receita_atribuida — sum of attributed_amount from revenue_attribution (non-zero only for 'atribuida')
     """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
 
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
     if normalized_start and normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-        partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-        partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
     else:
-        purchase_date_filter = f"p.purchase_date IS NOT NULL"
-        partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        purchase_date_filter = "p.purchase_date IS NOT NULL"
+        attr_partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
 
     return f"""
 WITH orders_net AS (
-  -- Net order value from si_purchases (negatives = cancellations)
+  -- Net order value per order_id; negatives = cancellations
   SELECT
     order_id,
+    DATE(MIN(purchase_date)) AS purchase_date,
     ROUND(SUM(sales_amount), 2) AS receita_liquida
   FROM `{project_id}.{dataset}.{purchases_table}` p
   WHERE {purchase_date_filter}
   GROUP BY order_id
 ),
-attribution_agg AS (
-  -- Per order_id: whether Emarsys knows the contact, and total attributed_amount
+attribution_per_order AS (
+  -- Attributed_amount and contact_id per order from revenue_attribution
   SELECT
     order_id,
-    MAX(CASE WHEN contact_id IS NOT NULL THEN TRUE ELSE FALSE END) AS reconhecida_emarsys,
-    ROUND(
-      MAX(
-        COALESCE(
-          (SELECT SUM(t.attributed_amount)
-           FROM UNNEST(r.treatments) AS t
-           WHERE t.attributed_amount > 0),
-          0
-        )
-      ), 2
-    ) AS receita_atribuida
+    MAX(contact_id) AS contact_id,
+    ROUND(MAX(COALESCE(
+      (SELECT SUM(t.attributed_amount)
+       FROM UNNEST(r.treatments) AS t
+       WHERE t.attributed_amount > 0),
+      0
+    )), 2) AS receita_atribuida
   FROM `{project_id}.{dataset}.{revenue_table}` r
-  WHERE {partition_filter}
+  WHERE {attr_partition_filter}
   GROUP BY order_id
 ),
-joined AS (
+order_contact AS (
+  -- Base table: every order with its contact_id (from revenue_attribution) and attribution
   SELECT
     o.order_id,
+    o.purchase_date,
     o.receita_liquida,
-    COALESCE(a.receita_atribuida, 0) AS receita_atribuida,
-    CASE
-      WHEN a.order_id IS NULL        THEN 'fora_emarsys'
-      WHEN NOT a.reconhecida_emarsys THEN 'sem_contato'
-      WHEN a.receita_atribuida > 0   THEN 'atribuida'
-      ELSE                                'elegivel_nao_atribuida'
-    END AS categoria
+    a.contact_id,
+    COALESCE(a.receita_atribuida, 0) AS receita_atribuida
   FROM orders_net o
-  LEFT JOIN attribution_agg a USING (order_id)
+  LEFT JOIN attribution_per_order a USING (order_id)
+),
+order_contact_ids AS (
+  -- Distinct contacts linked to orders in this period (used to filter email/sms tables)
+  SELECT DISTINCT contact_id
+  FROM order_contact
+  WHERE contact_id IS NOT NULL
+),
+crm_touches AS (
+  -- Email opens within 7-day pre-purchase window for relevant contacts
+  SELECT e.contact_id, DATE(e.event_time) AS touch_date
+  FROM `{project_id}.{dataset}.{email_opens_table}` e
+  INNER JOIN order_contact_ids oc ON oc.contact_id = e.contact_id
+  WHERE DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+    AND DATE(e.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
+
+  UNION ALL
+
+  -- SMS sends within 7-day pre-purchase window (send itself triggers attribution per Emarsys rules)
+  SELECT s.contact_id, DATE(s.event_time) AS touch_date
+  FROM `{project_id}.{dataset}.{sms_sends_table}` s
+  INNER JOIN order_contact_ids oc ON oc.contact_id = s.contact_id
+  WHERE DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+    AND DATE(s.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
+),
+orders_with_crm_touch AS (
+  -- Orders where the contact had at least one CRM touchpoint in the 7 days before purchase
+  SELECT DISTINCT oc.order_id
+  FROM order_contact oc
+  INNER JOIN crm_touches ct ON ct.contact_id = oc.contact_id
+    AND ct.touch_date BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
+),
+categorized AS (
+  SELECT
+    oc.order_id,
+    oc.receita_liquida,
+    oc.receita_atribuida,
+    CASE
+      WHEN oc.receita_atribuida > 0  THEN 'atribuida'
+      WHEN owt.order_id IS NOT NULL  THEN 'deveria_atribuir'
+      ELSE                                'nao_crm'
+    END AS categoria
+  FROM order_contact oc
+  LEFT JOIN orders_with_crm_touch owt USING (order_id)
 )
 SELECT
   categoria,
   COUNT(DISTINCT order_id)          AS num_pedidos,
   ROUND(SUM(receita_liquida), 2)    AS receita_pedidos,
   ROUND(SUM(receita_atribuida), 2)  AS receita_atribuida
-FROM joined
+FROM categorized
 GROUP BY categoria
 ORDER BY receita_pedidos DESC
 """.strip()
@@ -1314,7 +1370,7 @@ def emarsys_audit_cruzamento(
         def _pedidos(cat: str) -> float:
             return float(cat_map.get(cat, {}).get("receita_pedidos") or 0)
 
-        def _atribuida(cat: str) -> float:
+        def _atribuida_val(cat: str) -> float:
             return float(cat_map.get(cat, {}).get("receita_atribuida") or 0)
 
         def _orders(cat: str) -> int:
@@ -1326,19 +1382,19 @@ def emarsys_audit_cruzamento(
         return {
             "categorias": items,
             "totais": {
+                # Box 1 — total iPlace (all orders from si_purchases)
                 "total_iplace": round(total_iplace, 2),
                 "total_pedidos_iplace": total_orders,
-                # atribuida_receita = attributed_amount (what Emarsys credits to CRM)
-                "atribuida_receita": round(_atribuida("atribuida"), 2),
-                # atribuida_pedidos_valor = full order value of attributed orders
+                # Box 2 — attributed by Emarsys (attributed_amount from revenue_attribution)
+                "atribuida_receita": round(_atribuida_val("atribuida"), 2),
                 "atribuida_pedidos_valor": round(_pedidos("atribuida"), 2),
                 "atribuida_pedidos": _orders("atribuida"),
-                "elegivel_nao_atribuida": round(_pedidos("elegivel_nao_atribuida"), 2),
-                "elegivel_nao_atribuida_pedidos": _orders("elegivel_nao_atribuida"),
-                "sem_contato": round(_pedidos("sem_contato"), 2),
-                "sem_contato_pedidos": _orders("sem_contato"),
-                "fora_emarsys": round(_pedidos("fora_emarsys"), 2),
-                "fora_emarsys_pedidos": _orders("fora_emarsys"),
+                # Box 3 — should have been attributed (had CRM touchpoint but not attributed)
+                "deveria_atribuir": round(_pedidos("deveria_atribuir"), 2),
+                "deveria_atribuir_pedidos": _orders("deveria_atribuir"),
+                # Box 4 — genuinely not CRM (no touchpoint in attribution window)
+                "nao_crm": round(_pedidos("nao_crm"), 2),
+                "nao_crm_pedidos": _orders("nao_crm"),
             },
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
