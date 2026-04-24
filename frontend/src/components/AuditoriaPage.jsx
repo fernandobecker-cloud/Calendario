@@ -177,6 +177,126 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   )
 }
 
+function FunnelRow({ label, receita, pedidos, total, color = 'bg-slate-400', note }) {
+  const pct = total > 0 ? Math.min((receita / total) * 100, 100) : 0
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium text-slate-700">{label}</span>
+        <div className="text-right">
+          <span className="text-sm font-bold text-slate-900">{formatCurrency(receita)}</span>
+          <span className="ml-2 text-xs text-slate-400">{pedidos.toLocaleString('pt-BR')} pedidos</span>
+        </div>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct.toFixed(1)}%` }} />
+      </div>
+      {note && <p className="text-xs text-slate-400">{note}</p>}
+    </div>
+  )
+}
+
+function AuditoriaCruzamento({ cruzamento }) {
+  const {
+    total_iplace, total_pedidos_iplace,
+    atribuida, atribuida_pedidos,
+    elegivel_nao_atribuida, elegivel_nao_atribuida_pedidos,
+    sem_contato, sem_contato_pedidos,
+    fora_emarsys, fora_emarsys_pedidos,
+  } = cruzamento
+
+  const reconhecida = atribuida + elegivel_nao_atribuida + sem_contato
+  const reconhecida_pedidos = atribuida_pedidos + elegivel_nao_atribuida_pedidos + sem_contato_pedidos
+  const pctAtribuida = reconhecida > 0 ? ((atribuida / reconhecida) * 100).toFixed(1) : '0.0'
+  const pctCobertura = total_iplace > 0 ? ((atribuida / total_iplace) * 100).toFixed(1) : '0.0'
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Cruzamento de Atribuição — Visão Geral
+      </h2>
+      <p className="mb-5 text-xs text-slate-400">
+        Compara todos os pedidos iPlace (si_purchases) com o que o Emarsys reconheceu e atribuiu ao CRM no período.
+      </p>
+
+      {/* Summary cards */}
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(total_iplace)}</p>
+          <p className="mt-0.5 text-xs text-violet-500">{total_pedidos_iplace.toLocaleString('pt-BR')} pedidos</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reconhecida Emarsys</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(reconhecida)}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{reconhecida_pedidos.toLocaleString('pt-BR')} pedidos</p>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Atribuída CRM</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(atribuida)}</p>
+          <p className="mt-0.5 text-xs text-emerald-600">{pctAtribuida}% do reconhecido · {pctCobertura}% do total iPlace</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Elegível Não Atribuída</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(elegivel_nao_atribuida)}</p>
+          <p className="mt-0.5 text-xs text-amber-600">{elegivel_nao_atribuida_pedidos.toLocaleString('pt-BR')} pedidos</p>
+        </div>
+      </div>
+
+      {/* Funnel bars */}
+      <div className="space-y-4">
+        <FunnelRow
+          label="Total iPlace"
+          receita={total_iplace}
+          pedidos={total_pedidos_iplace}
+          total={total_iplace}
+          color="bg-violet-400"
+        />
+        <FunnelRow
+          label="Reconhecida pelo Emarsys"
+          receita={reconhecida}
+          pedidos={reconhecida_pedidos}
+          total={total_iplace}
+          color="bg-slate-400"
+          note="Pedidos que aparecem em revenue_attribution com contact_id identificado"
+        />
+        <FunnelRow
+          label="Atribuída ao CRM"
+          receita={atribuida}
+          pedidos={atribuida_pedidos}
+          total={total_iplace}
+          color="bg-emerald-500"
+          note="Reconhecida E com attributed_amount > 0 em pelo menos um tratamento"
+        />
+        <FunnelRow
+          label="Elegível mas não atribuída"
+          receita={elegivel_nao_atribuida}
+          pedidos={elegivel_nao_atribuida_pedidos}
+          total={total_iplace}
+          color="bg-amber-400"
+          note="Reconhecida mas sem attributed_amount > 0 — possível gap de atribuição"
+        />
+        <FunnelRow
+          label="Sem contato identificado"
+          receita={sem_contato}
+          pedidos={sem_contato_pedidos}
+          total={total_iplace}
+          color="bg-rose-300"
+          note="Em revenue_attribution mas contact_id nulo"
+        />
+        <FunnelRow
+          label="Fora do Emarsys"
+          receita={fora_emarsys}
+          pedidos={fora_emarsys_pedidos}
+          total={total_iplace}
+          color="bg-slate-200"
+          note="Pedidos iPlace que não aparecem em revenue_attribution"
+        />
+      </div>
+    </section>
+  )
+}
+
 export default function AuditoriaPage() {
   const defaults = getDefaultDates()
   const [startDate, setStartDate] = useState(defaults.start)
@@ -194,14 +314,16 @@ export default function AuditoriaPage() {
 
     try {
       const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-      const [discrepancia, campanha] = await Promise.all([
+      const [discrepancia, campanha, cruzamento] = await Promise.all([
         fetchJson(`/api/open-data/emarsys/audit-discrepancia?${params}`),
         fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
+        fetchJson(`/api/open-data/emarsys/audit-cruzamento?${params}`),
       ])
 
-      if (!discrepancia.ok || !campanha.ok) {
+      if (!discrepancia.ok || !campanha.ok || !cruzamento.ok) {
         const msg = (!discrepancia.ok && discrepancia.error) ||
-          (!campanha.ok && campanha.error)
+          (!campanha.ok && campanha.error) ||
+          (!cruzamento.ok && cruzamento.error)
         setError(msg || 'Falha ao carregar dados de auditoria.')
         return
       }
@@ -211,6 +333,7 @@ export default function AuditoriaPage() {
         campanha: campanha.data?.items ?? [],
         totais: campanha.data?.totais ?? null,
         resumoPorCategoria: campanha.data?.resumo_por_categoria ?? [],
+        cruzamento: cruzamento.data?.totais ?? null,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
@@ -299,6 +422,11 @@ export default function AuditoriaPage() {
 
       {data && (
         <div className="flex flex-col gap-6">
+          {/* Cruzamento geral si_purchases × revenue_attribution */}
+          {data.cruzamento && (
+            <AuditoriaCruzamento cruzamento={data.cruzamento} />
+          )}
+
           {/* Resumo comparativo */}
           {data.totais && (
             <ResumoAtribuicao totais={data.totais} resumoPorCategoria={data.resumoPorCategoria} />

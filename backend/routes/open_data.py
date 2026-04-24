@@ -1152,6 +1152,85 @@ def emarsys_audit_janela_violada(
         raise HTTPException(status_code=502, detail=f"Falha na auditoria de janela violada: {exc}") from exc
 
 
+def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Cross-reference si_purchases against revenue_attribution to categorize all orders."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    elif normalized_start:
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+    else:
+        purchase_date_filter = f"p.purchase_date IS NOT NULL"
+        partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+
+    return f"""
+WITH orders_net AS (
+  -- Aggregate si_purchases by order_id (sum includes negatives = cancellations)
+  SELECT
+    order_id,
+    ROUND(SUM(sales_amount), 2) AS receita_liquida,
+    MIN(purchase_date) AS purchase_date
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY order_id
+),
+attribution_summary AS (
+  -- One row per order_id from revenue_attribution
+  SELECT
+    r.order_id,
+    r.contact_id IS NOT NULL AS reconhecida_emarsys,
+    ARRAY_LENGTH(r.treatments) > 0 AND (
+      SELECT COUNT(1) FROM UNNEST(r.treatments) t WHERE COALESCE(t.attributed_amount, 0) > 0
+    ) > 0 AS atribuida_crm
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {partition_filter}
+),
+-- Deduplicate revenue_attribution (one row per order_id, picking most attributed)
+attribution_dedup AS (
+  SELECT
+    order_id,
+    LOGICAL_OR(reconhecida_emarsys) AS reconhecida_emarsys,
+    LOGICAL_OR(atribuida_crm) AS atribuida_crm
+  FROM attribution_summary
+  GROUP BY order_id
+),
+joined AS (
+  SELECT
+    o.order_id,
+    o.receita_liquida,
+    a.reconhecida_emarsys,
+    a.atribuida_crm,
+    CASE
+      WHEN a.order_id IS NULL           THEN 'fora_emarsys'
+      WHEN NOT a.reconhecida_emarsys    THEN 'sem_contato'
+      WHEN a.atribuida_crm              THEN 'atribuida'
+      ELSE                                   'elegivel_nao_atribuida'
+    END AS categoria
+  FROM orders_net o
+  LEFT JOIN attribution_dedup a USING (order_id)
+)
+SELECT
+  categoria,
+  COUNT(DISTINCT order_id)         AS num_pedidos,
+  ROUND(SUM(receita_liquida), 2)   AS receita_total
+FROM joined
+GROUP BY categoria
+ORDER BY receita_total DESC
+""".strip()
+
+
 def _build_si_purchases_total_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
@@ -1186,11 +1265,9 @@ def emarsys_audit_receita_por_campanha(
         sql_resumo = _build_audit_receita_resumo_sql(start, end)
         sql_total_crm = _build_si_purchases_total_sql(start, end)
 
-        records, resumo_records, total_crm_records = (
-            run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
-            run_bigquery_records(sql_resumo, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
-            run_bigquery_records(sql_total_crm, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None),
-        )
+        records = run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        resumo_records = run_bigquery_records(sql_resumo, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        total_crm_records = run_bigquery_records(sql_total_crm, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
 
         items = _records_to_response_items(records)
         resumo = _records_to_response_items(resumo_records)
@@ -1217,3 +1294,48 @@ def emarsys_audit_receita_por_campanha(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha na auditoria de receita por campanha: {exc}") from exc
+
+
+@router.get("/emarsys/audit-cruzamento")
+def emarsys_audit_cruzamento(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_audit_cruzamento_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+
+        cat_map = {r["categoria"]: r for r in items}
+
+        def _val(cat: str) -> float:
+            return float(cat_map.get(cat, {}).get("receita_total") or 0)
+
+        def _orders(cat: str) -> int:
+            return int(cat_map.get(cat, {}).get("num_pedidos") or 0)
+
+        total_iplace = sum(float(r.get("receita_total") or 0) for r in items)
+        total_orders = sum(int(r.get("num_pedidos") or 0) for r in items)
+
+        return {
+            "categorias": items,
+            "totais": {
+                "total_iplace": round(total_iplace, 2),
+                "total_pedidos_iplace": total_orders,
+                "atribuida": round(_val("atribuida"), 2),
+                "atribuida_pedidos": _orders("atribuida"),
+                "elegivel_nao_atribuida": round(_val("elegivel_nao_atribuida"), 2),
+                "elegivel_nao_atribuida_pedidos": _orders("elegivel_nao_atribuida"),
+                "sem_contato": round(_val("sem_contato"), 2),
+                "sem_contato_pedidos": _orders("sem_contato"),
+                "fora_emarsys": round(_val("fora_emarsys"), 2),
+                "fora_emarsys_pedidos": _orders("fora_emarsys"),
+            },
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+            "source": "bigquery_emarsys_open_data_cruzamento",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no cruzamento de atribuição: {exc}") from exc
