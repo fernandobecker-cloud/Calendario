@@ -199,16 +199,16 @@ function FunnelRow({ label, receita, pedidos, total, color = 'bg-slate-400', not
 function AuditoriaCruzamento({ cruzamento }) {
   const {
     total_iplace, total_pedidos_iplace,
-    atribuida, atribuida_pedidos,
+    atribuida_receita, atribuida_pedidos_valor, atribuida_pedidos,
     elegivel_nao_atribuida, elegivel_nao_atribuida_pedidos,
     sem_contato, sem_contato_pedidos,
     fora_emarsys, fora_emarsys_pedidos,
   } = cruzamento
 
-  const reconhecida = atribuida + elegivel_nao_atribuida + sem_contato
   const reconhecida_pedidos = atribuida_pedidos + elegivel_nao_atribuida_pedidos + sem_contato_pedidos
-  const pctAtribuida = reconhecida > 0 ? ((atribuida / reconhecida) * 100).toFixed(1) : '0.0'
-  const pctCobertura = total_iplace > 0 ? ((atribuida / total_iplace) * 100).toFixed(1) : '0.0'
+  const reconhecida_valor = atribuida_pedidos_valor + elegivel_nao_atribuida + sem_contato
+  const pctAtribuida = total_iplace > 0 ? ((atribuida_receita / total_iplace) * 100).toFixed(1) : '0.0'
+  const pctPedidos = total_pedidos_iplace > 0 ? ((atribuida_pedidos / total_pedidos_iplace) * 100).toFixed(1) : '0.0'
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -216,7 +216,8 @@ function AuditoriaCruzamento({ cruzamento }) {
         Cruzamento de Atribuição — Visão Geral
       </h2>
       <p className="mb-5 text-xs text-slate-400">
-        Compara todos os pedidos iPlace (si_purchases) com o que o Emarsys reconheceu e atribuiu ao CRM no período.
+        Compara todos os pedidos iPlace (si_purchases) com o que o Emarsys atribuiu ao CRM no período.
+        Receita atribuída = attributed_amount conforme revenue_attribution.
       </p>
 
       {/* Summary cards */}
@@ -228,22 +229,25 @@ function AuditoriaCruzamento({ cruzamento }) {
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reconhecida Emarsys</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(reconhecida)}</p>
-          <p className="mt-0.5 text-xs text-slate-400">{reconhecida_pedidos.toLocaleString('pt-BR')} pedidos</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(reconhecida_valor)}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{reconhecida_pedidos.toLocaleString('pt-BR')} pedidos · valor dos pedidos</p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Atribuída CRM</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(atribuida)}</p>
-          <p className="mt-0.5 text-xs text-emerald-600">{pctAtribuida}% do reconhecido · {pctCobertura}% do total iPlace</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(atribuida_receita)}</p>
+          <p className="mt-0.5 text-xs text-emerald-600">
+            {pctAtribuida}% do total iPlace · {pctPedidos}% dos pedidos
+          </p>
+          <p className="mt-1 text-xs text-slate-400">valor dos pedidos: {formatCurrency(atribuida_pedidos_valor)}</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Elegível Não Atribuída</p>
           <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(elegivel_nao_atribuida)}</p>
-          <p className="mt-0.5 text-xs text-amber-600">{elegivel_nao_atribuida_pedidos.toLocaleString('pt-BR')} pedidos</p>
+          <p className="mt-0.5 text-xs text-amber-600">{elegivel_nao_atribuida_pedidos.toLocaleString('pt-BR')} pedidos · valor dos pedidos</p>
         </div>
       </div>
 
-      {/* Funnel bars */}
+      {/* Funnel bars — use order counts as consistent metric */}
       <div className="space-y-4">
         <FunnelRow
           label="Total iPlace"
@@ -254,19 +258,19 @@ function AuditoriaCruzamento({ cruzamento }) {
         />
         <FunnelRow
           label="Reconhecida pelo Emarsys"
-          receita={reconhecida}
+          receita={reconhecida_valor}
           pedidos={reconhecida_pedidos}
           total={total_iplace}
           color="bg-slate-400"
-          note="Pedidos que aparecem em revenue_attribution com contact_id identificado"
+          note="Pedidos presentes em revenue_attribution com contact_id identificado (valor dos pedidos)"
         />
         <FunnelRow
-          label="Atribuída ao CRM"
-          receita={atribuida}
+          label="Atribuída ao CRM (attributed_amount)"
+          receita={atribuida_receita}
           pedidos={atribuida_pedidos}
           total={total_iplace}
           color="bg-emerald-500"
-          note="Reconhecida E com attributed_amount > 0 em pelo menos um tratamento"
+          note="Valor que o Emarsys creditou ao CRM — receita_atribuida conforme treatments"
         />
         <FunnelRow
           label="Elegível mas não atribuída"
@@ -274,7 +278,7 @@ function AuditoriaCruzamento({ cruzamento }) {
           pedidos={elegivel_nao_atribuida_pedidos}
           total={total_iplace}
           color="bg-amber-400"
-          note="Reconhecida mas sem attributed_amount > 0 — possível gap de atribuição"
+          note="Reconhecida mas attributed_amount = 0 — possível gap de atribuição (valor dos pedidos)"
         />
         <FunnelRow
           label="Sem contato identificado"

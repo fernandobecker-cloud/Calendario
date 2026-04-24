@@ -1153,7 +1153,12 @@ def emarsys_audit_janela_violada(
 
 
 def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | None = None) -> str:
-    """Cross-reference si_purchases against revenue_attribution to categorize all orders."""
+    """Cross-reference si_purchases against revenue_attribution to categorize all orders.
+
+    Returns per category:
+      - receita_pedidos: net order value from si_purchases (includes negative cancellations)
+      - receita_atribuida: sum of attributed_amount from revenue_attribution treatments
+    """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
@@ -1177,57 +1182,55 @@ def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | N
 
     return f"""
 WITH orders_net AS (
-  -- Aggregate si_purchases by order_id (sum includes negatives = cancellations)
+  -- Net order value from si_purchases (negatives = cancellations)
   SELECT
     order_id,
-    ROUND(SUM(sales_amount), 2) AS receita_liquida,
-    MIN(purchase_date) AS purchase_date
+    ROUND(SUM(sales_amount), 2) AS receita_liquida
   FROM `{project_id}.{dataset}.{purchases_table}` p
   WHERE {purchase_date_filter}
   GROUP BY order_id
 ),
-attribution_summary AS (
-  -- One row per order_id from revenue_attribution
-  SELECT
-    r.order_id,
-    r.contact_id IS NOT NULL AS reconhecida_emarsys,
-    ARRAY_LENGTH(r.treatments) > 0 AND (
-      SELECT COUNT(1) FROM UNNEST(r.treatments) t WHERE COALESCE(t.attributed_amount, 0) > 0
-    ) > 0 AS atribuida_crm
-  FROM `{project_id}.{dataset}.{revenue_table}` r
-  WHERE {partition_filter}
-),
--- Deduplicate revenue_attribution (one row per order_id, picking most attributed)
-attribution_dedup AS (
+attribution_agg AS (
+  -- Per order_id: whether Emarsys knows the contact, and total attributed_amount
   SELECT
     order_id,
-    LOGICAL_OR(reconhecida_emarsys) AS reconhecida_emarsys,
-    LOGICAL_OR(atribuida_crm) AS atribuida_crm
-  FROM attribution_summary
+    MAX(CASE WHEN contact_id IS NOT NULL THEN TRUE ELSE FALSE END) AS reconhecida_emarsys,
+    ROUND(
+      MAX(
+        COALESCE(
+          (SELECT SUM(t.attributed_amount)
+           FROM UNNEST(r.treatments) AS t
+           WHERE t.attributed_amount > 0),
+          0
+        )
+      ), 2
+    ) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {partition_filter}
   GROUP BY order_id
 ),
 joined AS (
   SELECT
     o.order_id,
     o.receita_liquida,
-    a.reconhecida_emarsys,
-    a.atribuida_crm,
+    COALESCE(a.receita_atribuida, 0) AS receita_atribuida,
     CASE
-      WHEN a.order_id IS NULL           THEN 'fora_emarsys'
-      WHEN NOT a.reconhecida_emarsys    THEN 'sem_contato'
-      WHEN a.atribuida_crm              THEN 'atribuida'
-      ELSE                                   'elegivel_nao_atribuida'
+      WHEN a.order_id IS NULL        THEN 'fora_emarsys'
+      WHEN NOT a.reconhecida_emarsys THEN 'sem_contato'
+      WHEN a.receita_atribuida > 0   THEN 'atribuida'
+      ELSE                                'elegivel_nao_atribuida'
     END AS categoria
   FROM orders_net o
-  LEFT JOIN attribution_dedup a USING (order_id)
+  LEFT JOIN attribution_agg a USING (order_id)
 )
 SELECT
   categoria,
-  COUNT(DISTINCT order_id)         AS num_pedidos,
-  ROUND(SUM(receita_liquida), 2)   AS receita_total
+  COUNT(DISTINCT order_id)          AS num_pedidos,
+  ROUND(SUM(receita_liquida), 2)    AS receita_pedidos,
+  ROUND(SUM(receita_atribuida), 2)  AS receita_atribuida
 FROM joined
 GROUP BY categoria
-ORDER BY receita_total DESC
+ORDER BY receita_pedidos DESC
 """.strip()
 
 
@@ -1308,13 +1311,16 @@ def emarsys_audit_cruzamento(
 
         cat_map = {r["categoria"]: r for r in items}
 
-        def _val(cat: str) -> float:
-            return float(cat_map.get(cat, {}).get("receita_total") or 0)
+        def _pedidos(cat: str) -> float:
+            return float(cat_map.get(cat, {}).get("receita_pedidos") or 0)
+
+        def _atribuida(cat: str) -> float:
+            return float(cat_map.get(cat, {}).get("receita_atribuida") or 0)
 
         def _orders(cat: str) -> int:
             return int(cat_map.get(cat, {}).get("num_pedidos") or 0)
 
-        total_iplace = sum(float(r.get("receita_total") or 0) for r in items)
+        total_iplace = sum(float(r.get("receita_pedidos") or 0) for r in items)
         total_orders = sum(int(r.get("num_pedidos") or 0) for r in items)
 
         return {
@@ -1322,13 +1328,16 @@ def emarsys_audit_cruzamento(
             "totais": {
                 "total_iplace": round(total_iplace, 2),
                 "total_pedidos_iplace": total_orders,
-                "atribuida": round(_val("atribuida"), 2),
+                # atribuida_receita = attributed_amount (what Emarsys credits to CRM)
+                "atribuida_receita": round(_atribuida("atribuida"), 2),
+                # atribuida_pedidos_valor = full order value of attributed orders
+                "atribuida_pedidos_valor": round(_pedidos("atribuida"), 2),
                 "atribuida_pedidos": _orders("atribuida"),
-                "elegivel_nao_atribuida": round(_val("elegivel_nao_atribuida"), 2),
+                "elegivel_nao_atribuida": round(_pedidos("elegivel_nao_atribuida"), 2),
                 "elegivel_nao_atribuida_pedidos": _orders("elegivel_nao_atribuida"),
-                "sem_contato": round(_val("sem_contato"), 2),
+                "sem_contato": round(_pedidos("sem_contato"), 2),
                 "sem_contato_pedidos": _orders("sem_contato"),
-                "fora_emarsys": round(_val("fora_emarsys"), 2),
+                "fora_emarsys": round(_pedidos("fora_emarsys"), 2),
                 "fora_emarsys_pedidos": _orders("fora_emarsys"),
             },
             "start_date": _validate_optional_iso_date(start),
