@@ -198,16 +198,18 @@ function DetalheDeviaAtribuir({ startDate, endDate }) {
   const handleExport = () => {
     const items = state.data?.items
     if (!items?.length) return
+    const fmtBRL = (v) =>
+      v == null ? '' : new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))
     const cols = [
-      { key: 'contact_id',              label: 'ID Contato' },
-      { key: 'order_id',                label: 'Pedido' },
-      { key: 'data_compra',             label: 'Data Compra' },
-      { key: 'valor_pedido',            label: 'Valor Pedido (R$)' },
-      { key: 'email_open_date',         label: 'Data Abertura Email' },
-      { key: 'email_campanha',          label: 'Campanha Email' },
-      { key: 'sms_send_date',           label: 'Data Envio SMS' },
-      { key: 'sms_campanha',            label: 'Campanha SMS' },
-      { key: 'canal_deveria_atribuir',  label: 'Canal Deveria Atribuir' },
+      { key: 'contact_id',               label: 'ID Contato' },
+      { key: 'order_id',                 label: 'Pedido' },
+      { key: 'data_compra',              label: 'Data Compra' },
+      { key: 'valor_pedido',             label: 'Valor Pedido (R$)', fmt: fmtBRL },
+      { key: 'email_open_date',          label: 'Data Abertura Email' },
+      { key: 'email_campanha',           label: 'Campanha Email' },
+      { key: 'sms_send_date',            label: 'Data Envio SMS' },
+      { key: 'sms_campanha',             label: 'Campanha SMS' },
+      { key: 'canal_deveria_atribuir',   label: 'Canal Deveria Atribuir' },
       { key: 'campanha_deveria_atribuir', label: 'Campanha Deveria Atribuir' },
     ]
     const escape = (v) => {
@@ -217,7 +219,7 @@ function DetalheDeviaAtribuir({ startDate, endDate }) {
     }
     const csv = '﻿' + [
       cols.map((c) => c.label).join(','),
-      ...items.map((r) => cols.map((c) => escape(r[c.key])).join(',')),
+      ...items.map((r) => cols.map((c) => escape(c.fmt ? c.fmt(r[c.key]) : r[c.key])).join(',')),
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
