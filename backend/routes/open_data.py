@@ -1178,24 +1178,31 @@ def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | N
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
+    # event_time_filter restricts revenue_attribution rows to purchases in the period
+    # attr_partition_filter is wider (+7 days) to cover ingestion lag in partitioning
+    # Both filters are required (same pattern as the working audit-receita-por-campanha SQL)
     if normalized_start and normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     else:
         purchase_date_filter = "p.purchase_date IS NOT NULL"
-        attr_partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_end = "CURRENT_DATE()"
 
@@ -1212,6 +1219,7 @@ WITH orders_net AS (
 ),
 attribution_per_order AS (
   -- Attributed_amount and contact_id per order from revenue_attribution
+  -- Uses both event_time (restrict to period purchases) and partitiontime (scan efficiency)
   SELECT
     order_id,
     MAX(contact_id) AS contact_id,
@@ -1222,7 +1230,8 @@ attribution_per_order AS (
       0
     )), 2) AS receita_atribuida
   FROM `{project_id}.{dataset}.{revenue_table}` r
-  WHERE {attr_partition_filter}
+  WHERE {attr_event_time_filter}
+    AND {attr_partition_filter}
   GROUP BY order_id
 ),
 order_contact AS (
