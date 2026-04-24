@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 
 function formatCurrency(value) {
   if (value == null || isNaN(Number(value))) return '-'
@@ -220,6 +220,7 @@ export default function ResultadoGeralPage() {
 
   const [executivoData, setExecutivoData] = useState(null)
   const [atribuidaData, setAtribuidaData] = useState(null)
+  const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
 
   const handleAtualizar = useCallback(async () => {
     if (!startDate) return
@@ -260,6 +261,8 @@ export default function ResultadoGeralPage() {
           totais: res.data?.totais ?? null,
           resumoPorCategoria: res.data?.resumo_por_categoria ?? [],
         })
+      } else if (activeView === 'direta') {
+        setDiretaRefreshKey((k) => k + 1)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
@@ -294,40 +297,38 @@ export default function ResultadoGeralPage() {
 
         {/* Conteúdo */}
         <main className="min-w-0 flex-1">
-          {/* Filtro de datas — oculto na view Direta que tem seu próprio seletor */}
-          {activeView !== 'direta' && (
-            <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-              <div className="flex flex-wrap items-end gap-4">
-                <label className="flex flex-col gap-1 text-sm text-slate-600">
-                  Data inicial
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm text-slate-600">
-                  Data final
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                  />
-                </label>
-                <button
-                  onClick={handleAtualizar}
-                  disabled={loading}
-                  className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
-                >
-                  {loading ? 'Carregando...' : 'Atualizar'}
-                </button>
-              </div>
-            </section>
-          )}
+          {/* Filtro de datas */}
+          <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="flex flex-col gap-1 text-sm text-slate-600">
+                Data inicial
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-slate-600">
+                Data final
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <button
+                onClick={handleAtualizar}
+                disabled={loading}
+                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+              >
+                {loading ? 'Carregando...' : 'Atualizar'}
+              </button>
+            </div>
+          </section>
 
-          {activeView !== 'direta' && error && (
+          {error && (
             <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </p>
@@ -344,7 +345,9 @@ export default function ResultadoGeralPage() {
               setFiltroCategoria={setFiltroCategoria}
             />
           )}
-          {activeView === 'direta' && <DiretaDetalhadaView />}
+          {activeView === 'direta' && (
+            <DiretaDetalhadaView startDate={startDate} endDate={endDate} refreshKey={diretaRefreshKey} />
+          )}
         </main>
       </div>
     </div>
@@ -532,10 +535,9 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
   )
 }
 
-function DiretaDetalhadaView() {
-  const now = new Date()
-  const [reportYear, setReportYear] = useState(now.getFullYear())
-  const [reportMonth, setReportMonth] = useState(now.getMonth() + 1)
+function DiretaDetalhadaView({ startDate, refreshKey }) {
+  const reportYear = startDate ? Number(startDate.split('-')[0]) : new Date().getFullYear()
+  const reportMonth = startDate ? Number(startDate.split('-')[1]) : new Date().getMonth() + 1
   const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
 
   const [ga4Report, setGa4Report] = useState(null)
@@ -781,6 +783,11 @@ function DiretaDetalhadaView() {
     loadCrmFunnel,
   ])
 
+  useEffect(() => {
+    if (refreshKey > 0) loadAllResults()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
+
   const metrics = [
     { key: 'sessions', label: 'Sessoes' },
     { key: 'totalUsers', label: 'Usuarios' },
@@ -790,46 +797,6 @@ function DiretaDetalhadaView() {
 
   return (
     <section className="space-y-5">
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Resumo de Resultados CRM</h1>
-            <p className="mt-1 text-sm text-slate-600">Comparativo do mes atual contra o mesmo mes do ano anterior.</p>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-sm">
-              Ano
-              <input
-                type="number"
-                min="2000"
-                max="2100"
-                className="w-28 rounded-lg border border-slate-300 px-3 py-2"
-                value={reportYear}
-                onChange={(e) => setReportYear(Number(e.target.value || new Date().getFullYear()))}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Mes
-              <input
-                type="number"
-                min="1"
-                max="12"
-                className="w-20 rounded-lg border border-slate-300 px-3 py-2"
-                value={reportMonth}
-                onChange={(e) => setReportMonth(Number(e.target.value || new Date().getMonth() + 1))}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={loadAllResults}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-            >
-              Atualizar
-            </button>
-          </div>
-        </div>
-      </section>
-
       {ga4Error && (
         <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{ga4Error}</section>
       )}
