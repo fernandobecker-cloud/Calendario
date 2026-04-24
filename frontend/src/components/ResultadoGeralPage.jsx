@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 
 function formatCurrency(value) {
   if (value == null || isNaN(Number(value))) return '-'
@@ -12,6 +12,46 @@ function getDefaultDates() {
     start: firstOfMonth.toISOString().split('T')[0],
     end: today.toISOString().split('T')[0],
   }
+}
+
+function getMonthDateRange(year, month) {
+  const y = Number(year)
+  const m = Number(month)
+  const safeMonth = Math.min(Math.max(m, 1), 12)
+  const lastDay = new Date(y, safeMonth, 0).getDate()
+  const monthText = String(safeMonth).padStart(2, '0')
+  return {
+    start: `${y}-${monthText}-01`,
+    end: `${y}-${monthText}-${String(lastDay).padStart(2, '0')}`,
+  }
+}
+
+function getRelativeMonth(year, month, offset) {
+  const baseDate = new Date(Number(year), Number(month) - 1 + Number(offset), 1)
+  return { year: baseDate.getFullYear(), month: baseDate.getMonth() + 1 }
+}
+
+function isGa4NoDataError(detail) {
+  return String(detail || '').toLowerCase().includes('future currency exchange rate not exist')
+}
+
+function formatMetricValue(key, value) {
+  if (key === 'purchaseRevenue') {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(Number(value || 0))
+  }
+  return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
+}
+
+function formatVariation(value) {
+  if (value === null || value === undefined) return 'N/A'
+  const numeric = Number(value)
+  const sign = numeric > 0 ? '+' : ''
+  return `${sign}${numeric.toFixed(2)}%`
+}
+
+function variationTextColor(value) {
+  if (value === null || value === undefined || Number(value) === 0) return 'text-slate-600'
+  return Number(value) > 0 ? 'text-emerald-700' : 'text-rose-700'
 }
 
 const VIEWS = [
@@ -254,38 +294,40 @@ export default function ResultadoGeralPage() {
 
         {/* Conteúdo */}
         <main className="min-w-0 flex-1">
-          {/* Filtro de datas */}
-          <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-            <div className="flex flex-wrap items-end gap-4">
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Data inicial
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Data final
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <button
-                onClick={handleAtualizar}
-                disabled={loading}
-                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
-              >
-                {loading ? 'Carregando...' : 'Atualizar'}
-              </button>
-            </div>
-          </section>
+          {/* Filtro de datas — oculto na view Direta que tem seu próprio seletor */}
+          {activeView !== 'direta' && (
+            <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+              <div className="flex flex-wrap items-end gap-4">
+                <label className="flex flex-col gap-1 text-sm text-slate-600">
+                  Data inicial
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm text-slate-600">
+                  Data final
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                  />
+                </label>
+                <button
+                  onClick={handleAtualizar}
+                  disabled={loading}
+                  className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {loading ? 'Carregando...' : 'Atualizar'}
+                </button>
+              </div>
+            </section>
+          )}
 
-          {error && (
+          {activeView !== 'direta' && error && (
             <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </p>
@@ -302,7 +344,7 @@ export default function ResultadoGeralPage() {
               setFiltroCategoria={setFiltroCategoria}
             />
           )}
-          {activeView === 'direta' && <PlaceholderView label="Direta Detalhada" />}
+          {activeView === 'direta' && <DiretaDetalhadaView />}
         </main>
       </div>
     </div>
@@ -490,10 +532,549 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
   )
 }
 
-function PlaceholderView({ label }) {
+function DiretaDetalhadaView() {
+  const now = new Date()
+  const [reportYear, setReportYear] = useState(now.getFullYear())
+  const [reportMonth, setReportMonth] = useState(now.getMonth() + 1)
+  const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
+
+  const [ga4Report, setGa4Report] = useState(null)
+  const [ga4Loading, setGa4Loading] = useState(false)
+  const [ga4Error, setGa4Error] = useState('')
+
+  const [crmAssists, setCrmAssists] = useState(null)
+  const [crmAssistsLoading, setCrmAssistsLoading] = useState(false)
+  const [crmAssistsError, setCrmAssistsError] = useState('')
+
+  const [crmLtv, setCrmLtv] = useState(null)
+  const [crmLtvLoading, setCrmLtvLoading] = useState(false)
+  const [crmLtvError, setCrmLtvError] = useState('')
+
+  const [abandonedCartCoupons, setAbandonedCartCoupons] = useState(null)
+  const [abandonedCartCouponsLoading, setAbandonedCartCouponsLoading] = useState(false)
+  const [abandonedCartCouponsError, setAbandonedCartCouponsError] = useState('')
+
+  const [abandonedCartNonCrmSummary, setAbandonedCartNonCrmSummary] = useState(null)
+  const [abandonedCartNonCrmSummaryLoading, setAbandonedCartNonCrmSummaryLoading] = useState(false)
+  const [abandonedCartNonCrmSummaryError, setAbandonedCartNonCrmSummaryError] = useState('')
+
+  const [crmResultsComparisons, setCrmResultsComparisons] = useState(null)
+  const [crmResultsComparisonsLoading, setCrmResultsComparisonsLoading] = useState(false)
+  const [crmResultsComparisonsError, setCrmResultsComparisonsError] = useState('')
+
+  const [crmFunnel, setCrmFunnel] = useState(null)
+  const [crmFunnelLoading, setCrmFunnelLoading] = useState(false)
+  const [crmFunnelError, setCrmFunnelError] = useState('')
+
+  const abandonedCartScopeLabel = useMemo(() => {
+    if (abandonedCartCrmScope === 'only_crm') return 'somente CRM'
+    if (abandonedCartCrmScope === 'non_crm') return 'nao CRM'
+    return 'todos os canais'
+  }, [abandonedCartCrmScope])
+
+  const crmResultsSummary = useMemo(() => {
+    const purchaseRevenue = Number(ga4Report?.current_year?.purchaseRevenue || 0)
+    const nonCrmRevenue = Number(abandonedCartNonCrmSummary?.purchaseRevenue || 0)
+    return { purchaseRevenue, nonCrmRevenue, totalRevenue: purchaseRevenue + nonCrmRevenue }
+  }, [abandonedCartNonCrmSummary?.purchaseRevenue, ga4Report?.current_year?.purchaseRevenue])
+
+  const loadGa4MonthlyReport = useCallback(async () => {
+    setGa4Loading(true)
+    setGa4Error('')
+    try {
+      const response = await fetch(`/api/ga4/crm/monthly?year=${reportYear}&month=${reportMonth}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar resumo de resultados.'
+        if (isGa4NoDataError(detail)) { setGa4Report(null); setGa4Error(''); return }
+        throw new Error(detail)
+      }
+      setGa4Report(payload)
+    } catch (err) {
+      setGa4Report(null)
+      setGa4Error(err instanceof Error ? err.message : 'Falha ao carregar resumo de resultados.')
+    } finally {
+      setGa4Loading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadCrmAssists = useCallback(async () => {
+    setCrmAssistsLoading(true)
+    setCrmAssistsError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+    try {
+      const response = await fetch(`/api/ga4/crm-assists?start=${period.start}&end=${period.end}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar assists de CRM.'
+        if (isGa4NoDataError(detail)) { setCrmAssists(null); setCrmAssistsError(''); return }
+        throw new Error(detail)
+      }
+      setCrmAssists(payload)
+    } catch (err) {
+      setCrmAssists(null)
+      setCrmAssistsError(err instanceof Error ? err.message : 'Falha ao carregar assists de CRM.')
+    } finally {
+      setCrmAssistsLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadCrmLtv = useCallback(async () => {
+    setCrmLtvLoading(true)
+    setCrmLtvError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+    try {
+      const response = await fetch(`/api/ga4/crm-ltv?start=${period.start}&end=${period.end}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar LTV de CRM.'
+        if (isGa4NoDataError(detail)) { setCrmLtv(null); setCrmLtvError(''); return }
+        throw new Error(detail)
+      }
+      setCrmLtv(payload)
+    } catch (err) {
+      setCrmLtv(null)
+      setCrmLtvError(err instanceof Error ? err.message : 'Falha ao carregar LTV de CRM.')
+    } finally {
+      setCrmLtvLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadAbandonedCartCoupons = useCallback(async () => {
+    setAbandonedCartCouponsLoading(true)
+    setAbandonedCartCouponsError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+    try {
+      const params = new URLSearchParams({ start: period.start, end: period.end, crm_scope: abandonedCartCrmScope })
+      const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar pedidos com cupons de carrinho abandonado.'
+        if (isGa4NoDataError(detail)) { setAbandonedCartCoupons(null); setAbandonedCartCouponsError(''); return }
+        throw new Error(detail)
+      }
+      setAbandonedCartCoupons(payload)
+    } catch (err) {
+      setAbandonedCartCoupons(null)
+      setAbandonedCartCouponsError(err instanceof Error ? err.message : 'Falha ao carregar pedidos com cupons de carrinho abandonado.')
+    } finally {
+      setAbandonedCartCouponsLoading(false)
+    }
+  }, [abandonedCartCrmScope, reportMonth, reportYear])
+
+  const loadAbandonedCartNonCrmSummary = useCallback(async () => {
+    setAbandonedCartNonCrmSummaryLoading(true)
+    setAbandonedCartNonCrmSummaryError('')
+    const period = getMonthDateRange(reportYear, reportMonth)
+    try {
+      const params = new URLSearchParams({ start: period.start, end: period.end, crm_scope: 'non_crm' })
+      const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar o resumo de carrinho abandonado nao CRM.'
+        if (isGa4NoDataError(detail)) { setAbandonedCartNonCrmSummary(null); setAbandonedCartNonCrmSummaryError(''); return }
+        throw new Error(detail)
+      }
+      setAbandonedCartNonCrmSummary(payload)
+    } catch (err) {
+      setAbandonedCartNonCrmSummary(null)
+      setAbandonedCartNonCrmSummaryError(err instanceof Error ? err.message : 'Falha ao carregar o resumo de carrinho abandonado nao CRM.')
+    } finally {
+      setAbandonedCartNonCrmSummaryLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadCrmResultsComparisons = useCallback(async () => {
+    setCrmResultsComparisonsLoading(true)
+    setCrmResultsComparisonsError('')
+    const sameMonthLastYear = { year: reportYear - 1, month: reportMonth }
+    const previousMonth = getRelativeMonth(reportYear, reportMonth, -1)
+
+    const loadComparisonSummary = async ({ year, month }) => {
+      const period = getMonthDateRange(year, month)
+      const [ga4Response, nonCrmResponse] = await Promise.all([
+        fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
+        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start: period.start, end: period.end, crm_scope: 'non_crm' }).toString()}`),
+      ])
+      let ga4Payload = null
+      let nonCrmPayload = null
+      try { ga4Payload = await ga4Response.json() } catch (_) { ga4Payload = null }
+      try { nonCrmPayload = await nonCrmResponse.json() } catch (_) { nonCrmPayload = null }
+      if (!ga4Response.ok) {
+        const detail = ga4Payload?.detail || 'Nao foi possivel carregar comparativo de resultados.'
+        if (isGa4NoDataError(detail)) return { totalRevenue: 0, purchaseRevenue: 0, nonCrmRevenue: 0 }
+        throw new Error(detail)
+      }
+      if (!nonCrmResponse.ok) {
+        const detail = nonCrmPayload?.detail || 'Nao foi possivel carregar comparativo de carrinho abandonado nao CRM.'
+        if (isGa4NoDataError(detail)) {
+          return {
+            totalRevenue: Number(ga4Payload?.current_year?.purchaseRevenue || 0),
+            purchaseRevenue: Number(ga4Payload?.current_year?.purchaseRevenue || 0),
+            nonCrmRevenue: 0,
+          }
+        }
+        throw new Error(detail)
+      }
+      const purchaseRevenue = Number(ga4Payload?.current_year?.purchaseRevenue || 0)
+      const nonCrmRevenue = Number(nonCrmPayload?.purchaseRevenue || 0)
+      return { totalRevenue: purchaseRevenue + nonCrmRevenue, purchaseRevenue, nonCrmRevenue }
+    }
+
+    try {
+      const [lastYearSummary, previousMonthSummary] = await Promise.all([
+        loadComparisonSummary(sameMonthLastYear),
+        loadComparisonSummary(previousMonth),
+      ])
+      setCrmResultsComparisons({ lastYearSameMonth: lastYearSummary, previousMonth: previousMonthSummary })
+    } catch (err) {
+      setCrmResultsComparisons(null)
+      setCrmResultsComparisonsError(err instanceof Error ? err.message : 'Falha ao carregar comparativos do resultado geral CRM.')
+    } finally {
+      setCrmResultsComparisonsLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadCrmFunnel = useCallback(async () => {
+    setCrmFunnelLoading(true)
+    setCrmFunnelError('')
+    try {
+      const response = await fetch(`/api/ga4/crm-funnel?year=${reportYear}&month=${reportMonth}`)
+      let payload = null
+      try { payload = await response.json() } catch (_) { payload = null }
+      if (!response.ok) {
+        const detail = payload?.detail || 'Nao foi possivel carregar funil de CRM.'
+        if (isGa4NoDataError(detail)) { setCrmFunnel(null); setCrmFunnelError(''); return }
+        throw new Error(detail)
+      }
+      setCrmFunnel(payload)
+    } catch (err) {
+      setCrmFunnel(null)
+      setCrmFunnelError(err instanceof Error ? err.message : 'Falha ao carregar funil de CRM.')
+    } finally {
+      setCrmFunnelLoading(false)
+    }
+  }, [reportMonth, reportYear])
+
+  const loadAllResults = useCallback(async () => {
+    await Promise.all([
+      loadGa4MonthlyReport(),
+      loadCrmAssists(),
+      loadCrmLtv(),
+      loadAbandonedCartCoupons(),
+      loadAbandonedCartNonCrmSummary(),
+      loadCrmResultsComparisons(),
+      loadCrmFunnel(),
+    ])
+  }, [
+    loadGa4MonthlyReport,
+    loadCrmAssists,
+    loadCrmLtv,
+    loadAbandonedCartCoupons,
+    loadAbandonedCartNonCrmSummary,
+    loadCrmResultsComparisons,
+    loadCrmFunnel,
+  ])
+
+  const metrics = [
+    { key: 'sessions', label: 'Sessoes' },
+    { key: 'totalUsers', label: 'Usuarios' },
+    { key: 'transactions', label: 'Transacoes' },
+    { key: 'purchaseRevenue', label: 'Receita de compras' },
+  ]
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-      <p className="text-sm text-slate-500">{label} — em construção.</p>
+    <section className="space-y-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">Resumo de Resultados CRM</h1>
+            <p className="mt-1 text-sm text-slate-600">Comparativo do mes atual contra o mesmo mes do ano anterior.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm">
+              Ano
+              <input
+                type="number"
+                min="2000"
+                max="2100"
+                className="w-28 rounded-lg border border-slate-300 px-3 py-2"
+                value={reportYear}
+                onChange={(e) => setReportYear(Number(e.target.value || new Date().getFullYear()))}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Mes
+              <input
+                type="number"
+                min="1"
+                max="12"
+                className="w-20 rounded-lg border border-slate-300 px-3 py-2"
+                value={reportMonth}
+                onChange={(e) => setReportMonth(Number(e.target.value || new Date().getMonth() + 1))}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={loadAllResults}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              Atualizar
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {ga4Error && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{ga4Error}</section>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="text-xl font-semibold text-slate-900">Resultado Geral - CRM</h2>
+        {abandonedCartNonCrmSummaryError && (
+          <p className="mt-4 text-sm text-rose-700">{abandonedCartNonCrmSummaryError}</p>
+        )}
+        {crmResultsComparisonsError && <p className="mt-2 text-sm text-rose-700">{crmResultsComparisonsError}</p>}
+        {ga4Loading || abandonedCartNonCrmSummaryLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Calculando resumo geral...</p>
+        ) : ga4Error ? null : (
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <article className="rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita de compras</h3>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.purchaseRevenue)}</p>
+            </article>
+            <article className="rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carrinho abandonado nao CRM</h3>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.nonCrmRevenue)}</p>
+            </article>
+            <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Total consolidado</h3>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.totalRevenue)}</p>
+              {crmResultsComparisonsLoading ? (
+                <p className="mt-3 text-sm text-slate-600">Carregando comparativos...</p>
+              ) : crmResultsComparisons ? (
+                <div className="mt-3 space-y-1 text-sm text-slate-600">
+                  <p>Mesmo mes do ano passado: {formatCurrency(crmResultsComparisons.lastYearSameMonth?.totalRevenue)}</p>
+                  <p>Mes anterior: {formatCurrency(crmResultsComparisons.previousMonth?.totalRevenue)}</p>
+                </div>
+              ) : null}
+            </article>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        {ga4Loading ? (
+          <p className="text-sm text-slate-600">Carregando resultados do GA4...</p>
+        ) : !ga4Report ? (
+          <p className="text-sm text-slate-600">Selecione periodo e clique em atualizar.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {metrics.map((metric) => (
+              <article key={metric.key} className="rounded-xl border border-slate-200 p-4">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{metric.label}</h2>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {formatMetricValue(metric.key, ga4Report.current_year?.[metric.key])}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Ano anterior: {formatMetricValue(metric.key, ga4Report.last_year?.[metric.key])}
+                </p>
+                <p className={`mt-1 text-sm font-semibold ${variationTextColor(ga4Report.variation?.[metric.key])}`}>
+                  Variacao: {formatVariation(ga4Report.variation?.[metric.key])}
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Pedidos com Cupom de Carrinho Abandonado</h2>
+            <p className="text-sm text-slate-600">
+              Pedidos do mes selecionado que usaram os cupons CARRINHO-100, CARRINHO-50, CARRINHO-30 ou CARRINHO-15,
+              filtrados em {abandonedCartScopeLabel}.
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-sm text-slate-600">
+            Recorte
+            <select
+              value={abandonedCartCrmScope}
+              onChange={(e) => setAbandonedCartCrmScope(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+            >
+              <option value="all">Todos</option>
+              <option value="only_crm">Somente CRM</option>
+              <option value="non_crm">Nao CRM</option>
+            </select>
+          </label>
+        </div>
+        {abandonedCartCouponsError && (
+          <p className="mt-4 text-sm text-rose-700">{abandonedCartCouponsError}</p>
+        )}
+        {abandonedCartCouponsLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando pedidos com cupom...</p>
+        ) : abandonedCartCoupons ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Quantidade de transacoes</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.transactions || 0))}
+                </p>
+              </article>
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita total</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {formatCurrency(abandonedCartCoupons.purchaseRevenue)}
+                </p>
+              </article>
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Ticket medio</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {formatCurrency(abandonedCartCoupons.average_ticket)}
+                </p>
+              </article>
+              <article className="rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Cupom lider</h3>
+                {abandonedCartCoupons.top_coupon ? (
+                  <>
+                    <p className="mt-2 text-xl font-semibold text-slate-900">
+                      {abandonedCartCoupons.top_coupon.coupon}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {new Intl.NumberFormat('pt-BR').format(Number(abandonedCartCoupons.top_coupon.transactions || 0))}{' '}
+                      pedidos ({Number(abandonedCartCoupons.top_coupon.share_of_transactions || 0).toFixed(2)}%)
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-600">Sem destaque no periodo.</p>
+                )}
+              </article>
+            </div>
+            <div className="rounded-xl border border-slate-200">
+              <div className="grid grid-cols-[minmax(0,1fr)_140px_160px] gap-3 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span>Cupom</span>
+                <span>Pedidos</span>
+                <span>Receita</span>
+              </div>
+              {Array.isArray(abandonedCartCoupons.by_coupon) && abandonedCartCoupons.by_coupon.length > 0 ? (
+                abandonedCartCoupons.by_coupon.map((coupon) => (
+                  <div
+                    key={coupon.coupon}
+                    className="grid grid-cols-[minmax(0,1fr)_140px_160px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                  >
+                    <span className="font-medium text-slate-900">{coupon.coupon}</span>
+                    <span className="text-slate-700">
+                      {new Intl.NumberFormat('pt-BR').format(Number(coupon.transactions || 0))}
+                    </span>
+                    <span className="text-slate-700">{formatCurrency(coupon.purchaseRevenue)}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="px-4 py-4 text-sm text-slate-600">Nenhum pedido com esses cupons no periodo selecionado.</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+        )}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <h2 className="text-lg font-semibold text-slate-900">Assistencia de Conversao (CRM)</h2>
+          <p className="mt-1 text-sm text-slate-600">Periodo selecionado por sessoes e usuarios CRM assistidos.</p>
+          {crmAssistsError && <p className="mt-4 text-sm text-rose-700">{crmAssistsError}</p>}
+          {crmAssistsLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando assists...</p>
+          ) : crmAssists ? (
+            <div className="mt-4 grid gap-3 text-sm">
+              <p>
+                <span className="font-semibold text-slate-900">Sessoes CRM:</span>{' '}
+                {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.crm_sessions || 0))}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Usuarios CRM:</span>{' '}
+                {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.crm_users || 0))}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Compras assistidas:</span>{' '}
+                {new Intl.NumberFormat('pt-BR').format(Number(crmAssists.assisted_purchases || 0))}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Receita assistida:</span>{' '}
+                {formatCurrency(crmAssists.assisted_revenue)}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <h2 className="text-lg font-semibold text-slate-900">LTV do CRM</h2>
+          <p className="mt-1 text-sm text-slate-600">Coorte de usuarios adquiridos por CRM no periodo selecionado.</p>
+          {crmLtvError && <p className="mt-4 text-sm text-rose-700">{crmLtvError}</p>}
+          {crmLtvLoading ? (
+            <p className="mt-4 text-sm text-slate-600">Carregando LTV...</p>
+          ) : crmLtv ? (
+            <div className="mt-4 grid gap-3 text-sm">
+              <p>
+                <span className="font-semibold text-slate-900">Novos usuarios CRM:</span>{' '}
+                {new Intl.NumberFormat('pt-BR').format(Number(crmLtv.crm_new_users || 0))}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Receita total da coorte:</span>{' '}
+                {formatCurrency(crmLtv.total_revenue_from_crm_users)}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">LTV medio CRM:</span>{' '}
+                {formatCurrency(crmLtv.crm_ltv)}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+          )}
+        </article>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Funil de Conversao CRM</h2>
+        <p className="mt-1 text-sm text-slate-600">Progressao do CRM: entrada, produto, carrinho, checkout e compra.</p>
+        {crmFunnelError && <p className="mt-4 text-sm text-rose-700">{crmFunnelError}</p>}
+        {crmFunnelLoading ? (
+          <p className="mt-4 text-sm text-slate-600">Carregando funil...</p>
+        ) : crmFunnel ? (
+          <div className="mt-4 grid gap-4 md:grid-cols-5">
+            {[
+              { label: 'Sessoes', value: crmFunnel.sessions, rate: null },
+              { label: 'Produto', value: crmFunnel.product_view, rate: crmFunnel.conversion_rates?.view_rate },
+              { label: 'Carrinho', value: crmFunnel.add_to_cart, rate: crmFunnel.conversion_rates?.cart_rate },
+              { label: 'Checkout', value: crmFunnel.checkout, rate: crmFunnel.conversion_rates?.checkout_rate },
+              { label: 'Compra', value: crmFunnel.purchase, rate: crmFunnel.conversion_rates?.purchase_rate },
+            ].map((step) => (
+              <article key={step.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{step.label}</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {new Intl.NumberFormat('pt-BR').format(Number(step.value || 0))}
+                </p>
+                {step.rate !== null && step.rate !== undefined && (
+                  <p className="mt-1 text-sm text-slate-600">Taxa: {(Number(step.rate) * 100).toFixed(2)}%</p>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-600">Sem dados para o periodo.</p>
+        )}
+      </section>
     </section>
   )
 }
