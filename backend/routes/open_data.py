@@ -1289,6 +1289,22 @@ SELECT
   ROUND(SUM(receita_atribuida), 2)  AS receita_atribuida
 FROM categorized
 GROUP BY categoria
+
+UNION ALL
+
+-- Direct attribution total (same pattern as Atribuída Reportada — no si_purchases join constraint)
+SELECT
+  'atribuida_direta'                           AS categoria,
+  COUNT(DISTINCT r.order_id)                   AS num_pedidos,
+  0                                            AS receita_pedidos,
+  ROUND(SUM(t.attributed_amount), 2)           AS receita_atribuida
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND t.attributed_amount > 0
+  AND {attr_event_time_filter}
+  AND {attr_partition_filter}
+
 ORDER BY receita_pedidos DESC
 """.strip()
 
@@ -1388,8 +1404,8 @@ def emarsys_audit_cruzamento(
                 # Box 1 — total iPlace (all orders from si_purchases)
                 "total_iplace": round(total_iplace, 2),
                 "total_pedidos_iplace": total_orders,
-                # Box 2 — attributed by Emarsys (attributed_amount from revenue_attribution)
-                "atribuida_receita": round(_atribuida_val("atribuida"), 2),
+                # Box 2 — attributed by Emarsys (direct from revenue_attribution, same logic as Atribuída Reportada)
+                "atribuida_receita": round(_atribuida_val("atribuida_direta"), 2),
                 "atribuida_pedidos_valor": round(_pedidos("atribuida"), 2),
                 "atribuida_pedidos": _orders("atribuida"),
                 # Box 3 — should have been attributed (had CRM touchpoint but not attributed)
