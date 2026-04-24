@@ -708,17 +708,17 @@ def _build_monthly_revenue_sql(
     # event_time = data do pedido; partitiontime = data de carga (até ~7 dias de delay).
     # Filtramos por event_time para precisão e por partitiontime para eficiência de custo.
     if normalized_start and normalized_end:
-        event_time_filter = f"DATE(event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        partition_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
     elif normalized_start:
-        event_time_filter = f"DATE(event_time) >= DATE('{normalized_start}')"
-        partition_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
+        event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
     elif normalized_end:
-        event_time_filter = f"DATE(event_time) <= DATE('{normalized_end}')"
-        partition_filter = f"DATE(partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
+        event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        partition_filter = f"DATE(r.partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 7 DAY)"
     else:
-        event_time_filter = f"DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
-        partition_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
+        event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
 SELECT
