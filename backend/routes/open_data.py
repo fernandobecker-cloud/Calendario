@@ -721,24 +721,18 @@ def _build_monthly_revenue_sql(
         partition_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
-WITH attributed_orders AS (
-  SELECT DISTINCT
-    FORMAT_DATE('%Y-%m', DATE(event_time)) AS mes,
-    order_id,
-    contact_id,
-    (SELECT COALESCE(SUM(i.price * i.quantity), 0) FROM UNNEST(items) AS i) AS valor_pedido
-  FROM `{project_id}.{dataset}.{revenue_table}`
-  WHERE ARRAY_LENGTH(treatments) > 0
-    AND event_time IS NOT NULL
-    AND {event_time_filter}
-    AND {partition_filter}
-)
 SELECT
-  mes,
-  SUM(valor_pedido) AS receita_atribuida,
-  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
-  COUNT(DISTINCT contact_id) AS compradores_unicos
-FROM attributed_orders
+  FORMAT_DATE('%Y-%m', DATE(r.event_time)) AS mes,
+  ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida,
+  COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
+  COUNT(DISTINCT r.contact_id) AS compradores_unicos
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND r.event_time IS NOT NULL
+  AND t.attributed_amount > 0
+  AND {event_time_filter}
+  AND {partition_filter}
 GROUP BY mes
 ORDER BY mes
 """.strip()
