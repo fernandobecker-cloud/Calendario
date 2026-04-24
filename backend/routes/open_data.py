@@ -1025,12 +1025,86 @@ SELECT
   COALESCE(en.nome_campanha, sn.nome_campanha, CONCAT('Campanha #', rc.campaign_id)) AS nome_campanha,
   rc.pedidos_atribuidos,
   rc.compradores_unicos,
-  rc.receita_atribuida
+  rc.receita_atribuida,
+  CASE
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^transacional_') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^0_at_') THEN 'servico'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'pesquisanps') THEN 'nps'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^0_token-') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^00000000_pedido_') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'fraudes|contrato-assinado') THEN 'transacional'
+    ELSE 'marketing'
+  END AS categoria
 FROM revenue_by_campaign rc
 LEFT JOIN email_names en ON rc.campaign_id = en.campaign_id
 LEFT JOIN sms_names sn ON rc.campaign_id = sn.campaign_id
 ORDER BY rc.receita_atribuida DESC
 LIMIT 200
+""".strip()
+
+
+def _build_audit_receita_resumo_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    return f"""
+WITH email_names AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+revenue_by_campaign AS (
+  SELECT
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    LOWER(t.channel) AS canal,
+    COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
+    COUNT(DISTINCT r.contact_id) AS compradores_unicos,
+    ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY 1, 2
+)
+SELECT
+  CASE
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^transacional_') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^0_at_') THEN 'servico'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'pesquisanps') THEN 'nps'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^0_token-') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'^00000000_pedido_') THEN 'transacional'
+    WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')), r'fraudes|contrato-assinado') THEN 'transacional'
+    ELSE 'marketing'
+  END AS categoria,
+  COUNT(DISTINCT rc.campaign_id) AS num_campanhas,
+  SUM(rc.pedidos_atribuidos) AS pedidos_totais,
+  SUM(rc.compradores_unicos) AS compradores_totais,
+  ROUND(SUM(rc.receita_atribuida), 2) AS receita_total
+FROM revenue_by_campaign rc
+LEFT JOIN email_names en ON rc.campaign_id = en.campaign_id
+LEFT JOIN sms_names sn ON rc.campaign_id = sn.campaign_id
+GROUP BY 1
+ORDER BY receita_total DESC
 """.strip()
 
 
@@ -1084,12 +1158,25 @@ def emarsys_audit_receita_por_campanha(
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        sql = _build_audit_receita_por_campanha_sql(start, end)
-        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        sql_detalhe = _build_audit_receita_por_campanha_sql(start, end)
+        sql_resumo = _build_audit_receita_resumo_sql(start, end)
+        records = run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        resumo_records = run_bigquery_records(sql_resumo, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = _records_to_response_items(records)
+        resumo = _records_to_response_items(resumo_records)
+
+        total_reportado = sum(float(r.get("receita_total") or 0) for r in resumo)
+        total_marketing = sum(float(r.get("receita_total") or 0) for r in resumo if r.get("categoria") == "marketing")
+
         return {
             "items": items,
             "total": len(items),
+            "resumo_por_categoria": resumo,
+            "totais": {
+                "reportado": round(total_reportado, 2),
+                "marketing": round(total_marketing, 2),
+                "ruido": round(total_reportado - total_marketing, 2),
+            },
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
             "source": "bigquery_emarsys_open_data_revenue_attribution",
