@@ -323,10 +323,10 @@ def unauthorized_response() -> Response:
 
 @app.middleware("http")
 async def basic_auth_middleware(request: Request, call_next: Any) -> Response:
-    """Protege app e API com Basic Auth, mantendo /health livre para monitoramento."""
+    """Protege endpoints /api com Basic Auth; frontend (HTML/assets) carrega sem auth."""
     request.state.auth_user = None
 
-    if request.url.path == "/health":
+    if not request.url.path.startswith("/api"):
         return await call_next(request)
 
     if not is_auth_enabled():
