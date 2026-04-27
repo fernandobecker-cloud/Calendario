@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { clearCredentials, saveCredentials } from '../auth'
 
-export default function LoginPage({ onLogin }) {
+export default function LoginPage({ onLogin, sessionMessage }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -39,6 +39,12 @@ export default function LoginPage({ onLogin }) {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-soft">
+          {sessionMessage && (
+            <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+              {sessionMessage}
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import App from './App'
 import { clearCredentials, isStoredAuthenticated } from './auth'
@@ -15,6 +15,11 @@ const ALL_TABS = [
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
   { to: '/adm', label: 'Adm', key: 'adm' },
 ]
+
+// 14 min 30 s — desloga antes dos 15 min do Render free entrar em sleep
+const INACTIVITY_MS = 14 * 60 * 1000 + 30 * 1000
+
+const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click']
 
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
@@ -65,6 +70,8 @@ export default function AppRouter() {
   const [currentRole, setCurrentRole] = useState(null)
   const [currentUsername, setCurrentUsername] = useState(null)
   const [viewerTabs, setViewerTabs] = useState(null)
+  const [sessionMessage, setSessionMessage] = useState(null)
+  const inactivityTimer = useRef(null)
 
   const fetchViewerTabs = useCallback(async () => {
     try {
@@ -74,6 +81,54 @@ export default function AppRouter() {
       // ignore
     }
   }, [])
+
+  const handleLogout = useCallback((reason = null) => {
+    clearCredentials()
+    if (inactivityTimer.current) {
+      clearTimeout(inactivityTimer.current)
+      inactivityTimer.current = null
+    }
+    setCurrentRole(null)
+    setCurrentUsername(null)
+    setViewerTabs(null)
+    setSessionMessage(
+      reason === 'inactivity'
+        ? 'Sessao encerrada por inatividade. Atualize a pagina e faca login novamente.'
+        : null
+    )
+    setAuthState('unauthenticated')
+  }, [])
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
+    inactivityTimer.current = setTimeout(() => handleLogout('inactivity'), INACTIVITY_MS)
+  }, [handleLogout])
+
+  // Liga/desliga o timer de inatividade conforme o estado de autenticacao
+  useEffect(() => {
+    if (authState !== 'authenticated') {
+      if (inactivityTimer.current) {
+        clearTimeout(inactivityTimer.current)
+        inactivityTimer.current = null
+      }
+      return
+    }
+
+    ACTIVITY_EVENTS.forEach((evt) =>
+      window.addEventListener(evt, resetInactivityTimer, { passive: true })
+    )
+    resetInactivityTimer()
+
+    return () => {
+      ACTIVITY_EVENTS.forEach((evt) =>
+        window.removeEventListener(evt, resetInactivityTimer)
+      )
+      if (inactivityTimer.current) {
+        clearTimeout(inactivityTimer.current)
+        inactivityTimer.current = null
+      }
+    }
+  }, [authState, resetInactivityTimer])
 
   const checkAuth = useCallback(async () => {
     if (!isStoredAuthenticated()) {
@@ -103,19 +158,12 @@ export default function AppRouter() {
   }, [checkAuth])
 
   const handleLogin = useCallback(async (username, role) => {
+    setSessionMessage(null)
     setCurrentUsername(username)
     setCurrentRole(role)
     if (role !== 'admin') await fetchViewerTabs()
     setAuthState('authenticated')
   }, [fetchViewerTabs])
-
-  const handleLogout = useCallback(() => {
-    clearCredentials()
-    setCurrentRole(null)
-    setCurrentUsername(null)
-    setViewerTabs(null)
-    setAuthState('unauthenticated')
-  }, [])
 
   if (authState === 'loading') {
     return (
@@ -126,7 +174,7 @@ export default function AppRouter() {
   }
 
   if (authState === 'unauthenticated') {
-    return <LoginPage onLogin={handleLogin} />
+    return <LoginPage onLogin={handleLogin} sessionMessage={sessionMessage} />
   }
 
   return (
