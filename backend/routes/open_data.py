@@ -612,8 +612,11 @@ def _build_automation_revenue_by_program_sql(
         raise ValueError("Informe ao menos um program_id")
 
     program_id_values = ", ".join(f"'{pid}'" for pid in safe_program_ids)
-    campaigns_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
-    activity_filter = _build_partitiontime_filter(start_date, end_date)
+    # Usa lookback completo para encontrar todos os contatos que já passaram
+    # por esses programas — não apenas os enviados dentro do período selecionado.
+    # Automações contínuas (ex.: aniversário) rodam o ano todo; restringir
+    # envios ao período de consulta excluiria contatos cujo envio foi anterior.
+    sends_lookback_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
 
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
@@ -632,16 +635,21 @@ WITH campaign_programs AS (
     CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id
   FROM `{project_id}.{dataset}.{campaigns_table}`
-  WHERE {campaigns_filter}
+  WHERE {sends_lookback_filter}
     AND program_id IS NOT NULL
     AND CAST(COALESCE(program_id, 0) AS STRING) IN ({program_id_values})
 ),
 program_contacts AS (
-  SELECT DISTINCT cp.program_id, CAST(s.contact_id AS STRING) AS contact_id
+  -- Cada contato atribuído ao estágio mais avançado que atingiu,
+  -- evitando que a mesma compra seja contada em múltiplos programas.
+  SELECT
+    CAST(MAX(CAST(cp.program_id AS INT64)) AS STRING) AS program_id,
+    CAST(s.contact_id AS STRING) AS contact_id
   FROM `{project_id}.{dataset}.{sends_table}` s
   JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
-  WHERE {activity_filter}
+  WHERE {sends_lookback_filter}
     AND s.contact_id IS NOT NULL
+  GROUP BY CAST(s.contact_id AS STRING)
 ),
 program_revenue AS (
   SELECT
