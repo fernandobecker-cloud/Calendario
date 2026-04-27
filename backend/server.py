@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 import pandas as pd
 from dateutil import parser
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +43,8 @@ AUTH_DB_PATH = ROOT_DIR / "auth_users.db"
 
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "").strip()
+AUTH_USERNAME_2 = os.getenv("AUTH_USERNAME_2", "").strip()
+AUTH_PASSWORD_2 = os.getenv("AUTH_PASSWORD_2", "").strip()
 AUTH_MODE = os.getenv("AUTH_MODE", "multi").strip().lower()
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
@@ -55,6 +57,11 @@ app.include_router(open_data_router)
 
 def is_single_auth_mode() -> bool:
     return AUTH_MODE in {"single", "simple"}
+
+
+def has_dual_env_auth() -> bool:
+    """Dois usuarios configurados via variaveis de ambiente (sem SQLite)."""
+    return bool(AUTH_USERNAME and AUTH_PASSWORD and AUTH_USERNAME_2 and AUTH_PASSWORD_2)
 
 
 class UserCreatePayload(BaseModel):
@@ -224,6 +231,8 @@ def is_auth_enabled() -> bool:
     """Em single usa credencial fixa; em multi usa usuarios cadastrados."""
     if is_single_auth_mode():
         return bool(AUTH_USERNAME and AUTH_PASSWORD)
+    if has_dual_env_auth():
+        return True
     return user_count() > 0
 
 
@@ -249,6 +258,32 @@ def parse_basic_credentials(authorization_header: str | None) -> tuple[str, str]
 
 
 def authenticate_user(username_raw: str, password: str) -> AuthUser | None:
+    if has_dual_env_auth():
+        try:
+            username = normalize_username(username_raw)
+        except ValueError:
+            return None
+
+        try:
+            expected_admin = normalize_username(AUTH_USERNAME_2)
+        except ValueError:
+            expected_admin = None
+
+        if expected_admin and secrets.compare_digest(username, expected_admin):
+            if secrets.compare_digest(password, AUTH_PASSWORD_2):
+                return AuthUser(username=expected_admin, role="admin")
+            return None
+
+        try:
+            expected_viewer = normalize_username(AUTH_USERNAME)
+        except ValueError:
+            return None
+
+        if secrets.compare_digest(username, expected_viewer) and secrets.compare_digest(password, AUTH_PASSWORD):
+            return AuthUser(username=expected_viewer, role="user")
+
+        return None
+
     if is_single_auth_mode():
         try:
             username = normalize_username(username_raw)
@@ -331,7 +366,7 @@ def ensure_multi_user_mode() -> None:
         )
 
 
-if not is_single_auth_mode():
+if not is_single_auth_mode() and not has_dual_env_auth():
     init_user_store()
     ensure_bootstrap_admin()
 
@@ -493,6 +528,26 @@ def get_auth_config(current_user: AuthUser = Depends(get_current_user)) -> dict[
         "user_management_enabled": not is_single_auth_mode(),
         "current_user": {"username": current_user.username, "role": current_user.role},
     }
+
+
+_VIEWER_TABS_KEYS = ["resultado-geral", "campanhas", "projetos", "auditoria"]
+_viewer_tabs: dict[str, bool] = {tab: True for tab in _VIEWER_TABS_KEYS}
+
+
+@app.get("/api/config/viewer-tabs")
+def get_viewer_tabs(_: AuthUser = Depends(get_current_user)) -> dict[str, bool]:
+    return dict(_viewer_tabs)
+
+
+@app.put("/api/config/viewer-tabs")
+def update_viewer_tabs(
+    tabs: dict[str, bool] = Body(...),
+    _: AuthUser = Depends(get_admin_user),
+) -> dict[str, bool]:
+    for key in _VIEWER_TABS_KEYS:
+        if key in tabs:
+            _viewer_tabs[key] = bool(tabs[key])
+    return dict(_viewer_tabs)
 
 
 @app.patch("/api/me/password")

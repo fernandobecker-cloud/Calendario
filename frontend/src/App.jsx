@@ -21,6 +21,14 @@ const ADM_MENU_ITEMS = [
   { key: 'open-data', label: 'Open Data Emarsys' },
   { key: 'automation-results', label: 'Resultados de Automacoes' },
   { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
+  { key: 'permissoes', label: 'Permissoes de Acesso' },
+]
+
+const TAB_PERMISSION_OPTIONS = [
+  { key: 'resultado-geral', label: 'Resultado Geral' },
+  { key: 'campanhas', label: 'Campanhas' },
+  { key: 'projetos', label: 'Projetos' },
+  { key: 'auditoria', label: 'Auditoria' },
 ]
 
 
@@ -194,6 +202,10 @@ export default function App({ mode = 'campanhas' }) {
   const [anniversaryAutomationCouponError, setAnniversaryAutomationCouponError] = useState('')
   const [automationEmarsysRevenueItems, setAutomationEmarsysRevenueItems] = useState([])
   const [automationGa4RevenueItems, setAutomationGa4RevenueItems] = useState([])
+  const [permissoesDraft, setPermissoesDraft] = useState(null)
+  const [permissoesSaving, setPermissoesSaving] = useState(false)
+  const [permissoesError, setPermissoesError] = useState('')
+  const [permissoesSuccess, setPermissoesSuccess] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -636,6 +648,16 @@ export default function App({ mode = 'campanhas' }) {
       loadAnniversaryAutomationCouponStats()
     }
   }, [activeView, loadAnniversaryAutomationCouponStats])
+
+  useEffect(() => {
+    if (activeView !== 'permissoes') return
+    setPermissoesError('')
+    setPermissoesSuccess('')
+    fetch('/api/config/viewer-tabs')
+      .then((r) => r.json())
+      .then((data) => setPermissoesDraft(data))
+      .catch(() => setPermissoesError('Nao foi possivel carregar as permissoes.'))
+  }, [activeView])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1648,6 +1670,76 @@ export default function App({ mode = 'campanhas' }) {
     </section>
   )
 
+  const renderPermissoesView = () => {
+    const handleSave = async () => {
+      setPermissoesSaving(true)
+      setPermissoesError('')
+      setPermissoesSuccess('')
+      try {
+        const res = await fetch('/api/config/viewer-tabs', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(permissoesDraft),
+        })
+        if (!res.ok) throw new Error('Falha ao salvar.')
+        const saved = await res.json()
+        setPermissoesDraft(saved)
+        setPermissoesSuccess('Permissoes salvas com sucesso.')
+      } catch (err) {
+        setPermissoesError(err instanceof Error ? err.message : 'Erro ao salvar.')
+      } finally {
+        setPermissoesSaving(false)
+      }
+    }
+
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Permissoes de Acesso</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Escolha quais abas o usuario viewer (CRMIPLACE) pode acessar.
+        </p>
+
+        {permissoesError && (
+          <p className="mt-4 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{permissoesError}</p>
+        )}
+        {permissoesSuccess && (
+          <p className="mt-4 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">{permissoesSuccess}</p>
+        )}
+
+        {permissoesDraft === null ? (
+          <p className="mt-6 text-sm text-slate-500">Carregando...</p>
+        ) : (
+          <div className="mt-6 space-y-3">
+            {TAB_PERMISSION_OPTIONS.map((tab) => (
+              <label key={tab.key} className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+                  checked={permissoesDraft[tab.key] !== false}
+                  onChange={(e) =>
+                    setPermissoesDraft((prev) => ({ ...prev, [tab.key]: e.target.checked }))
+                  }
+                />
+                <span className="text-sm text-slate-800">{tab.label}</span>
+              </label>
+            ))}
+
+            <div className="pt-4">
+              <button
+                type="button"
+                disabled={permissoesSaving}
+                onClick={handleSave}
+                className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+              >
+                {permissoesSaving ? 'Salvando...' : 'Salvar permissoes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    )
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
       <div className="grid gap-4 md:grid-cols-[260px_1fr]">
@@ -1679,6 +1771,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'open-data-explorer' && renderOpenDataExplorerView()}
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
+          {activeView === 'permissoes' && renderPermissoesView()}
         </div>
       </div>
 
