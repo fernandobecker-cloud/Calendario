@@ -542,7 +542,7 @@ def get_automation_revenue_by_campaign(
     property_id: str,
     start_date: str,
     end_date: str,
-    campaign_name_regex: str = r"(?i).*aniversario.*",
+    campaign_name_regex: str = r"(?i).*anivers.*",
 ) -> dict[str, Any]:
     """Returns purchaseRevenue per sessionCampaignName for CRM sessions matching a regex."""
     start = _validate_iso_date(start_date)

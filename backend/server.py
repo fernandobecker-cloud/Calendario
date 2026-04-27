@@ -790,7 +790,7 @@ def ga4_coupon_orders(
 def ga4_automation_revenue_by_campaign(
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    campaign_regex: str = Query(default=r"(?i).*aniversario.*"),
+    campaign_regex: str = Query(default=r"(?i).*anivers.*"),
     property_id: str | None = Query(default=None),
 ) -> dict[str, Any]:
     effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
