@@ -132,7 +132,6 @@ function Table({ columns, rows, emptyText = 'Nenhum resultado.' }) {
 
 function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   const totalCrm = totais.total_crm ?? 0
-  const pctCobertura = totalCrm > 0 ? (totais.marketing / totalCrm) * 100 : 0
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -140,31 +139,11 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
         Receita Emarsys
       </h2>
 
-      <div className="mb-1 h-3 w-full overflow-hidden rounded-full bg-slate-100">
-        <div className="relative h-full w-full">
-          {totalCrm > 0 && (
-            <div
-              className="absolute h-full rounded-full bg-slate-300 transition-all"
-              style={{ width: `${Math.min((totais.reportado / totalCrm) * 100, 100).toFixed(1)}%` }}
-            />
-          )}
-          {totalCrm > 0 && (
-            <div
-              className="absolute h-full rounded-full bg-emerald-500 transition-all"
-              style={{ width: `${Math.min(pctCobertura, 100).toFixed(1)}%` }}
-            />
-          )}
-        </div>
-      </div>
-      <p className="mb-5 text-xs text-slate-400">
-        Verde = marketing real · Cinza = atribuída reportada · Base = total CRM (si_purchases)
-      </p>
-
       <div className="mb-5 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
           <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totalCrm)}</p>
-          <p className="mt-0.5 text-xs text-violet-600">todas as compras de clientes Emarsys</p>
+          <p className="mt-0.5 text-xs text-violet-600">todas as compras com CPF</p>
         </div>
         <div className="rounded-xl border border-slate-200 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
