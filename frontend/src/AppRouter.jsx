@@ -3,6 +3,7 @@ import App from './App'
 import GanttPage from './components/gantt/GanttPage'
 import ResultadoGeralPage from './components/ResultadoGeralPage'
 import AuditoriaPage from './components/AuditoriaPage'
+import AdmPage from './components/AdmPage'
 
 function TopNavigation() {
   const tabs = [
@@ -10,6 +11,7 @@ function TopNavigation() {
     { to: '/campanhas', label: 'Campanhas' },
     { to: '/gantt', label: 'Projetos' },
     { to: '/auditoria', label: 'Auditoria' },
+    { to: '/adm', label: 'Adm' },
   ]
 
   return (
@@ -44,6 +46,7 @@ export default function AppRouter() {
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
           <Route path="/auditoria" element={<AuditoriaPage />} />
+          <Route path="/adm" element={<AdmPage />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>

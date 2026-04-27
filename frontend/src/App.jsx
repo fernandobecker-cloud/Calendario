@@ -11,14 +11,18 @@ const CHANNEL_COLORS = {
   other: '#8E8E93'
 }
 
-const BASE_MENU_ITEMS = [
+const CAMPANHAS_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
-  { key: 'open-data', label: 'Open Data Emarsys' },
-  { key: 'automation-results', label: 'Resultados de Automacoes' },
-  { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
   { key: 'future-2', label: 'Checklist de Campanha', disabled: true }
 ]
+
+const ADM_MENU_ITEMS = [
+  { key: 'open-data', label: 'Open Data Emarsys' },
+  { key: 'automation-results', label: 'Resultados de Automacoes' },
+  { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
+]
+
 
 const OPEN_DATA_LIMIT = 200
 const ANNIVERSARY_AUTOMATION_COUPON = 'IPLACEANIVER'
@@ -127,8 +131,8 @@ function toCsvValue(value) {
   return `"${escaped}"`
 }
 
-export default function App() {
-  const [activeView, setActiveView] = useState('calendar')
+export default function App({ mode = 'campanhas' }) {
+  const [activeView, setActiveView] = useState(mode === 'adm' ? 'open-data' : 'calendar')
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -493,9 +497,11 @@ export default function App() {
   }, [activeView, userManagementEnabled])
 
   const menuItems = useMemo(() => {
-    if (!userManagementEnabled) return BASE_MENU_ITEMS
-    return [...BASE_MENU_ITEMS, { key: 'users', label: 'Usuarios e Perfis' }]
-  }, [userManagementEnabled])
+    if (mode === 'adm') return ADM_MENU_ITEMS
+    const base = CAMPANHAS_MENU_ITEMS
+    if (!userManagementEnabled) return base
+    return [...base, { key: 'users', label: 'Usuarios e Perfis' }]
+  }, [mode, userManagementEnabled])
 
   const filteredEvents = useMemo(() => {
     if (selectedChannel === 'all') return events
