@@ -773,6 +773,10 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
 
+  if (refreshKey === 0) {
+    return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
+  }
+
   const metrics = [
     { key: 'sessions', label: 'Sessoes' },
     { key: 'totalUsers', label: 'Usuarios' },
