@@ -770,7 +770,7 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <h2 className="text-xl font-semibold text-slate-900">Resultado Geral - CRM</h2>
+        <h2 className="text-xl font-semibold text-slate-900">Receita GA4</h2>
         {abandonedCartNonCrmSummaryError && (
           <p className="mt-4 text-sm text-rose-700">{abandonedCartNonCrmSummaryError}</p>
         )}
