@@ -601,90 +601,54 @@ def _build_automation_revenue_by_program_sql(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> str:
+    """
+    Receita atribuida por programa usando a tabela revenue_attribution do Emarsys.
+    Usa o mesmo modelo de atribuicao nativo do Emarsys (janela por canal),
+    garantindo consistencia com os valores exibidos nos relatorios da plataforma.
+    """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
-    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
-    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
 
     safe_program_ids = [str(pid).strip() for pid in program_ids if str(pid).strip()]
     if not safe_program_ids:
         raise ValueError("Informe ao menos um program_id")
 
     program_id_values = ", ".join(f"'{pid}'" for pid in safe_program_ids)
-    # Usa lookback completo para encontrar todos os contatos que já passaram
-    # por esses programas — não apenas os enviados dentro do período selecionado.
-    # Automações contínuas (ex.: aniversário) rodam o ano todo; restringir
-    # envios ao período de consulta excluiria contatos cujo envio foi anterior.
-    sends_lookback_filter = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
-
-    normalized_start = _validate_optional_iso_date(start_date)
-    normalized_end = _validate_optional_iso_date(end_date)
-    if normalized_start and normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-    elif normalized_start:
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-    elif normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-    else:
-        purchase_date_filter = "p.purchase_date IS NOT NULL"
+    campaigns_lookback = f"partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
 
     return f"""
-WITH campaign_programs AS (
+WITH program_campaigns AS (
+  -- Campaign IDs que pertencem aos programas solicitados
   SELECT DISTINCT
     CAST(id AS STRING) AS campaign_id,
     CAST(COALESCE(program_id, 0) AS STRING) AS program_id
   FROM `{project_id}.{dataset}.{campaigns_table}`
-  WHERE {sends_lookback_filter}
+  WHERE {campaigns_lookback}
     AND program_id IS NOT NULL
     AND CAST(COALESCE(program_id, 0) AS STRING) IN ({program_id_values})
 ),
-contact_sends AS (
-  -- Todos os envios por contato dentro do lookback, com data do envio
+attributed AS (
+  -- Receita atribuida pelo Emarsys para cada pedido x campanha de automacao
   SELECT
-    CAST(s.contact_id AS STRING) AS contact_id,
-    cp.program_id,
-    DATE(s.event_time) AS send_date
-  FROM `{project_id}.{dataset}.{sends_table}` s
-  JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
-  WHERE {sends_lookback_filter}
-    AND s.contact_id IS NOT NULL
-    AND s.event_time IS NOT NULL
-),
-contact_purchases AS (
-  -- Compras no periodo selecionado de contatos que estiveram na automacao
-  SELECT
-    CAST(p.si_contact_id AS STRING) AS contact_id,
-    DATE(p.purchase_date) AS purchase_date,
-    p.sales_amount
-  FROM `{project_id}.{dataset}.{purchases_table}` p
-  WHERE {purchase_date_filter}
-    AND p.si_contact_id IS NOT NULL
-    AND p.sales_amount > 0
-),
-purchase_attribution AS (
-  -- Cada compra atribuida ao programa cujo envio foi o mais recente antes dela.
-  -- Assim cada compra conta em exatamente um programa, sem dupla contagem.
-  SELECT
-    cp.contact_id,
-    cp.purchase_date,
-    cp.sales_amount,
-    ARRAY_AGG(
-      cs.program_id
-      ORDER BY cs.send_date DESC, CAST(cs.program_id AS INT64) DESC
-      LIMIT 1
-    )[SAFE_OFFSET(0)] AS program_id
-  FROM contact_purchases cp
-  JOIN contact_sends cs
-    ON cs.contact_id = cp.contact_id
-    AND cs.send_date <= cp.purchase_date
-  GROUP BY cp.contact_id, cp.purchase_date, cp.sales_amount
+    pc.program_id,
+    r.order_id,
+    SUM(t.attributed_amount) AS receita
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  JOIN program_campaigns pc ON CAST(t.campaign_id AS STRING) = pc.campaign_id
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY pc.program_id, r.order_id
 )
 SELECT
   program_id,
-  COALESCE(SUM(sales_amount), 0) AS receita
-FROM purchase_attribution
-WHERE program_id IS NOT NULL
+  ROUND(SUM(receita), 2) AS receita
+FROM attributed
 GROUP BY program_id
 ORDER BY program_id
 """.strip()
