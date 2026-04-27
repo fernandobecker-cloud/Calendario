@@ -639,29 +639,53 @@ WITH campaign_programs AS (
     AND program_id IS NOT NULL
     AND CAST(COALESCE(program_id, 0) AS STRING) IN ({program_id_values})
 ),
-program_contacts AS (
-  -- Cada contato atribuído ao estágio mais avançado que atingiu,
-  -- evitando que a mesma compra seja contada em múltiplos programas.
+contact_sends AS (
+  -- Todos os envios por contato dentro do lookback, com data do envio
   SELECT
-    CAST(MAX(CAST(cp.program_id AS INT64)) AS STRING) AS program_id,
-    CAST(s.contact_id AS STRING) AS contact_id
+    CAST(s.contact_id AS STRING) AS contact_id,
+    cp.program_id,
+    DATE(s.event_time) AS send_date
   FROM `{project_id}.{dataset}.{sends_table}` s
   JOIN campaign_programs cp ON CAST(s.campaign_id AS STRING) = cp.campaign_id
   WHERE {sends_lookback_filter}
     AND s.contact_id IS NOT NULL
-  GROUP BY CAST(s.contact_id AS STRING)
+    AND s.event_time IS NOT NULL
 ),
-program_revenue AS (
+contact_purchases AS (
+  -- Compras no periodo selecionado de contatos que estiveram na automacao
   SELECT
-    pc.program_id,
-    COALESCE(SUM(p.sales_amount), 0) AS receita
-  FROM program_contacts pc
-  LEFT JOIN `{project_id}.{dataset}.{purchases_table}` p
-    ON CAST(p.si_contact_id AS STRING) = pc.contact_id
-    AND {purchase_date_filter}
-  GROUP BY 1
+    CAST(p.si_contact_id AS STRING) AS contact_id,
+    DATE(p.purchase_date) AS purchase_date,
+    p.sales_amount
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE {purchase_date_filter}
+    AND p.si_contact_id IS NOT NULL
+    AND p.sales_amount > 0
+),
+purchase_attribution AS (
+  -- Cada compra atribuida ao programa cujo envio foi o mais recente antes dela.
+  -- Assim cada compra conta em exatamente um programa, sem dupla contagem.
+  SELECT
+    cp.contact_id,
+    cp.purchase_date,
+    cp.sales_amount,
+    ARRAY_AGG(
+      cs.program_id
+      ORDER BY cs.send_date DESC, CAST(cs.program_id AS INT64) DESC
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS program_id
+  FROM contact_purchases cp
+  JOIN contact_sends cs
+    ON cs.contact_id = cp.contact_id
+    AND cs.send_date <= cp.purchase_date
+  GROUP BY cp.contact_id, cp.purchase_date, cp.sales_amount
 )
-SELECT program_id, receita FROM program_revenue
+SELECT
+  program_id,
+  COALESCE(SUM(sales_amount), 0) AS receita
+FROM purchase_attribution
+WHERE program_id IS NOT NULL
+GROUP BY program_id
 ORDER BY program_id
 """.strip()
 
