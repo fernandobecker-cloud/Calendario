@@ -777,30 +777,45 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
         {crmResultsComparisonsError && <p className="mt-2 text-sm text-rose-700">{crmResultsComparisonsError}</p>}
         {ga4Loading || abandonedCartNonCrmSummaryLoading ? (
           <p className="mt-4 text-sm text-slate-600">Calculando resumo geral...</p>
-        ) : ga4Error ? null : (
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <article className="rounded-xl border border-slate-200 p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita de compras</h3>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.purchaseRevenue)}</p>
-            </article>
-            <article className="rounded-xl border border-slate-200 p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carrinho abandonado nao CRM</h3>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.nonCrmRevenue)}</p>
-            </article>
-            <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Total consolidado</h3>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.totalRevenue)}</p>
-              {crmResultsComparisonsLoading ? (
-                <p className="mt-3 text-sm text-slate-600">Carregando comparativos...</p>
-              ) : crmResultsComparisons ? (
-                <div className="mt-3 space-y-1 text-sm text-slate-600">
-                  <p>Mesmo mes do ano passado: {formatCurrency(crmResultsComparisons.lastYearSameMonth?.totalRevenue)}</p>
-                  <p>Mes anterior: {formatCurrency(crmResultsComparisons.previousMonth?.totalRevenue)}</p>
-                </div>
-              ) : null}
-            </article>
-          </div>
-        )}
+        ) : ga4Error ? null : (() => {
+          const total = crmResultsSummary.totalRevenue
+          const prevMonth = crmResultsComparisons?.previousMonth?.totalRevenue
+          const lastYear = crmResultsComparisons?.lastYearSameMonth?.totalRevenue
+          const mom = prevMonth ? ((total - prevMonth) / prevMonth) * 100 : null
+          const yoy = lastYear ? ((total - lastYear) / lastYear) * 100 : null
+          return (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Total consolidado</h3>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(total)}</p>
+                {crmResultsComparisonsLoading ? (
+                  <p className="mt-3 text-sm text-slate-600">Carregando comparativos...</p>
+                ) : crmResultsComparisons ? (
+                  <div className="mt-3 flex gap-4 text-sm">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">MoM</p>
+                      <p className={`font-semibold ${variationTextColor(mom)}`}>{formatVariation(mom)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">YoY</p>
+                      <p className={`font-semibold ${variationTextColor(yoy)}`}>{formatVariation(yoy)}</p>
+                    </div>
+                  </div>
+                ) : null}
+              </article>
+              <div className="flex flex-col gap-4">
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita de compras</h3>
+                  <p className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.purchaseRevenue)}</p>
+                </article>
+                <article className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carrinho abandonado nao CRM</h3>
+                  <p className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.nonCrmRevenue)}</p>
+                </article>
+              </div>
+            </div>
+          )
+        })()}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
