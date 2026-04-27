@@ -8,7 +8,7 @@ function TopNavigation() {
   const tabs = [
     { to: '/resultado-geral', label: 'Resultado Geral' },
     { to: '/campanhas', label: 'Campanhas' },
-    { to: '/gantt', label: 'Operacao' },
+    { to: '/gantt', label: 'Projetos' },
     { to: '/auditoria', label: 'Auditoria' },
   ]
 
