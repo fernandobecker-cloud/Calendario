@@ -140,7 +140,7 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Receita Atribuída — Reportado vs. Real vs. Total CRM
+        Receita Emarsys
       </h2>
 
       <div className="mb-1 h-3 w-full overflow-hidden rounded-full bg-slate-100">
@@ -165,27 +165,27 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total CRM</p>
-          <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totalCrm)}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totalCrm)}</p>
           <p className="mt-0.5 text-xs text-violet-600">todas as compras de clientes Emarsys</p>
         </div>
         <div className="rounded-xl border border-slate-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída Reportada</p>
-          <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totais.reportado)}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.reportado)}</p>
           <p className="mt-0.5 text-xs text-slate-400">
-            {totalCrm > 0 ? `${((totais.reportado / totalCrm) * 100).toFixed(1)}% do total CRM` : 'conforme Emarsys'}
+            {totalCrm > 0 ? `${((totais.reportado / totalCrm) * 100).toFixed(1)}% do total iPlace` : 'conforme Emarsys'}
           </p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Real (Marketing)</p>
-          <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(totais.marketing)}</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.marketing)}</p>
           <p className="mt-0.5 text-xs text-emerald-600">
-            {totalCrm > 0 ? `${pctCobertura.toFixed(1)}% do total CRM` : `${pctMarketing.toFixed(1)}% da atribuída`}
+            {totalCrm > 0 ? `${pctCobertura.toFixed(1)}% do total iPlace` : `${pctMarketing.toFixed(1)}% da atribuída`}
           </p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Ruído de Atribuição</p>
-          <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(ruido)}</p>
+          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(ruido)}</p>
           <p className="mt-0.5 text-xs text-amber-600">{pctRuido.toFixed(1)}% da atribuída</p>
         </div>
       </div>
