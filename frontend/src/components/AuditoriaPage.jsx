@@ -242,6 +242,78 @@ function DetalheDeviaAtribuir({ startDate, endDate }) {
   )
 }
 
+function AttributionByDayChart({ items }) {
+  if (!items || items.length === 0) return null
+
+  const totalPedidos = items.reduce((s, r) => s + Number(r.pedidos || 0), 0)
+  const totalReceita = items.reduce((s, r) => s + Number(r.receita || 0), 0)
+  const maxPctPedidos = Math.max(...items.map((r) => (Number(r.pedidos) / totalPedidos) * 100))
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Distribuição da Atribuição por Dia
+      </h2>
+      <p className="mb-6 text-xs text-slate-400">
+        % dos pedidos atribuídos pelo Emarsys por dia após o touchpoint (email open / SMS send) · Janela 0–7 dias
+      </p>
+
+      <div className="space-y-3">
+        {items.map((row) => {
+          const dia = Number(row.dia)
+          const pedidos = Number(row.pedidos || 0)
+          const receita = Number(row.receita || 0)
+          const pctPedidos = totalPedidos > 0 ? (pedidos / totalPedidos) * 100 : 0
+          const pctReceita = totalReceita > 0 ? (receita / totalReceita) * 100 : 0
+          const barWidth = maxPctPedidos > 0 ? (pctPedidos / maxPctPedidos) * 100 : 0
+
+          return (
+            <div key={dia} className="flex items-center gap-3">
+              <div className="w-20 shrink-0 text-right text-xs font-semibold text-slate-500">
+                {dia === 0 ? 'Mesmo dia' : `Dia ${dia}`}
+              </div>
+              <div className="flex-1">
+                <div className="relative h-7 overflow-hidden rounded-lg bg-slate-100">
+                  <div
+                    className="flex h-full items-center rounded-lg bg-emerald-500 px-2 transition-all duration-500"
+                    style={{ width: `${Math.max(barWidth, 2)}%` }}
+                  >
+                    {barWidth > 18 && (
+                      <span className="text-xs font-semibold text-white">{pctPedidos.toFixed(1)}%</span>
+                    )}
+                  </div>
+                  {barWidth <= 18 && (
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-600">
+                      {pctPedidos.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="w-28 shrink-0 text-right text-xs text-slate-500">
+                {pedidos.toLocaleString('pt-BR')} pedidos
+              </div>
+              <div className="w-24 shrink-0 text-right text-xs text-slate-400">
+                {pctReceita.toFixed(1)}% receita
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-6 border-t border-slate-100 pt-4">
+        <div>
+          <p className="text-xs text-slate-400">Total pedidos atribuídos</p>
+          <p className="text-sm font-semibold text-slate-800">{totalPedidos.toLocaleString('pt-BR')}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-400">Total receita atribuída</p>
+          <p className="text-sm font-semibold text-slate-800">{formatCurrency(totalReceita)}</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function AuditoriaCruzamento({ cruzamento }) {
   const {
     total_iplace, total_pedidos_iplace,
@@ -354,9 +426,10 @@ export default function AuditoriaPage() {
 
     try {
       const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-      const [discrepancia, cruzamento] = await Promise.all([
+      const [discrepancia, cruzamento, atribuicaoPorDia] = await Promise.all([
         fetchJson(`/api/open-data/emarsys/audit-discrepancia?${params}`),
         fetchJson(`/api/open-data/emarsys/audit-cruzamento?${params}`),
+        fetchJson(`/api/open-data/emarsys/audit-attribution-by-day?${params}`),
       ])
 
       if (!discrepancia.ok || !cruzamento.ok) {
@@ -368,6 +441,7 @@ export default function AuditoriaPage() {
       setData({
         discrepancia: discrepancia.data?.items ?? [],
         cruzamento: cruzamento.data?.totais ?? null,
+        atribuicaoPorDia: atribuicaoPorDia.data?.items ?? [],
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
@@ -437,6 +511,10 @@ export default function AuditoriaPage() {
           {/* Cruzamento geral si_purchases × revenue_attribution */}
           {data.cruzamento && (
             <AuditoriaCruzamento cruzamento={data.cruzamento} />
+          )}
+
+          {data.atribuicaoPorDia?.length > 0 && (
+            <AttributionByDayChart items={data.atribuicaoPorDia} />
           )}
 
           {/* Detalhamento lazy dos pedidos que deveriam ter sido atribuídos */}

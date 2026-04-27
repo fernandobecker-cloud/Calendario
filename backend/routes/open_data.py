@@ -1421,6 +1421,51 @@ def emarsys_audit_cruzamento(
         raise HTTPException(status_code=502, detail=f"Falha no cruzamento de atribuição: {exc}") from exc
 
 
+def _build_attribution_by_day_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Distribuição dos pedidos atribuídos pelo Emarsys por dia (0–7) após o touchpoint."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
+
+    return f"""
+SELECT
+  DATE_DIFF(DATE(r.event_time), DATE(t.reason.event_time), DAY) AS dia,
+  COUNT(DISTINCT r.order_id) AS pedidos,
+  ROUND(SUM(t.attributed_amount), 2) AS receita
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND t.attributed_amount > 0
+  AND t.reason.event_time IS NOT NULL
+  AND DATE_DIFF(DATE(r.event_time), DATE(t.reason.event_time), DAY) BETWEEN 0 AND 7
+  AND {event_time_filter}
+  AND {partition_filter}
+GROUP BY dia
+ORDER BY dia
+""".strip()
+
+
+@router.get("/emarsys/audit-attribution-by-day")
+def emarsys_attribution_by_day(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_attribution_by_day_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = _records_to_response_items(records)
+        return {
+            "items": items,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular atribuição por dia: {exc}") from exc
+
+
 def _build_audit_deveria_atribuir_detail_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     """Detail rows for orders that should have been attributed — had CRM touch in 7-day window but weren't attributed."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
