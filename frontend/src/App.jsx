@@ -22,6 +22,7 @@ const ADM_MENU_ITEMS = [
   { key: 'automation-results', label: 'Resultados de Automacoes' },
   { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
   { key: 'receita-teste', label: 'Receita Teste' },
+  { key: 'comparativo-crm', label: 'Comparativo CRM' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
 ]
 
@@ -212,6 +213,11 @@ export default function App({ mode = 'campanhas' }) {
   const [receitaTesteError, setReceitaTesteError] = useState('')
   const [receitaTesteStart, setReceitaTesteStart] = useState(currentMonthRange.start)
   const [receitaTesteEnd, setReceitaTesteEnd] = useState(currentMonthRange.end)
+  const [comparativoCRMData, setComparativoCRMData] = useState(null)
+  const [comparativoCRMLoading, setComparativoCRMLoading] = useState(false)
+  const [comparativoCRMError, setComparativoCRMError] = useState('')
+  const [comparativoCRMStart, setComparativoCRMStart] = useState(currentMonthRange.start)
+  const [comparativoCRMEnd, setComparativoCRMEnd] = useState(currentMonthRange.end)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -686,6 +692,28 @@ export default function App({ mode = 'campanhas' }) {
   useEffect(() => {
     if (activeView === 'receita-teste') loadReceitaTeste()
   }, [activeView, loadReceitaTeste])
+
+  const loadComparativoCRM = useCallback(async () => {
+    if (!comparativoCRMStart || !comparativoCRMEnd) return
+    setComparativoCRMLoading(true)
+    setComparativoCRMError('')
+    try {
+      const params = new URLSearchParams({ start: comparativoCRMStart, end: comparativoCRMEnd })
+      const res = await fetch(`/api/open-data/comparativo-crm?${params}`)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao calcular comparativo CRM.')
+      setComparativoCRMData(payload)
+    } catch (err) {
+      setComparativoCRMError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setComparativoCRMData(null)
+    } finally {
+      setComparativoCRMLoading(false)
+    }
+  }, [comparativoCRMStart, comparativoCRMEnd])
+
+  useEffect(() => {
+    if (activeView === 'comparativo-crm') loadComparativoCRM()
+  }, [activeView, loadComparativoCRM])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1768,6 +1796,104 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderComparativoCRMView = () => (
+    <section className="space-y-5">
+      <section className="rounded-2xl bg-gradient-to-r from-indigo-700 to-blue-600 p-6 text-white shadow-soft md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Comparativo CRM</h1>
+            <p className="mt-2 text-sm text-indigo-100 md:text-base">
+              Atribuicao vs Influencia — mesma base de pedidos, duas metodologias de calculo de receita CRM.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Inicio
+              <input
+                type="date"
+                value={comparativoCRMStart}
+                onChange={(e) => setComparativoCRMStart(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Fim
+              <input
+                type="date"
+                value={comparativoCRMEnd}
+                onChange={(e) => setComparativoCRMEnd(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={loadComparativoCRM}
+              className="self-end rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold transition hover:bg-white/25"
+            >
+              Atualizar
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {comparativoCRMError && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {comparativoCRMError}
+        </section>
+      )}
+
+      {comparativoCRMLoading ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+          <p className="text-sm text-slate-500">Calculando comparativo... Isso pode levar alguns segundos.</p>
+        </section>
+      ) : comparativoCRMData && (
+        <section className="grid gap-5 md:grid-cols-2">
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6 shadow-soft">
+            <div className="mb-4">
+              <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-700">
+                Modelo 1 — Atribuicao (Emarsys)
+              </span>
+            </div>
+            <p className="text-xs text-indigo-500">Emarsys atribui uma fracao do valor do pedido ao canal CRM</p>
+            <div className="mt-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Receita CRM (Atribuida)</p>
+                <p className="mt-1 text-3xl font-bold text-indigo-900">{formatCurrency(comparativoCRMData.receita_atribuicao)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Valor Total dos Pedidos</p>
+                <p className="mt-1 text-xl font-semibold text-indigo-800">{formatCurrency(comparativoCRMData.valor_pedidos)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Pedidos Atribuidos</p>
+                <p className="mt-1 text-xl font-semibold text-indigo-800">{Number(comparativoCRMData.pedidos).toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-soft">
+            <div className="mb-4">
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Modelo 2 — Influencia (Binario)
+              </span>
+            </div>
+            <p className="text-xs text-emerald-500">100% do valor do pedido e creditado ao CRM se houver qualquer atribuicao</p>
+            <div className="mt-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita CRM (Influencia)</p>
+                <p className="mt-1 text-3xl font-bold text-emerald-900">{formatCurrency(comparativoCRMData.valor_pedidos)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Pedidos Influenciados</p>
+                <p className="mt-1 text-xl font-semibold text-emerald-800">{Number(comparativoCRMData.pedidos).toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+    </section>
+  )
+
   const renderReceitaTesteView = () => (
     <section className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-r from-violet-600 to-purple-700 p-6 text-white shadow-soft md:p-8">
@@ -1914,6 +2040,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
           {activeView === 'permissoes' && renderPermissoesView()}
           {activeView === 'receita-teste' && renderReceitaTesteView()}
+          {activeView === 'comparativo-crm' && renderComparativoCRMView()}
         </div>
       </div>
 

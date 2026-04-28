@@ -1775,3 +1775,94 @@ def receita_teste(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular receita teste: {exc}") from exc
+
+
+def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Atribuição vs Influência usando a mesma base de pedidos.
+
+    Base: order_id de revenue_attribution onde attributed_amount > 0.
+    Modelo 1 (Atribuição): SUM(attributed_amount) — crédito parcial Emarsys.
+    Modelo 2 (Influência): SUM(sales_amount) via si_purchases — 100% do pedido.
+    """
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+    elif normalized_start:
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+    else:
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+
+    return f"""
+WITH
+attributed_orders AS (
+  -- Base: todo order_id de revenue_attribution com attributed_amount > 0
+  SELECT
+    r.order_id,
+    ROUND(SUM(t.attributed_amount), 2) AS attributed_amount
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY r.order_id
+),
+sales AS (
+  SELECT
+    p.order_id,
+    ROUND(SUM(p.sales_amount), 2) AS sales_amount
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN attributed_orders ao ON ao.order_id = p.order_id
+  GROUP BY p.order_id
+)
+SELECT
+  COUNT(DISTINCT ao.order_id)               AS pedidos,
+  ROUND(SUM(ao.attributed_amount), 2)       AS receita_atribuicao,
+  ROUND(COALESCE(SUM(s.sales_amount), 0), 2) AS valor_pedidos
+FROM attributed_orders ao
+LEFT JOIN sales s USING (order_id)
+""".strip()
+
+
+@router.get("/comparativo-crm")
+def comparativo_crm(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_comparativo_crm_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        if not records:
+            return {
+                "pedidos": 0,
+                "receita_atribuicao": 0.0,
+                "valor_pedidos": 0.0,
+                "start_date": _validate_optional_iso_date(start),
+                "end_date": _validate_optional_iso_date(end),
+            }
+        row = records[0]
+        return {
+            "pedidos": int(row.get("pedidos") or 0),
+            "receita_atribuicao": float(row.get("receita_atribuicao") or 0),
+            "valor_pedidos": float(row.get("valor_pedidos") or 0),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular comparativo CRM: {exc}") from exc
