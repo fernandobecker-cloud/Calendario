@@ -1639,30 +1639,72 @@ def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None
     sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
 
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
+    # Mesmo padrão de filtros do _build_audit_cruzamento_sql
     if normalized_start and normalized_end:
-        purchases_date_filter = f"DATE(purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        touch_event_filter = f"DATE(event_time) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY) AND DATE('{normalized_end}')"
-        touch_partition_filter = f"DATE(partitiontime) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY) AND DATE('{normalized_end}')"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
-        purchases_date_filter = f"DATE(purchase_date) >= DATE('{normalized_start}')"
-        touch_event_filter = f"DATE(event_time) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
-        touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
-        purchases_date_filter = f"DATE(purchase_date) <= DATE('{normalized_end}')"
-        touch_event_filter = f"DATE(event_time) <= DATE('{normalized_end}')"
-        touch_partition_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
     else:
-        purchases_date_filter = f"DATE(purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        touch_event_filter = f"DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 8} DAY)"
+        purchase_date_filter = "p.purchase_date IS NOT NULL"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
 
     return f"""
 WITH
+orders_net AS (
+  SELECT
+    order_id,
+    DATE(MIN(purchase_date)) AS purchase_date,
+    ROUND(SUM(sales_amount), 2) AS receita_liquida
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY order_id
+),
+attribution_per_order AS (
+  SELECT
+    order_id,
+    MAX(contact_id) AS contact_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY order_id
+),
+order_contact AS (
+  SELECT
+    o.order_id,
+    o.purchase_date,
+    o.receita_liquida,
+    a.contact_id
+  FROM orders_net o
+  LEFT JOIN attribution_per_order a USING (order_id)
+  WHERE a.contact_id IS NOT NULL
+),
+order_contact_ids AS (
+  SELECT DISTINCT contact_id
+  FROM order_contact
+),
 email_campaign_names AS (
   SELECT
     CAST(id AS STRING) AS campaign_id,
@@ -1681,34 +1723,24 @@ sms_campaign_names AS (
     AND campaign_id IS NOT NULL
   GROUP BY 1
 ),
-purchases AS (
-  SELECT si_contact_id AS contact_id, order_id, DATE(purchase_date) AS purchase_date, sales_amount
-  FROM `{project_id}.{dataset}.{si_purchases_table}`
-  WHERE {purchases_date_filter}
-    AND si_contact_id IS NOT NULL
-),
 email_opens_filtered AS (
-  SELECT
-    o.contact_id,
-    DATE(o.event_time) AS event_date,
-    CAST(o.campaign_id AS STRING) AS campaign_id
-  FROM `{project_id}.{dataset}.{email_opens_table}` o
-  WHERE {touch_event_filter}
-    AND {touch_partition_filter}
+  SELECT e.contact_id, DATE(e.event_time) AS touch_date, CAST(e.campaign_id AS STRING) AS campaign_id
+  FROM `{project_id}.{dataset}.{email_opens_table}` e
+  INNER JOIN order_contact_ids oc ON oc.contact_id = e.contact_id
+  WHERE DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+    AND DATE(e.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
 ),
 sms_sends_filtered AS (
-  SELECT
-    s.contact_id,
-    DATE(s.event_time) AS event_date,
-    CAST(s.campaign_id AS STRING) AS campaign_id
+  SELECT s.contact_id, DATE(s.event_time) AS touch_date, CAST(s.campaign_id AS STRING) AS campaign_id
   FROM `{project_id}.{dataset}.{sms_sends_table}` s
-  WHERE {touch_event_filter}
-    AND {touch_partition_filter}
+  INNER JOIN order_contact_ids oc ON oc.contact_id = s.contact_id
+  WHERE DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+    AND DATE(s.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
 ),
 email_touchpoints AS (
   SELECT
-    p.order_id,
-    p.sales_amount,
+    oc.order_id,
+    oc.receita_liquida,
     en.campaign_name,
     CASE
       WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.campaign_name, '')),
@@ -1716,22 +1748,22 @@ email_touchpoints AS (
       THEN 'excluida'
       ELSE 'incluida'
     END AS categoria
-  FROM purchases p
+  FROM order_contact oc
   JOIN email_opens_filtered eo
-    ON eo.contact_id = p.contact_id
-    AND eo.event_date BETWEEN DATE_SUB(p.purchase_date, INTERVAL 7 DAY) AND p.purchase_date
+    ON eo.contact_id = oc.contact_id
+    AND eo.touch_date BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
   LEFT JOIN email_campaign_names en ON eo.campaign_id = en.campaign_id
 ),
 sms_touchpoints AS (
   SELECT
-    p.order_id,
-    p.sales_amount,
+    oc.order_id,
+    oc.receita_liquida,
     sn.campaign_name,
     'incluida' AS categoria
-  FROM purchases p
+  FROM order_contact oc
   JOIN sms_sends_filtered ss
-    ON ss.contact_id = p.contact_id
-    AND ss.event_date BETWEEN DATE_SUB(p.purchase_date, INTERVAL 7 DAY) AND p.purchase_date
+    ON ss.contact_id = oc.contact_id
+    AND ss.touch_date BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
   LEFT JOIN sms_campaign_names sn ON ss.campaign_id = sn.campaign_id
 ),
 all_touchpoints AS (
@@ -1740,12 +1772,12 @@ all_touchpoints AS (
   SELECT * FROM sms_touchpoints
 ),
 attributed_orders AS (
-  SELECT DISTINCT order_id, sales_amount
+  SELECT DISTINCT order_id, receita_liquida
   FROM all_touchpoints
   WHERE categoria = 'incluida'
 )
 SELECT
-  ROUND(COALESCE((SELECT SUM(sales_amount) FROM attributed_orders), 0), 2) AS receita_atribuida,
+  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM attributed_orders), 0), 2) AS receita_atribuida,
   (SELECT COUNT(DISTINCT order_id) FROM attributed_orders) AS pedidos_atribuidos,
   ARRAY(
     SELECT DISTINCT campaign_name
