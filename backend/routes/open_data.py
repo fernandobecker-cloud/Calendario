@@ -1685,7 +1685,11 @@ orders_net AS (
 attribution_per_order AS (
   SELECT
     order_id,
-    MAX(contact_id) AS contact_id
+    MAX(contact_id) AS contact_id,
+    ROUND(MAX(COALESCE(
+      (SELECT SUM(t.attributed_amount) FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0),
+      0
+    )), 2) AS emarsys_attributed_amount
   FROM `{project_id}.{dataset}.{revenue_table}` r
   WHERE {attr_event_time_filter}
     AND {attr_partition_filter}
@@ -1696,7 +1700,8 @@ order_contact AS (
     o.order_id,
     o.purchase_date,
     o.receita_liquida,
-    a.contact_id
+    a.contact_id,
+    COALESCE(a.emarsys_attributed_amount, 0) AS emarsys_attributed_amount
   FROM orders_net o
   LEFT JOIN attribution_per_order a USING (order_id)
   WHERE a.contact_id IS NOT NULL
@@ -1741,6 +1746,7 @@ email_touchpoints AS (
   SELECT
     oc.order_id,
     oc.receita_liquida,
+    oc.emarsys_attributed_amount,
     en.campaign_name,
     CASE
       WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.campaign_name, '')),
@@ -1758,6 +1764,7 @@ sms_touchpoints AS (
   SELECT
     oc.order_id,
     oc.receita_liquida,
+    oc.emarsys_attributed_amount,
     sn.campaign_name,
     CASE
       WHEN REGEXP_CONTAINS(LOWER(COALESCE(sn.campaign_name, '')),
@@ -1777,7 +1784,7 @@ all_touchpoints AS (
   SELECT * FROM sms_touchpoints
 ),
 attributed_orders AS (
-  SELECT DISTINCT order_id, receita_liquida
+  SELECT DISTINCT order_id, receita_liquida, emarsys_attributed_amount
   FROM all_touchpoints
   WHERE categoria = 'incluida'
 ),
@@ -1788,7 +1795,8 @@ excluded_only_orders AS (
     AND t.order_id NOT IN (SELECT order_id FROM attributed_orders)
 )
 SELECT
-  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM attributed_orders), 0), 2) AS receita_atribuida,
+  ROUND(COALESCE((SELECT SUM(emarsys_attributed_amount) FROM attributed_orders), 0), 2) AS receita_atribuida,
+  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM attributed_orders), 0), 2) AS valor_dos_pedidos,
   (SELECT COUNT(DISTINCT order_id) FROM attributed_orders) AS pedidos_atribuidos,
   ROUND(COALESCE((SELECT SUM(receita_liquida) FROM excluded_only_orders), 0), 2) AS receita_desconsiderada,
   (SELECT COUNT(DISTINCT order_id) FROM excluded_only_orders) AS pedidos_desconsiderados,
@@ -1827,6 +1835,7 @@ def receita_teste(
         row = records[0]
         return {
             "receita_atribuida": float(row.get("receita_atribuida") or 0),
+            "valor_dos_pedidos": float(row.get("valor_dos_pedidos") or 0),
             "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
             "receita_desconsiderada": float(row.get("receita_desconsiderada") or 0),
             "pedidos_desconsiderados": int(row.get("pedidos_desconsiderados") or 0),
