@@ -1759,7 +1759,12 @@ sms_touchpoints AS (
     oc.order_id,
     oc.receita_liquida,
     sn.campaign_name,
-    'incluida' AS categoria
+    CASE
+      WHEN REGEXP_CONTAINS(LOWER(COALESCE(sn.campaign_name, '')),
+        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
+      THEN 'excluida'
+      ELSE 'incluida'
+    END AS categoria
   FROM order_contact oc
   JOIN sms_sends_filtered ss
     ON ss.contact_id = oc.contact_id
