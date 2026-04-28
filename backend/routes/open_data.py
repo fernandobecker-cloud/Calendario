@@ -1647,15 +1647,19 @@ def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None
     if normalized_start and normalized_end:
         attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
         attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
         attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
         attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
     return f"""
 WITH
@@ -1715,11 +1719,13 @@ si_mkt AS (
   SELECT ROUND(SUM(p.sales_amount), 2) AS total
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN marketing_orders mo ON mo.order_id = p.order_id
+  WHERE {purchase_date_filter}
 ),
 si_trans AS (
   SELECT ROUND(SUM(p.sales_amount), 2) AS total
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN transactional_only_orders tro ON tro.order_id = p.order_id
+  WHERE {purchase_date_filter}
 )
 SELECT
   ROUND(COALESCE((SELECT SUM(attributed_amount) FROM treatments_classified WHERE categoria = 'marketing'), 0), 2) AS receita_atribuida,
@@ -1796,15 +1802,19 @@ def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | No
     if normalized_start and normalized_end:
         attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
         attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
         attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
         attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
     return f"""
 WITH
@@ -1827,6 +1837,7 @@ sales AS (
     ROUND(SUM(p.sales_amount), 2) AS sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN attributed_orders ao ON ao.order_id = p.order_id
+  WHERE {purchase_date_filter}
   GROUP BY p.order_id
 )
 SELECT
