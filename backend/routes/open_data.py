@@ -1682,10 +1682,10 @@ sms_campaign_names AS (
   GROUP BY 1
 ),
 purchases AS (
-  SELECT contact_id, order_id, DATE(purchase_date) AS purchase_date, sales_amount
+  SELECT si_contact_id AS contact_id, order_id, DATE(purchase_date) AS purchase_date, sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}`
   WHERE {purchases_date_filter}
-    AND contact_id IS NOT NULL
+    AND si_contact_id IS NOT NULL
 ),
 email_opens_filtered AS (
   SELECT
