@@ -1632,11 +1632,10 @@ def emarsys_audit_deveria_atribuir(
 
 
 def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Mirrors Auditoria 'atribuida_direta' logic but splits by transactional vs marketing campaign."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
-    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
-    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
@@ -1645,171 +1644,99 @@ def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
-    # Mesmo padrão de filtros do _build_audit_cruzamento_sql
     if normalized_start and normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
-        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
-        touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
         attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
-        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
-        touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
-        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
         attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
-        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_end = f"DATE('{normalized_end}')"
     else:
-        purchase_date_filter = "p.purchase_date IS NOT NULL"
         attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_end = "CURRENT_DATE()"
 
     return f"""
 WITH
-orders_net AS (
-  SELECT
-    order_id,
-    DATE(MIN(purchase_date)) AS purchase_date,
-    ROUND(SUM(sales_amount), 2) AS receita_liquida
-  FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  WHERE {purchase_date_filter}
-  GROUP BY order_id
-),
-attribution_per_order AS (
-  SELECT
-    order_id,
-    MAX(contact_id) AS contact_id,
-    ROUND(MAX(COALESCE(
-      (SELECT SUM(t.attributed_amount) FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0),
-      0
-    )), 2) AS emarsys_attributed_amount
-  FROM `{project_id}.{dataset}.{revenue_table}` r
-  WHERE {attr_event_time_filter}
-    AND {attr_partition_filter}
-  GROUP BY order_id
-),
-order_contact AS (
-  SELECT
-    o.order_id,
-    o.purchase_date,
-    o.receita_liquida,
-    a.contact_id,
-    COALESCE(a.emarsys_attributed_amount, 0) AS emarsys_attributed_amount
-  FROM orders_net o
-  LEFT JOIN attribution_per_order a USING (order_id)
-  WHERE a.contact_id IS NOT NULL
-),
-order_contact_ids AS (
-  SELECT DISTINCT contact_id
-  FROM order_contact
-),
-email_campaign_names AS (
+email_names AS (
   SELECT
     CAST(id AS STRING) AS campaign_id,
-    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS campaign_name
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
   FROM `{project_id}.{dataset}.{email_campaigns_table}`
   WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
     AND id IS NOT NULL
   GROUP BY 1
 ),
-sms_campaign_names AS (
+sms_names AS (
   SELECT
     CAST(campaign_id AS STRING) AS campaign_id,
-    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS campaign_name
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
   FROM `{project_id}.{dataset}.{sms_campaigns_table}`
   WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL
   GROUP BY 1
 ),
-email_opens_filtered AS (
-  SELECT e.contact_id, DATE(e.event_time) AS touch_date, CAST(e.campaign_id AS STRING) AS campaign_id
-  FROM `{project_id}.{dataset}.{email_opens_table}` e
-  INNER JOIN order_contact_ids oc ON oc.contact_id = e.contact_id
-  WHERE DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
-    AND DATE(e.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
-),
-sms_sends_filtered AS (
-  SELECT s.contact_id, DATE(s.event_time) AS touch_date, CAST(s.campaign_id AS STRING) AS campaign_id
-  FROM `{project_id}.{dataset}.{sms_sends_table}` s
-  INNER JOIN order_contact_ids oc ON oc.contact_id = s.contact_id
-  WHERE DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
-    AND DATE(s.event_time) BETWEEN {touch_partition_start} AND {touch_partition_end}
-),
-email_touchpoints AS (
+treatments_classified AS (
+  -- Same base as Auditoria atribuida_direta: revenue_attribution treatments with attributed_amount > 0
+  -- Each treatment is classified as transacional or marketing by campaign name
   SELECT
-    oc.order_id,
-    oc.receita_liquida,
-    oc.emarsys_attributed_amount,
-    en.campaign_name,
+    r.order_id,
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    t.attributed_amount,
+    COALESCE(en.nome_campanha, sn.nome_campanha, CONCAT('Campanha #', CAST(t.campaign_id AS STRING))) AS campaign_name,
     CASE
-      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.campaign_name, '')),
+      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
         r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
-      THEN 'excluida'
-      ELSE 'incluida'
+      THEN 'transacional'
+      ELSE 'marketing'
     END AS categoria
-  FROM order_contact oc
-  JOIN email_opens_filtered eo
-    ON eo.contact_id = oc.contact_id
-    AND eo.touch_date BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
-  LEFT JOIN email_campaign_names en ON eo.campaign_id = en.campaign_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  LEFT JOIN email_names en ON CAST(t.campaign_id AS STRING) = en.campaign_id
+  LEFT JOIN sms_names sn ON CAST(t.campaign_id AS STRING) = sn.campaign_id
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
 ),
-sms_touchpoints AS (
-  SELECT
-    oc.order_id,
-    oc.receita_liquida,
-    oc.emarsys_attributed_amount,
-    sn.campaign_name,
-    CASE
-      WHEN REGEXP_CONTAINS(LOWER(COALESCE(sn.campaign_name, '')),
-        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
-      THEN 'excluida'
-      ELSE 'incluida'
-    END AS categoria
-  FROM order_contact oc
-  JOIN sms_sends_filtered ss
-    ON ss.contact_id = oc.contact_id
-    AND ss.touch_date BETWEEN DATE_SUB(oc.purchase_date, INTERVAL 7 DAY) AND oc.purchase_date
-  LEFT JOIN sms_campaign_names sn ON ss.campaign_id = sn.campaign_id
+marketing_orders AS (
+  SELECT DISTINCT order_id
+  FROM treatments_classified
+  WHERE categoria = 'marketing'
 ),
-all_touchpoints AS (
-  SELECT * FROM email_touchpoints
-  UNION ALL
-  SELECT * FROM sms_touchpoints
+transactional_only_orders AS (
+  -- Orders with only transactional treatments (no marketing treatment at all)
+  SELECT DISTINCT order_id
+  FROM treatments_classified
+  WHERE order_id NOT IN (SELECT order_id FROM marketing_orders)
 ),
-attributed_orders AS (
-  SELECT DISTINCT order_id, receita_liquida, emarsys_attributed_amount
-  FROM all_touchpoints
-  WHERE categoria = 'incluida'
+si_mkt AS (
+  SELECT ROUND(SUM(p.sales_amount), 2) AS total
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN marketing_orders mo ON mo.order_id = p.order_id
 ),
-excluded_only_orders AS (
-  SELECT DISTINCT t.order_id, t.receita_liquida
-  FROM all_touchpoints t
-  WHERE t.categoria = 'excluida'
-    AND t.order_id NOT IN (SELECT order_id FROM attributed_orders)
+si_trans AS (
+  SELECT ROUND(SUM(p.sales_amount), 2) AS total
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN transactional_only_orders tro ON tro.order_id = p.order_id
 )
 SELECT
-  ROUND(COALESCE((SELECT SUM(emarsys_attributed_amount) FROM attributed_orders), 0), 2) AS receita_atribuida,
-  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM attributed_orders), 0), 2) AS valor_dos_pedidos,
-  (SELECT COUNT(DISTINCT order_id) FROM attributed_orders) AS pedidos_atribuidos,
-  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM excluded_only_orders), 0), 2) AS receita_desconsiderada,
-  (SELECT COUNT(DISTINCT order_id) FROM excluded_only_orders) AS pedidos_desconsiderados,
+  ROUND(COALESCE((SELECT SUM(attributed_amount) FROM treatments_classified WHERE categoria = 'marketing'), 0), 2) AS receita_atribuida,
+  ROUND(COALESCE((SELECT total FROM si_mkt), 0), 2) AS valor_dos_pedidos,
+  (SELECT COUNT(DISTINCT order_id) FROM marketing_orders) AS pedidos_atribuidos,
+  ROUND(COALESCE((SELECT total FROM si_trans), 0), 2) AS receita_desconsiderada,
+  (SELECT COUNT(DISTINCT order_id) FROM transactional_only_orders) AS pedidos_desconsiderados,
   ARRAY(
     SELECT DISTINCT campaign_name
-    FROM all_touchpoints
-    WHERE categoria = 'incluida' AND campaign_name IS NOT NULL
+    FROM treatments_classified
+    WHERE categoria = 'marketing' AND campaign_name IS NOT NULL
     ORDER BY campaign_name
   ) AS campanhas_incluidas,
   ARRAY(
     SELECT DISTINCT campaign_name
-    FROM all_touchpoints
-    WHERE categoria = 'excluida' AND campaign_name IS NOT NULL
+    FROM treatments_classified
+    WHERE categoria = 'transacional' AND campaign_name IS NOT NULL
     ORDER BY campaign_name
   ) AS campanhas_excluidas
 """.strip()
