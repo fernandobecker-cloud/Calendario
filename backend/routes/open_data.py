@@ -1629,3 +1629,171 @@ def emarsys_audit_deveria_atribuir(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha no detalhe de deveria atribuir: {exc}") from exc
+
+
+def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        purchases_date_filter = f"DATE(purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        purchases_partition_filter = f"DATE(partitiontime) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 1 DAY) AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 1 DAY)"
+        touch_event_filter = f"DATE(event_time) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY) AND DATE('{normalized_end}')"
+        touch_partition_filter = f"DATE(partitiontime) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY) AND DATE('{normalized_end}')"
+    elif normalized_start:
+        purchases_date_filter = f"DATE(purchase_date) >= DATE('{normalized_start}')"
+        purchases_partition_filter = f"DATE(partitiontime) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 1 DAY)"
+        touch_event_filter = f"DATE(event_time) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY)"
+    elif normalized_end:
+        purchases_date_filter = f"DATE(purchase_date) <= DATE('{normalized_end}')"
+        purchases_partition_filter = f"DATE(partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 1 DAY)"
+        touch_event_filter = f"DATE(event_time) <= DATE('{normalized_end}')"
+        touch_partition_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
+    else:
+        purchases_date_filter = f"DATE(purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        purchases_partition_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 1} DAY)"
+        touch_event_filter = f"DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 8} DAY)"
+
+    return f"""
+WITH
+email_campaign_names AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS campaign_name
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_campaign_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS campaign_name
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+purchases AS (
+  SELECT contact_id, order_id, DATE(purchase_date) AS purchase_date, sales_amount
+  FROM `{project_id}.{dataset}.{si_purchases_table}`
+  WHERE {purchases_date_filter}
+    AND {purchases_partition_filter}
+    AND contact_id IS NOT NULL
+),
+email_opens_filtered AS (
+  SELECT
+    o.contact_id,
+    DATE(o.event_time) AS event_date,
+    CAST(o.campaign_id AS STRING) AS campaign_id
+  FROM `{project_id}.{dataset}.{email_opens_table}` o
+  WHERE {touch_event_filter}
+    AND {touch_partition_filter}
+),
+sms_sends_filtered AS (
+  SELECT
+    s.contact_id,
+    DATE(s.event_time) AS event_date,
+    CAST(s.campaign_id AS STRING) AS campaign_id
+  FROM `{project_id}.{dataset}.{sms_sends_table}` s
+  WHERE {touch_event_filter}
+    AND {touch_partition_filter}
+),
+email_touchpoints AS (
+  SELECT
+    p.order_id,
+    p.sales_amount,
+    en.campaign_name,
+    CASE
+      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.campaign_name, '')),
+        r'^transacional_|^0_token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|pesquisanps')
+      THEN 'excluida'
+      ELSE 'incluida'
+    END AS categoria
+  FROM purchases p
+  JOIN email_opens_filtered eo
+    ON eo.contact_id = p.contact_id
+    AND eo.event_date BETWEEN DATE_SUB(p.purchase_date, INTERVAL 7 DAY) AND p.purchase_date
+  LEFT JOIN email_campaign_names en ON eo.campaign_id = en.campaign_id
+),
+sms_touchpoints AS (
+  SELECT
+    p.order_id,
+    p.sales_amount,
+    sn.campaign_name,
+    'incluida' AS categoria
+  FROM purchases p
+  JOIN sms_sends_filtered ss
+    ON ss.contact_id = p.contact_id
+    AND ss.event_date BETWEEN DATE_SUB(p.purchase_date, INTERVAL 7 DAY) AND p.purchase_date
+  LEFT JOIN sms_campaign_names sn ON ss.campaign_id = sn.campaign_id
+),
+all_touchpoints AS (
+  SELECT * FROM email_touchpoints
+  UNION ALL
+  SELECT * FROM sms_touchpoints
+),
+attributed_orders AS (
+  SELECT DISTINCT order_id, sales_amount
+  FROM all_touchpoints
+  WHERE categoria = 'incluida'
+)
+SELECT
+  ROUND(COALESCE((SELECT SUM(sales_amount) FROM attributed_orders), 0), 2) AS receita_atribuida,
+  (SELECT COUNT(DISTINCT order_id) FROM attributed_orders) AS pedidos_atribuidos,
+  ARRAY(
+    SELECT DISTINCT campaign_name
+    FROM all_touchpoints
+    WHERE categoria = 'incluida' AND campaign_name IS NOT NULL
+    ORDER BY campaign_name
+  ) AS campanhas_incluidas,
+  ARRAY(
+    SELECT DISTINCT campaign_name
+    FROM all_touchpoints
+    WHERE categoria = 'excluida' AND campaign_name IS NOT NULL
+    ORDER BY campaign_name
+  ) AS campanhas_excluidas
+""".strip()
+
+
+@router.get("/receita-teste")
+def receita_teste(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_receita_teste_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        if not records:
+            return {
+                "receita_atribuida": 0.0,
+                "pedidos_atribuidos": 0,
+                "campanhas_incluidas": [],
+                "campanhas_excluidas": [],
+                "start_date": _validate_optional_iso_date(start),
+                "end_date": _validate_optional_iso_date(end),
+            }
+        row = records[0]
+        return {
+            "receita_atribuida": float(row.get("receita_atribuida") or 0),
+            "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
+            "campanhas_incluidas": list(row.get("campanhas_incluidas") or []),
+            "campanhas_excluidas": list(row.get("campanhas_excluidas") or []),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita teste: {exc}") from exc

@@ -21,6 +21,7 @@ const ADM_MENU_ITEMS = [
   { key: 'open-data', label: 'Open Data Emarsys' },
   { key: 'automation-results', label: 'Resultados de Automacoes' },
   { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
+  { key: 'receita-teste', label: 'Receita Teste' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
 ]
 
@@ -206,6 +207,11 @@ export default function App({ mode = 'campanhas' }) {
   const [permissoesSaving, setPermissoesSaving] = useState(false)
   const [permissoesError, setPermissoesError] = useState('')
   const [permissoesSuccess, setPermissoesSuccess] = useState('')
+  const [receitaTesteData, setReceitaTesteData] = useState(null)
+  const [receitaTesteLoading, setReceitaTesteLoading] = useState(false)
+  const [receitaTesteError, setReceitaTesteError] = useState('')
+  const [receitaTesteStart, setReceitaTesteStart] = useState(currentMonthRange.start)
+  const [receitaTesteEnd, setReceitaTesteEnd] = useState(currentMonthRange.end)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -658,6 +664,28 @@ export default function App({ mode = 'campanhas' }) {
       .then((data) => setPermissoesDraft(data))
       .catch(() => setPermissoesError('Nao foi possivel carregar as permissoes.'))
   }, [activeView])
+
+  const loadReceitaTeste = useCallback(async () => {
+    if (!receitaTesteStart || !receitaTesteEnd) return
+    setReceitaTesteLoading(true)
+    setReceitaTesteError('')
+    try {
+      const params = new URLSearchParams({ start: receitaTesteStart, end: receitaTesteEnd })
+      const res = await fetch(`/api/open-data/receita-teste?${params}`)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao calcular receita teste.')
+      setReceitaTesteData(payload)
+    } catch (err) {
+      setReceitaTesteError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setReceitaTesteData(null)
+    } finally {
+      setReceitaTesteLoading(false)
+    }
+  }, [receitaTesteStart, receitaTesteEnd])
+
+  useEffect(() => {
+    if (activeView === 'receita-teste') loadReceitaTeste()
+  }, [activeView, loadReceitaTeste])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1740,6 +1768,110 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderReceitaTesteView = () => (
+    <section className="space-y-5">
+      <section className="rounded-2xl bg-gradient-to-r from-violet-600 to-purple-700 p-6 text-white shadow-soft md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Receita Teste</h1>
+            <p className="mt-2 text-sm text-violet-100 md:text-base">
+              Pedidos de contatos que abriram um e-mail de marketing ou receberam SMS nos 7 dias antes da compra.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Inicio
+              <input
+                type="date"
+                value={receitaTesteStart}
+                onChange={(e) => setReceitaTesteStart(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Fim
+              <input
+                type="date"
+                value={receitaTesteEnd}
+                onChange={(e) => setReceitaTesteEnd(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={loadReceitaTeste}
+              className="self-end rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold transition hover:bg-white/25"
+            >
+              Atualizar
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {receitaTesteError && (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {receitaTesteError}
+        </section>
+      )}
+
+      {receitaTesteLoading ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+          <p className="text-sm text-slate-500">Calculando receita atribuida... Isso pode levar alguns segundos.</p>
+        </section>
+      ) : receitaTesteData && (
+        <>
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl bg-violet-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Receita Atribuida</p>
+                <p className="mt-1 text-2xl font-bold text-violet-900">{formatCurrency(receitaTesteData.receita_atribuida)}</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Atribuidos</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{Number(receitaTesteData.pedidos_atribuidos).toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Criterio: abertura de e-mail de campanha de marketing OU recebimento de SMS nos 7 dias anteriores a compra.
+              E-mails transacionais (prefixo transacional_, 0_token-, 00000000_pedido_, fraudes, contrato-assinado),
+              de servico (0_at_) e NPS (pesquisanps) sao desconsiderados.
+            </p>
+          </section>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+              <h2 className="text-base font-semibold text-slate-900">Campanhas Consideradas</h2>
+              <p className="mt-0.5 mb-3 text-xs text-slate-500">{receitaTesteData.campanhas_incluidas.length} campanhas</p>
+              {receitaTesteData.campanhas_incluidas.length === 0 ? (
+                <p className="text-sm text-slate-400">Nenhuma campanha encontrada.</p>
+              ) : (
+                <ul className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                  {receitaTesteData.campanhas_incluidas.map((name) => (
+                    <li key={name} className="py-1.5 text-sm text-slate-700">{name}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+              <h2 className="text-base font-semibold text-slate-900">Campanhas Desconsideradas</h2>
+              <p className="mt-0.5 mb-3 text-xs text-slate-500">{receitaTesteData.campanhas_excluidas.length} campanhas</p>
+              {receitaTesteData.campanhas_excluidas.length === 0 ? (
+                <p className="text-sm text-slate-400">Nenhuma campanha excluida.</p>
+              ) : (
+                <ul className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                  {receitaTesteData.campanhas_excluidas.map((name) => (
+                    <li key={name} className="py-1.5 text-sm text-rose-700">{name}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  )
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
       <div className="grid gap-4 md:grid-cols-[260px_1fr]">
@@ -1772,6 +1904,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
           {activeView === 'permissoes' && renderPermissoesView()}
+          {activeView === 'receita-teste' && renderReceitaTesteView()}
         </div>
       </div>
 
