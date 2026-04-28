@@ -1825,6 +1825,7 @@ export default function App({ mode = 'campanhas' }) {
               <div className="rounded-xl bg-violet-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Receita Atribuida</p>
                 <p className="mt-1 text-2xl font-bold text-violet-900">{formatCurrency(receitaTesteData.receita_atribuida)}</p>
+                <p className="mt-1 text-sm text-violet-700">Valor dos pedidos: {formatCurrency(receitaTesteData.receita_atribuida)}</p>
               </div>
               <div className="rounded-xl bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Atribuidos</p>
