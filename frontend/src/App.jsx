@@ -1847,7 +1847,7 @@ export default function App({ mode = 'campanhas' }) {
           <p className="text-sm text-slate-500">Calculando comparativo... Isso pode levar alguns segundos.</p>
         </section>
       ) : comparativoCRMData && (
-        <section className="grid gap-5 md:grid-cols-2">
+        <section className="grid gap-5 md:grid-cols-3">
           <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6 shadow-soft">
             <div className="mb-4">
               <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-700">
@@ -1886,6 +1886,25 @@ export default function App({ mode = 'campanhas' }) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Pedidos Influenciados</p>
                 <p className="mt-1 text-xl font-semibold text-emerald-800">{Number(comparativoCRMData.pedidos).toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 shadow-soft">
+            <div className="mb-4">
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-rose-700">
+                Somente Transacional
+              </span>
+            </div>
+            <p className="text-xs text-rose-400">Pedidos atribuidos exclusivamente a campanhas transacionais (sem nenhuma campanha de marketing)</p>
+            <div className="mt-5 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600">Receita Transacional</p>
+                <p className="mt-1 text-3xl font-bold text-rose-900">{formatCurrency(comparativoCRMData.receita_transacional)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600">Pedidos Transacionais</p>
+                <p className="mt-1 text-xl font-semibold text-rose-800">{Number(comparativoCRMData.pedidos_transacional).toLocaleString('pt-BR')}</p>
               </div>
             </div>
           </div>

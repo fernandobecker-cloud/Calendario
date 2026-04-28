@@ -1792,6 +1792,8 @@ def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | No
     """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
@@ -1818,34 +1820,78 @@ def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | No
 
     return f"""
 WITH
-attributed_orders AS (
-  -- Base: todo order_id de revenue_attribution com attributed_amount > 0
+email_names AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+treatments_classified AS (
+  -- Base: todo treatment com attributed_amount > 0, classificado por tipo de campanha
   SELECT
     r.order_id,
-    ROUND(SUM(t.attributed_amount), 2) AS attributed_amount
+    t.attributed_amount,
+    CASE
+      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
+        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
+      THEN 'transacional'
+      ELSE 'marketing'
+    END AS categoria
   FROM `{project_id}.{dataset}.{revenue_table}` r
   CROSS JOIN UNNEST(r.treatments) AS t
+  LEFT JOIN email_names en ON CAST(t.campaign_id AS STRING) = en.campaign_id
+  LEFT JOIN sms_names sn ON CAST(t.campaign_id AS STRING) = sn.campaign_id
   WHERE ARRAY_LENGTH(r.treatments) > 0
     AND t.attributed_amount > 0
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
-  GROUP BY r.order_id
 ),
-sales AS (
-  SELECT
-    p.order_id,
-    ROUND(SUM(p.sales_amount), 2) AS sales_amount
+attributed_orders AS (
+  SELECT order_id, ROUND(SUM(attributed_amount), 2) AS attributed_amount
+  FROM treatments_classified
+  GROUP BY order_id
+),
+marketing_orders AS (
+  SELECT DISTINCT order_id FROM treatments_classified WHERE categoria = 'marketing'
+),
+transactional_only_orders AS (
+  -- Pedidos sem nenhuma campanha de marketing (somente transacionais)
+  SELECT DISTINCT order_id FROM treatments_classified
+  WHERE order_id NOT IN (SELECT order_id FROM marketing_orders)
+),
+sales_all AS (
+  SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN attributed_orders ao ON ao.order_id = p.order_id
   WHERE {purchase_date_filter}
   GROUP BY p.order_id
+),
+sales_trans AS (
+  SELECT ROUND(SUM(p.sales_amount), 2) AS total
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN transactional_only_orders tro ON tro.order_id = p.order_id
+  WHERE {purchase_date_filter}
 )
 SELECT
-  COUNT(DISTINCT ao.order_id)               AS pedidos,
-  ROUND(SUM(ao.attributed_amount), 2)       AS receita_atribuicao,
-  ROUND(COALESCE(SUM(s.sales_amount), 0), 2) AS valor_pedidos
+  COUNT(DISTINCT ao.order_id)                                                         AS pedidos,
+  ROUND(SUM(ao.attributed_amount), 2)                                                 AS receita_atribuicao,
+  ROUND(COALESCE(SUM(sa.sales_amount), 0), 2)                                         AS valor_pedidos,
+  (SELECT COUNT(DISTINCT order_id) FROM transactional_only_orders)                    AS pedidos_transacional,
+  ROUND(COALESCE((SELECT total FROM sales_trans), 0), 2)                              AS receita_transacional
 FROM attributed_orders ao
-LEFT JOIN sales s USING (order_id)
+LEFT JOIN sales_all sa USING (order_id)
 """.strip()
 
 
@@ -1862,6 +1908,8 @@ def comparativo_crm(
                 "pedidos": 0,
                 "receita_atribuicao": 0.0,
                 "valor_pedidos": 0.0,
+                "pedidos_transacional": 0,
+                "receita_transacional": 0.0,
                 "start_date": _validate_optional_iso_date(start),
                 "end_date": _validate_optional_iso_date(end),
             }
@@ -1870,6 +1918,8 @@ def comparativo_crm(
             "pedidos": int(row.get("pedidos") or 0),
             "receita_atribuicao": float(row.get("receita_atribuicao") or 0),
             "valor_pedidos": float(row.get("valor_pedidos") or 0),
+            "pedidos_transacional": int(row.get("pedidos_transacional") or 0),
+            "receita_transacional": float(row.get("receita_transacional") or 0),
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
         }
