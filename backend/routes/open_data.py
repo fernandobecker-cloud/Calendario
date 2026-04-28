@@ -1780,10 +1780,18 @@ attributed_orders AS (
   SELECT DISTINCT order_id, receita_liquida
   FROM all_touchpoints
   WHERE categoria = 'incluida'
+),
+excluded_only_orders AS (
+  SELECT DISTINCT t.order_id, t.receita_liquida
+  FROM all_touchpoints t
+  WHERE t.categoria = 'excluida'
+    AND t.order_id NOT IN (SELECT order_id FROM attributed_orders)
 )
 SELECT
   ROUND(COALESCE((SELECT SUM(receita_liquida) FROM attributed_orders), 0), 2) AS receita_atribuida,
   (SELECT COUNT(DISTINCT order_id) FROM attributed_orders) AS pedidos_atribuidos,
+  ROUND(COALESCE((SELECT SUM(receita_liquida) FROM excluded_only_orders), 0), 2) AS receita_desconsiderada,
+  (SELECT COUNT(DISTINCT order_id) FROM excluded_only_orders) AS pedidos_desconsiderados,
   ARRAY(
     SELECT DISTINCT campaign_name
     FROM all_touchpoints
@@ -1820,6 +1828,8 @@ def receita_teste(
         return {
             "receita_atribuida": float(row.get("receita_atribuida") or 0),
             "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
+            "receita_desconsiderada": float(row.get("receita_desconsiderada") or 0),
+            "pedidos_desconsiderados": int(row.get("pedidos_desconsiderados") or 0),
             "campanhas_incluidas": list(row.get("campanhas_incluidas") or []),
             "campanhas_excluidas": list(row.get("campanhas_excluidas") or []),
             "start_date": _validate_optional_iso_date(start),

@@ -1830,6 +1830,14 @@ export default function App({ mode = 'campanhas' }) {
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Atribuidos</p>
                 <p className="mt-1 text-2xl font-bold text-slate-900">{Number(receitaTesteData.pedidos_atribuidos).toLocaleString('pt-BR')}</p>
               </div>
+              <div className="rounded-xl bg-rose-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600">Receita Desconsiderada</p>
+                <p className="mt-1 text-2xl font-bold text-rose-900">{formatCurrency(receitaTesteData.receita_desconsiderada)}</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Desconsiderados</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{Number(receitaTesteData.pedidos_desconsiderados).toLocaleString('pt-BR')}</p>
+              </div>
             </div>
             <p className="mt-3 text-xs text-slate-500">
               Criterio: abertura de e-mail de marketing OU recebimento de SMS nos 7 dias anteriores a compra.
