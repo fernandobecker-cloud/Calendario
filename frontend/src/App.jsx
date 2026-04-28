@@ -1832,9 +1832,9 @@ export default function App({ mode = 'campanhas' }) {
               </div>
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Criterio: abertura de e-mail de campanha de marketing OU recebimento de SMS nos 7 dias anteriores a compra.
-              E-mails transacionais (prefixo transacional_, 0_token-, 00000000_pedido_, fraudes, contrato-assinado),
-              de servico (0_at_) e NPS (pesquisanps) sao desconsiderados.
+              Criterio: abertura de e-mail de marketing OU recebimento de SMS nos 7 dias anteriores a compra.
+              Excluidos: transacional_, 0_token-, token-, 00000000_pedido_, fraudes, contrato-assinado,
+              0_at_, 0_cartaopresente, 0_lrautomatica, 0_produto_transito, pesquisanps.
             </p>
           </section>
 

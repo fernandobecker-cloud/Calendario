@@ -1744,7 +1744,7 @@ email_touchpoints AS (
     en.campaign_name,
     CASE
       WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.campaign_name, '')),
-        r'^transacional_|^0_token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|pesquisanps')
+        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
       THEN 'excluida'
       ELSE 'incluida'
     END AS categoria
