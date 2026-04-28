@@ -1646,22 +1646,18 @@ def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None
 
     if normalized_start and normalized_end:
         purchases_date_filter = f"DATE(purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        purchases_partition_filter = f"DATE(partitiontime) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 1 DAY) AND DATE_ADD(DATE('{normalized_end}'), INTERVAL 1 DAY)"
         touch_event_filter = f"DATE(event_time) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY) AND DATE('{normalized_end}')"
         touch_partition_filter = f"DATE(partitiontime) BETWEEN DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY) AND DATE('{normalized_end}')"
     elif normalized_start:
         purchases_date_filter = f"DATE(purchase_date) >= DATE('{normalized_start}')"
-        purchases_partition_filter = f"DATE(partitiontime) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 1 DAY)"
         touch_event_filter = f"DATE(event_time) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(DATE('{normalized_start}'), INTERVAL 8 DAY)"
     elif normalized_end:
         purchases_date_filter = f"DATE(purchase_date) <= DATE('{normalized_end}')"
-        purchases_partition_filter = f"DATE(partitiontime) <= DATE_ADD(DATE('{normalized_end}'), INTERVAL 1 DAY)"
         touch_event_filter = f"DATE(event_time) <= DATE('{normalized_end}')"
         touch_partition_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
     else:
         purchases_date_filter = f"DATE(purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        purchases_partition_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 1} DAY)"
         touch_event_filter = f"DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         touch_partition_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 8} DAY)"
 
@@ -1689,7 +1685,6 @@ purchases AS (
   SELECT contact_id, order_id, DATE(purchase_date) AS purchase_date, sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}`
   WHERE {purchases_date_filter}
-    AND {purchases_partition_filter}
     AND contact_id IS NOT NULL
 ),
 email_opens_filtered AS (
