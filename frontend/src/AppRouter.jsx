@@ -93,7 +93,7 @@ export default function AppRouter() {
     setViewerTabs(null)
     setSessionMessage(
       reason === 'inactivity'
-        ? 'Sessao encerrada por inatividade. Atualize a pagina e faca login novamente.'
+        ? 'Sessao encerrada por inatividade. Para continuar, atualize a pagina (F5) e faca login novamente.'
         : null
     )
     setAuthState('unauthenticated')
