@@ -158,8 +158,9 @@ def _build_table_preview_sql(
         raise ValueError("Nao foi possivel identificar colunas da tabela")
 
     selected_columns = ",\n  ".join(f"`{column_name}`" for column_name in column_names)
+    raw_column_names = {str(item.get("column_name") or "").lower() for item in table_columns if item.get("column_name")}
     partitiontime_filter = ""
-    if "partitiontime" in {column.lower() for column in column_names}:
+    if "partitiontime" in raw_column_names:
         partitiontime_filter = f"\nWHERE {_build_partitiontime_filter(start_date, end_date)}"
 
     return f"""
