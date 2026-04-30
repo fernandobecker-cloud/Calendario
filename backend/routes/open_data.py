@@ -1934,11 +1934,13 @@ def _sanitize_campanha_nome(value: str) -> str:
     return value.replace("'", "''").replace("\\", "\\\\").strip()[:200]
 
 
-def _build_campanha_detalhe_sql(
-    nome: str,
-    start_date: str | None = None,
-    end_date: str | None = None,
-) -> str:
+def _build_campanha_detalhe_sql(nome: str) -> str:
+    """Apura métricas de campanha pela janela de lookback global.
+
+    O período de envios/aberturas cobre os últimos {lookback} dias.
+    A receita influenciada usa compras até {lookback+7} dias atrás para
+    capturar pedidos dentro dos 7 dias após o último disparo do período.
+    """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
@@ -1951,29 +1953,13 @@ def _build_campanha_detalhe_sql(
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     safe_nome = _sanitize_campanha_nome(nome)
 
-    normalized_start = _validate_optional_iso_date(start_date)
-    normalized_end = _validate_optional_iso_date(end_date)
-
-    if normalized_start and normalized_end:
-        period_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
-        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-    elif normalized_start:
-        period_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
-        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-    elif normalized_end:
-        period_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
-        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
-        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-    else:
-        period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+    # Envios e aberturas: janela de lookback
+    period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+    # Atribuição: event_time no período + partitiontime +7 dias para cobrir pedidos até 7 dias após o último envio
+    attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+    attr_partition_filter  = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+    # si_purchases: mesma janela +7 para capturar compras após o último envio do período
+    purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
 
     return f"""
 WITH
@@ -2091,11 +2077,9 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
 @router.get("/campanha-detalhe")
 def campanha_detalhe(
     nome: str = Query(..., min_length=2, max_length=200),
-    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        sql = _build_campanha_detalhe_sql(nome, start, end)
+        sql = _build_campanha_detalhe_sql(nome)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = []
         for row in records:
@@ -2114,8 +2098,7 @@ def campanha_detalhe(
             "items": items,
             "total": len(items),
             "nome": nome,
-            "start_date": _validate_optional_iso_date(start),
-            "end_date": _validate_optional_iso_date(end),
+            "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
         }
     except HTTPException:
         raise
