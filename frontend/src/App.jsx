@@ -1913,6 +1913,7 @@ export default function App({ mode = 'campanhas' }) {
                     <th className="px-4 py-3 text-right">Taxa Abertura</th>
                     <th className="px-4 py-3 text-right">Pedidos</th>
                     <th className="px-4 py-3 text-right">Receita Atribuida</th>
+                    <th className="px-4 py-3 text-right">Receita Influenciada</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1937,6 +1938,7 @@ export default function App({ mode = 'campanhas' }) {
                       </td>
                       <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -1946,6 +1946,7 @@ def _build_campanha_detalhe_sql(
     email_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     safe_nome = _sanitize_campanha_nome(nome)
@@ -1957,18 +1958,22 @@ def _build_campanha_detalhe_sql(
         period_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
         period_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
         attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
         period_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
         attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
         period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
         attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
     return f"""
 WITH
@@ -2028,17 +2033,35 @@ sms_sends_agg AS (
     AND campaign_id IS NOT NULL
   GROUP BY 1
 ),
-attr_agg AS (
-  SELECT
+attr_base AS (
+  -- Um registro por (campaign_id, order_id) com o attributed_amount do treatment
+  SELECT DISTINCT
     CAST(t.campaign_id AS STRING) AS campaign_id,
-    COUNT(DISTINCT r.order_id)        AS pedidos_atribuidos,
-    ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida
+    r.order_id,
+    t.attributed_amount
   FROM `{project_id}.{dataset}.{revenue_table}` r
   CROSS JOIN UNNEST(r.treatments) AS t
   WHERE ARRAY_LENGTH(r.treatments) > 0
     AND t.attributed_amount > 0
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
+),
+si_orders AS (
+  -- Valor real do pedido (sales_amount) para os pedidos atribuidos no periodo
+  SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS sales_amount
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN (SELECT DISTINCT order_id FROM attr_base) ab USING (order_id)
+  WHERE {purchase_date_filter}
+  GROUP BY p.order_id
+),
+attr_agg AS (
+  SELECT
+    ab.campaign_id,
+    COUNT(DISTINCT ab.order_id)         AS pedidos_atribuidos,
+    ROUND(SUM(ab.attributed_amount), 2) AS receita_atribuida,
+    ROUND(COALESCE(SUM(so.sales_amount), 0), 2) AS receita_influenciada
+  FROM attr_base ab
+  LEFT JOIN si_orders so USING (order_id)
   GROUP BY 1
 )
 SELECT
@@ -2052,8 +2075,9 @@ SELECT
     THEN ROUND(100.0 * COALESCE(eo.aberturas, 0) / es.enviados, 2)
     ELSE NULL
   END AS taxa_abertura,
-  COALESCE(aa.pedidos_atribuidos, 0)  AS pedidos_atribuidos,
-  COALESCE(aa.receita_atribuida, 0)   AS receita_atribuida
+  COALESCE(aa.pedidos_atribuidos, 0)    AS pedidos_atribuidos,
+  COALESCE(aa.receita_atribuida, 0)     AS receita_atribuida,
+  COALESCE(aa.receita_influenciada, 0)  AS receita_influenciada
 FROM all_camp ac
 LEFT JOIN email_sends_agg es ON ac.canal = 'email' AND ac.campaign_id = es.campaign_id
 LEFT JOIN email_opens_agg eo ON ac.canal = 'email' AND ac.campaign_id = eo.campaign_id
@@ -2084,6 +2108,7 @@ def campanha_detalhe(
                 "taxa_abertura": float(row.get("taxa_abertura") or 0) if row.get("taxa_abertura") is not None else None,
                 "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
                 "receita_atribuida": float(row.get("receita_atribuida") or 0),
+                "receita_influenciada": float(row.get("receita_influenciada") or 0),
             })
         return {
             "items": items,
