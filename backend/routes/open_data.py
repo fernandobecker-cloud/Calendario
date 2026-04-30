@@ -2032,22 +2032,48 @@ attr_base AS (
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
 ),
-si_orders AS (
-  -- Valor real do pedido (sales_amount) para os pedidos atribuidos no periodo
-  SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS sales_amount
-  FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  INNER JOIN (SELECT DISTINCT order_id FROM attr_base) ab USING (order_id)
-  WHERE {purchase_date_filter}
-  GROUP BY p.order_id
-),
 attr_agg AS (
   SELECT
-    ab.campaign_id,
-    COUNT(DISTINCT ab.order_id)         AS pedidos_atribuidos,
-    ROUND(SUM(ab.attributed_amount), 2) AS receita_atribuida,
-    ROUND(COALESCE(SUM(so.sales_amount), 0), 2) AS receita_influenciada
-  FROM attr_base ab
-  LEFT JOIN si_orders so USING (order_id)
+    campaign_id,
+    COUNT(DISTINCT order_id)         AS pedidos_atribuidos,
+    ROUND(SUM(attributed_amount), 2) AS receita_atribuida
+  FROM attr_base
+  GROUP BY 1
+),
+sends_for_campaigns AS (
+  -- Disparos de email/SMS filtrados pelas campanhas encontradas
+  SELECT DISTINCT
+    CAST(se.campaign_id AS STRING) AS campaign_id,
+    se.contact_id,
+    DATE(se.event_time) AS send_date
+  FROM `{project_id}.{dataset}.{email_sends_table}` se
+  INNER JOIN all_camp ac ON CAST(se.campaign_id AS STRING) = ac.campaign_id AND ac.canal = 'email'
+  WHERE DATE(se.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+  UNION ALL
+  SELECT DISTINCT
+    CAST(ss.campaign_id AS STRING),
+    ss.contact_id,
+    DATE(ss.event_time)
+  FROM `{project_id}.{dataset}.{sms_sends_table}` ss
+  INNER JOIN all_camp ac ON CAST(ss.campaign_id AS STRING) = ac.campaign_id AND ac.canal = 'sms'
+  WHERE DATE(ss.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+),
+post_send_orders AS (
+  -- Pedidos realizados em até 7 dias após o disparo para o mesmo contato
+  SELECT DISTINCT sfc.campaign_id, r.order_id
+  FROM sends_for_campaigns sfc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = sfc.contact_id
+    AND DATE(r.event_time) BETWEEN sfc.send_date AND DATE_ADD(sfc.send_date, INTERVAL 7 DAY)
+  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)
+),
+influencia_agg AS (
+  SELECT
+    pso.campaign_id,
+    COUNT(DISTINCT pso.order_id) AS pedidos_influenciados,
+    ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita_influenciada
+  FROM post_send_orders pso
+  LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = pso.order_id
+    AND DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)
   GROUP BY 1
 )
 SELECT
@@ -2063,12 +2089,13 @@ SELECT
   END AS taxa_abertura,
   COALESCE(aa.pedidos_atribuidos, 0)    AS pedidos_atribuidos,
   COALESCE(aa.receita_atribuida, 0)     AS receita_atribuida,
-  COALESCE(aa.receita_influenciada, 0)  AS receita_influenciada
+  COALESCE(ia.receita_influenciada, 0)  AS receita_influenciada
 FROM all_camp ac
 LEFT JOIN email_sends_agg es ON ac.canal = 'email' AND ac.campaign_id = es.campaign_id
 LEFT JOIN email_opens_agg eo ON ac.canal = 'email' AND ac.campaign_id = eo.campaign_id
 LEFT JOIN sms_sends_agg   ss ON ac.canal = 'sms'   AND ac.campaign_id = ss.campaign_id
 LEFT JOIN attr_agg        aa ON ac.campaign_id = aa.campaign_id
+LEFT JOIN influencia_agg  ia ON ac.campaign_id = ia.campaign_id
 WHERE ac.nome_campanha IS NOT NULL
 ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
 """.strip()
