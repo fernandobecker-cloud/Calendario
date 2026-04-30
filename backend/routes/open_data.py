@@ -2020,8 +2020,7 @@ sms_sends_agg AS (
   GROUP BY 1
 ),
 attr_base AS (
-  -- Um registro por (campaign_id, order_id) com o attributed_amount do treatment
-  SELECT DISTINCT
+  SELECT
     CAST(t.campaign_id AS STRING) AS campaign_id,
     r.order_id,
     t.attributed_amount
@@ -2032,21 +2031,28 @@ attr_base AS (
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
 ),
+-- Um registro por (campaign_id, order_id) — evita dupla contagem de sales_amount
+-- quando o mesmo pedido tem múltiplos treatments para a mesma campanha
+attr_camp_order AS (
+  SELECT campaign_id, order_id, SUM(attributed_amount) AS attributed_amount
+  FROM attr_base
+  GROUP BY 1, 2
+),
 si_orders AS (
   -- Valor integral do pedido (sales_amount) para os pedidos com attributed_amount > 0
   SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  INNER JOIN (SELECT DISTINCT order_id FROM attr_base) ab USING (order_id)
+  INNER JOIN (SELECT DISTINCT order_id FROM attr_camp_order) aco USING (order_id)
   WHERE {purchase_date_filter}
   GROUP BY p.order_id
 ),
 attr_agg AS (
   SELECT
-    ab.campaign_id,
-    COUNT(DISTINCT ab.order_id)                        AS pedidos_atribuidos,
-    ROUND(SUM(ab.attributed_amount), 2)                AS receita_atribuida,
+    aco.campaign_id,
+    COUNT(DISTINCT aco.order_id)                       AS pedidos_atribuidos,
+    ROUND(SUM(aco.attributed_amount), 2)               AS receita_atribuida,
     ROUND(COALESCE(SUM(so.sales_amount), 0), 2)        AS receita_influenciada
-  FROM attr_base ab
+  FROM attr_camp_order aco
   LEFT JOIN si_orders so USING (order_id)
   GROUP BY 1
 )
