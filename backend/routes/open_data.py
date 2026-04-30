@@ -1928,3 +1928,171 @@ def comparativo_crm(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular comparativo CRM: {exc}") from exc
+
+
+def _sanitize_campanha_nome(value: str) -> str:
+    return value.replace("'", "''").replace("\\", "\\\\").strip()[:200]
+
+
+def _build_campanha_detalhe_sql(
+    nome: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    email_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    safe_nome = _sanitize_campanha_nome(nome)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        period_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+    elif normalized_start:
+        period_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        period_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+    else:
+        period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+
+    return f"""
+WITH
+email_camp AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    'email' AS canal,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+    AND LOWER(name) LIKE LOWER('%{safe_nome}%')
+  GROUP BY 1, 2
+),
+sms_camp AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    'sms' AS canal,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+    AND LOWER(name) LIKE LOWER('%{safe_nome}%')
+  GROUP BY 1, 2
+),
+all_camp AS (
+  SELECT * FROM email_camp
+  UNION ALL
+  SELECT * FROM sms_camp
+),
+email_sends_agg AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT message_id) AS enviados
+  FROM `{project_id}.{dataset}.{email_sends_table}`
+  WHERE {period_filter}
+    AND campaign_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1
+),
+email_opens_agg AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT message_id) AS aberturas
+  FROM `{project_id}.{dataset}.{email_opens_table}`
+  WHERE {period_filter}
+    AND campaign_id IS NOT NULL
+    AND message_id IS NOT NULL
+  GROUP BY 1
+),
+sms_sends_agg AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT contact_id) AS enviados
+  FROM `{project_id}.{dataset}.{sms_sends_table}`
+  WHERE {period_filter}
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+attr_agg AS (
+  SELECT
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT r.order_id)        AS pedidos_atribuidos,
+    ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY 1
+)
+SELECT
+  ac.canal,
+  ac.nome_campanha,
+  ac.campaign_id,
+  CASE WHEN ac.canal = 'email' THEN COALESCE(es.enviados, 0) ELSE COALESCE(ss.enviados, 0) END AS enviados,
+  CASE WHEN ac.canal = 'email' THEN COALESCE(eo.aberturas, 0)                                  ELSE NULL END AS aberturas,
+  CASE
+    WHEN ac.canal = 'email' AND COALESCE(es.enviados, 0) > 0
+    THEN ROUND(100.0 * COALESCE(eo.aberturas, 0) / es.enviados, 2)
+    ELSE NULL
+  END AS taxa_abertura,
+  COALESCE(aa.pedidos_atribuidos, 0)  AS pedidos_atribuidos,
+  COALESCE(aa.receita_atribuida, 0)   AS receita_atribuida
+FROM all_camp ac
+LEFT JOIN email_sends_agg es ON ac.canal = 'email' AND ac.campaign_id = es.campaign_id
+LEFT JOIN email_opens_agg eo ON ac.canal = 'email' AND ac.campaign_id = eo.campaign_id
+LEFT JOIN sms_sends_agg   ss ON ac.canal = 'sms'   AND ac.campaign_id = ss.campaign_id
+LEFT JOIN attr_agg        aa ON ac.campaign_id = aa.campaign_id
+WHERE ac.nome_campanha IS NOT NULL
+ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
+""".strip()
+
+
+@router.get("/campanha-detalhe")
+def campanha_detalhe(
+    nome: str = Query(..., min_length=2, max_length=200),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_campanha_detalhe_sql(nome, start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = []
+        for row in records:
+            items.append({
+                "canal": str(row.get("canal") or ""),
+                "nome_campanha": str(row.get("nome_campanha") or ""),
+                "campaign_id": str(row.get("campaign_id") or ""),
+                "enviados": int(row.get("enviados") or 0),
+                "aberturas": int(row.get("aberturas") or 0) if row.get("aberturas") is not None else None,
+                "taxa_abertura": float(row.get("taxa_abertura") or 0) if row.get("taxa_abertura") is not None else None,
+                "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
+                "receita_atribuida": float(row.get("receita_atribuida") or 0),
+            })
+        return {
+            "items": items,
+            "total": len(items),
+            "nome": nome,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao apurar campanha: {exc}") from exc
