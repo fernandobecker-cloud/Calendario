@@ -1934,13 +1934,11 @@ def _sanitize_campanha_nome(value: str) -> str:
     return value.replace("'", "''").replace("\\", "\\\\").strip()[:200]
 
 
-def _build_campanha_detalhe_sql(nome: str) -> str:
-    """Apura métricas de campanha pela janela de lookback global.
-
-    O período de envios/aberturas cobre os últimos {lookback} dias.
-    A receita influenciada usa compras até {lookback+7} dias atrás para
-    capturar pedidos dentro dos 7 dias após o último disparo do período.
-    """
+def _build_campanha_detalhe_sql(
+    nome: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
@@ -1953,13 +1951,29 @@ def _build_campanha_detalhe_sql(nome: str) -> str:
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     safe_nome = _sanitize_campanha_nome(nome)
 
-    # Envios e aberturas: janela de lookback
-    period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-    # Atribuição: event_time no período + partitiontime +7 dias para cobrir pedidos até 7 dias após o último envio
-    attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-    attr_partition_filter  = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-    # si_purchases: mesma janela +7 para capturar compras após o último envio do período
-    purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        period_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+    elif normalized_start:
+        period_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        period_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+    else:
+        period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
     return f"""
 WITH
@@ -2020,7 +2034,7 @@ sms_sends_agg AS (
   GROUP BY 1
 ),
 attr_base AS (
-  SELECT
+  SELECT DISTINCT
     CAST(t.campaign_id AS STRING) AS campaign_id,
     r.order_id,
     t.attributed_amount
@@ -2031,28 +2045,20 @@ attr_base AS (
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
 ),
--- Um registro por (campaign_id, order_id) — evita dupla contagem de sales_amount
--- quando o mesmo pedido tem múltiplos treatments para a mesma campanha
-attr_camp_order AS (
-  SELECT campaign_id, order_id, SUM(attributed_amount) AS attributed_amount
-  FROM attr_base
-  GROUP BY 1, 2
-),
 si_orders AS (
-  -- Valor integral do pedido (sales_amount) para os pedidos com attributed_amount > 0
   SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS sales_amount
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  INNER JOIN (SELECT DISTINCT order_id FROM attr_camp_order) aco USING (order_id)
+  INNER JOIN (SELECT DISTINCT order_id FROM attr_base) ab USING (order_id)
   WHERE {purchase_date_filter}
   GROUP BY p.order_id
 ),
 attr_agg AS (
   SELECT
-    aco.campaign_id,
-    COUNT(DISTINCT aco.order_id)                       AS pedidos_atribuidos,
-    ROUND(SUM(aco.attributed_amount), 2)               AS receita_atribuida,
-    ROUND(COALESCE(SUM(so.sales_amount), 0), 2)        AS receita_influenciada
-  FROM attr_camp_order aco
+    ab.campaign_id,
+    COUNT(DISTINCT ab.order_id)         AS pedidos_atribuidos,
+    ROUND(SUM(ab.attributed_amount), 2) AS receita_atribuida,
+    ROUND(COALESCE(SUM(so.sales_amount), 0), 2) AS receita_influenciada
+  FROM attr_base ab
   LEFT JOIN si_orders so USING (order_id)
   GROUP BY 1
 )
@@ -2083,9 +2089,11 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
 @router.get("/campanha-detalhe")
 def campanha_detalhe(
     nome: str = Query(..., min_length=2, max_length=200),
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        sql = _build_campanha_detalhe_sql(nome)
+        sql = _build_campanha_detalhe_sql(nome, start, end)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = []
         for row in records:
@@ -2104,7 +2112,8 @@ def campanha_detalhe(
             "items": items,
             "total": len(items),
             "nome": nome,
-            "lookback_days": EMARSYS_OPEN_DATA_LOOKBACK_DAYS,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
         }
     except HTTPException:
         raise

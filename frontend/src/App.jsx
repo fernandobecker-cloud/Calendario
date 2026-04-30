@@ -220,6 +220,8 @@ export default function App({ mode = 'campanhas' }) {
   const [comparativoCRMStart, setComparativoCRMStart] = useState(currentMonthRange.start)
   const [comparativoCRMEnd, setComparativoCRMEnd] = useState(currentMonthRange.end)
   const [campanhaDetalheNome, setCampanhaDetalheNome] = useState('')
+  const [campanhaDetalheStart, setCampanhaDetalheStart] = useState(currentMonthRange.start)
+  const [campanhaDetalheEnd, setCampanhaDetalheEnd] = useState(currentMonthRange.end)
   const [campanhaDetalheData, setCampanhaDetalheData] = useState(null)
   const [campanhaDetalheLoading, setCampanhaDetalheLoading] = useState(false)
   const [campanhaDetalheError, setCampanhaDetalheError] = useState('')
@@ -726,6 +728,8 @@ export default function App({ mode = 'campanhas' }) {
     setCampanhaDetalheError('')
     try {
       const params = new URLSearchParams({ nome: campanhaDetalheNome.trim() })
+      if (campanhaDetalheStart) params.set('start', campanhaDetalheStart)
+      if (campanhaDetalheEnd) params.set('end', campanhaDetalheEnd)
       const res = await fetch(`/api/open-data/campanha-detalhe?${params}`)
       const payload = await res.json()
       if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar campanha.')
@@ -736,7 +740,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setCampanhaDetalheLoading(false)
     }
-  }, [campanhaDetalheNome])
+  }, [campanhaDetalheNome, campanhaDetalheStart, campanhaDetalheEnd])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1828,6 +1832,26 @@ export default function App({ mode = 'campanhas' }) {
             <p className="mt-2 text-sm text-cyan-100 md:text-base">
               Busque por nome de campanha (e-mail ou SMS) e veja envios, aberturas e receita atribuida.
             </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Inicio
+              <input
+                type="date"
+                value={campanhaDetalheStart}
+                onChange={(e) => setCampanhaDetalheStart(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Fim
+              <input
+                type="date"
+                value={campanhaDetalheEnd}
+                onChange={(e) => setCampanhaDetalheEnd(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
           </div>
         </div>
       </section>
