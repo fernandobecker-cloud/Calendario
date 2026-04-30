@@ -2086,6 +2086,267 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
 """.strip()
 
 
+def _build_sms_apuracao_sql(nome: str, dispatch_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    safe_nome = _sanitize_campanha_nome(nome)
+    d = dispatch_date  # already validated ISO date
+
+    return f"""
+WITH
+sms_camp AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+    AND LOWER(name) LIKE LOWER('%{safe_nome}%')
+  GROUP BY 1
+),
+sms_sends_camp AS (
+  SELECT DISTINCT
+    CAST(ss.campaign_id AS STRING) AS campaign_id,
+    ss.contact_id,
+    DATE(ss.event_time) AS send_date
+  FROM `{project_id}.{dataset}.{sms_sends_table}` ss
+  INNER JOIN sms_camp sc ON CAST(ss.campaign_id AS STRING) = sc.campaign_id
+  WHERE DATE(ss.event_time) = DATE('{d}')
+    AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
+                                   AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
+),
+sms_sends_agg AS (
+  SELECT campaign_id, COUNT(DISTINCT contact_id) AS enviados
+  FROM sms_sends_camp
+  GROUP BY 1
+),
+attr_base AS (
+  SELECT DISTINCT
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    r.order_id,
+    t.attributed_amount
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+    AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+),
+attr_agg AS (
+  SELECT
+    campaign_id,
+    COUNT(DISTINCT order_id)         AS pedidos_atribuidos,
+    ROUND(SUM(attributed_amount), 2) AS receita_atribuida
+  FROM attr_base
+  GROUP BY 1
+),
+post_send_orders AS (
+  SELECT DISTINCT ssc.campaign_id, r.order_id
+  FROM sms_sends_camp ssc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = ssc.contact_id
+    AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
+  WHERE DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+),
+influencia_agg AS (
+  SELECT
+    pso.campaign_id,
+    COUNT(DISTINCT pso.order_id) AS pedidos_influenciados,
+    ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita_influenciada
+  FROM post_send_orders pso
+  LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = pso.order_id
+    AND DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+  GROUP BY 1
+)
+SELECT
+  sc.nome_campanha,
+  sc.campaign_id,
+  COALESCE(ss.enviados, 0)             AS enviados,
+  COALESCE(aa.pedidos_atribuidos, 0)   AS pedidos_atribuidos,
+  COALESCE(aa.receita_atribuida, 0)    AS receita_atribuida,
+  COALESCE(ia.receita_influenciada, 0) AS receita_influenciada
+FROM sms_camp sc
+LEFT JOIN sms_sends_agg  ss ON sc.campaign_id = ss.campaign_id
+LEFT JOIN attr_agg       aa ON sc.campaign_id = aa.campaign_id
+LEFT JOIN influencia_agg ia ON sc.campaign_id = ia.campaign_id
+WHERE sc.nome_campanha IS NOT NULL
+ORDER BY aa.receita_atribuida DESC NULLS LAST, sc.nome_campanha
+""".strip()
+
+
+def _build_email_apuracao_sql(nome: str, start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    email_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    safe_nome = _sanitize_campanha_nome(nome)
+    s, e = start_date, end_date  # already validated ISO dates
+
+    return f"""
+WITH
+email_camp AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+    AND LOWER(name) LIKE LOWER('%{safe_nome}%')
+  GROUP BY 1
+),
+email_sends_agg AS (
+  SELECT CAST(campaign_id AS STRING) AS campaign_id, COUNT(DISTINCT message_id) AS enviados
+  FROM `{project_id}.{dataset}.{email_sends_table}`
+  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND campaign_id IS NOT NULL AND message_id IS NOT NULL
+  GROUP BY 1
+),
+email_opens_agg AS (
+  SELECT CAST(campaign_id AS STRING) AS campaign_id, COUNT(DISTINCT message_id) AS aberturas
+  FROM `{project_id}.{dataset}.{email_opens_table}`
+  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND campaign_id IS NOT NULL AND message_id IS NOT NULL
+  GROUP BY 1
+),
+attr_base AS (
+  SELECT DISTINCT
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    r.order_id,
+    t.attributed_amount
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+    AND DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+),
+attr_agg AS (
+  SELECT
+    campaign_id,
+    COUNT(DISTINCT order_id)         AS pedidos_atribuidos,
+    ROUND(SUM(attributed_amount), 2) AS receita_atribuida
+  FROM attr_base
+  GROUP BY 1
+),
+opens_contacts AS (
+  SELECT DISTINCT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    contact_id,
+    DATE(event_time) AS open_date
+  FROM `{project_id}.{dataset}.{email_opens_table}`
+  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND campaign_id IS NOT NULL AND contact_id IS NOT NULL
+),
+post_open_orders AS (
+  SELECT DISTINCT oc.campaign_id, r.order_id
+  FROM opens_contacts oc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = oc.contact_id
+    AND DATE(r.event_time) BETWEEN oc.open_date AND DATE_ADD(oc.open_date, INTERVAL 7 DAY)
+  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+),
+influencia_agg AS (
+  SELECT
+    poo.campaign_id,
+    COUNT(DISTINCT poo.order_id) AS pedidos_influenciados,
+    ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita_influenciada
+  FROM post_open_orders poo
+  LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = poo.order_id
+    AND DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  GROUP BY 1
+)
+SELECT
+  ec.nome_campanha,
+  ec.campaign_id,
+  COALESCE(es.enviados, 0)             AS enviados,
+  COALESCE(eo.aberturas, 0)            AS aberturas,
+  CASE
+    WHEN COALESCE(es.enviados, 0) > 0
+    THEN ROUND(100.0 * COALESCE(eo.aberturas, 0) / es.enviados, 2)
+    ELSE NULL
+  END AS taxa_abertura,
+  COALESCE(aa.pedidos_atribuidos, 0)   AS pedidos_atribuidos,
+  COALESCE(aa.receita_atribuida, 0)    AS receita_atribuida,
+  COALESCE(ia.receita_influenciada, 0) AS receita_influenciada
+FROM email_camp ec
+LEFT JOIN email_sends_agg es ON ec.campaign_id = es.campaign_id
+LEFT JOIN email_opens_agg eo ON ec.campaign_id = eo.campaign_id
+LEFT JOIN attr_agg        aa ON ec.campaign_id = aa.campaign_id
+LEFT JOIN influencia_agg  ia ON ec.campaign_id = ia.campaign_id
+WHERE ec.nome_campanha IS NOT NULL
+ORDER BY aa.receita_atribuida DESC NULLS LAST, ec.nome_campanha
+""".strip()
+
+
+@router.get("/sms-apuracao")
+def sms_apuracao(
+    nome: str = Query(..., min_length=2, max_length=200),
+    date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        dispatch_date = _validate_optional_iso_date(date)
+        if not dispatch_date:
+            raise HTTPException(status_code=422, detail="Data de disparo invalida.")
+        sql = _build_sms_apuracao_sql(nome, dispatch_date)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = [
+            {
+                "nome_campanha": str(row.get("nome_campanha") or ""),
+                "campaign_id": str(row.get("campaign_id") or ""),
+                "enviados": int(row.get("enviados") or 0),
+                "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
+                "receita_atribuida": float(row.get("receita_atribuida") or 0),
+                "receita_influenciada": float(row.get("receita_influenciada") or 0),
+            }
+            for row in records
+        ]
+        return {"items": items, "total": len(items), "nome": nome, "dispatch_date": dispatch_date}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao apurar SMS: {exc}") from exc
+
+
+@router.get("/email-apuracao")
+def email_apuracao(
+    nome: str = Query(..., min_length=2, max_length=200),
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        start_date = _validate_optional_iso_date(start)
+        end_date = _validate_optional_iso_date(end)
+        if not start_date or not end_date:
+            raise HTTPException(status_code=422, detail="Datas invalidas.")
+        sql = _build_email_apuracao_sql(nome, start_date, end_date)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = [
+            {
+                "nome_campanha": str(row.get("nome_campanha") or ""),
+                "campaign_id": str(row.get("campaign_id") or ""),
+                "enviados": int(row.get("enviados") or 0),
+                "aberturas": int(row.get("aberturas") or 0),
+                "taxa_abertura": float(row.get("taxa_abertura") or 0) if row.get("taxa_abertura") is not None else None,
+                "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
+                "receita_atribuida": float(row.get("receita_atribuida") or 0),
+                "receita_influenciada": float(row.get("receita_influenciada") or 0),
+            }
+            for row in records
+        ]
+        return {"items": items, "total": len(items), "nome": nome, "start_date": start_date, "end_date": end_date}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao apurar e-mail: {exc}") from exc
+
+
 @router.get("/campanha-detalhe")
 def campanha_detalhe(
     nome: str = Query(..., min_length=2, max_length=200),

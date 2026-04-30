@@ -219,12 +219,17 @@ export default function App({ mode = 'campanhas' }) {
   const [comparativoCRMError, setComparativoCRMError] = useState('')
   const [comparativoCRMStart, setComparativoCRMStart] = useState(currentMonthRange.start)
   const [comparativoCRMEnd, setComparativoCRMEnd] = useState(currentMonthRange.end)
-  const [campanhaDetalheNome, setCampanhaDetalheNome] = useState('')
-  const [campanhaDetalheStart, setCampanhaDetalheStart] = useState(currentMonthRange.start)
-  const [campanhaDetalheEnd, setCampanhaDetalheEnd] = useState(currentMonthRange.end)
-  const [campanhaDetalheData, setCampanhaDetalheData] = useState(null)
-  const [campanhaDetalheLoading, setCampanhaDetalheLoading] = useState(false)
-  const [campanhaDetalheError, setCampanhaDetalheError] = useState('')
+  const [smsApuracaoNome, setSmsApuracaoNome] = useState('')
+  const [smsApuracaoDate, setSmsApuracaoDate] = useState(currentMonthRange.start)
+  const [smsApuracaoData, setSmsApuracaoData] = useState(null)
+  const [smsApuracaoLoading, setSmsApuracaoLoading] = useState(false)
+  const [smsApuracaoError, setSmsApuracaoError] = useState('')
+  const [emailApuracaoNome, setEmailApuracaoNome] = useState('')
+  const [emailApuracaoStart, setEmailApuracaoStart] = useState(currentMonthRange.start)
+  const [emailApuracaoEnd, setEmailApuracaoEnd] = useState(currentMonthRange.end)
+  const [emailApuracaoData, setEmailApuracaoData] = useState(null)
+  const [emailApuracaoLoading, setEmailApuracaoLoading] = useState(false)
+  const [emailApuracaoError, setEmailApuracaoError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -722,25 +727,41 @@ export default function App({ mode = 'campanhas' }) {
     if (activeView === 'comparativo-crm') loadComparativoCRM()
   }, [activeView, loadComparativoCRM])
 
-  const loadCampanhaDetalhe = useCallback(async () => {
-    if (!campanhaDetalheNome.trim() || campanhaDetalheNome.trim().length < 2) return
-    setCampanhaDetalheLoading(true)
-    setCampanhaDetalheError('')
+  const loadSmsApuracao = useCallback(async () => {
+    if (!smsApuracaoNome.trim() || smsApuracaoNome.trim().length < 2 || !smsApuracaoDate) return
+    setSmsApuracaoLoading(true)
+    setSmsApuracaoError('')
     try {
-      const params = new URLSearchParams({ nome: campanhaDetalheNome.trim() })
-      if (campanhaDetalheStart) params.set('start', campanhaDetalheStart)
-      if (campanhaDetalheEnd) params.set('end', campanhaDetalheEnd)
-      const res = await fetch(`/api/open-data/campanha-detalhe?${params}`)
+      const params = new URLSearchParams({ nome: smsApuracaoNome.trim(), date: smsApuracaoDate })
+      const res = await fetch(`/api/open-data/sms-apuracao?${params}`)
       const payload = await res.json()
-      if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar campanha.')
-      setCampanhaDetalheData(payload)
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar SMS.')
+      setSmsApuracaoData(payload)
     } catch (err) {
-      setCampanhaDetalheError(err instanceof Error ? err.message : 'Erro inesperado.')
-      setCampanhaDetalheData(null)
+      setSmsApuracaoError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setSmsApuracaoData(null)
     } finally {
-      setCampanhaDetalheLoading(false)
+      setSmsApuracaoLoading(false)
     }
-  }, [campanhaDetalheNome, campanhaDetalheStart, campanhaDetalheEnd])
+  }, [smsApuracaoNome, smsApuracaoDate])
+
+  const loadEmailApuracao = useCallback(async () => {
+    if (!emailApuracaoNome.trim() || emailApuracaoNome.trim().length < 2 || !emailApuracaoStart || !emailApuracaoEnd) return
+    setEmailApuracaoLoading(true)
+    setEmailApuracaoError('')
+    try {
+      const params = new URLSearchParams({ nome: emailApuracaoNome.trim(), start: emailApuracaoStart, end: emailApuracaoEnd })
+      const res = await fetch(`/api/open-data/email-apuracao?${params}`)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar e-mail.')
+      setEmailApuracaoData(payload)
+    } catch (err) {
+      setEmailApuracaoError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setEmailApuracaoData(null)
+    } finally {
+      setEmailApuracaoLoading(false)
+    }
+  }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
 
   const saturationDays = useMemo(() => {
     const map = {}
@@ -1824,129 +1845,213 @@ export default function App({ mode = 'campanhas' }) {
   }
 
   const renderCampanhaDetalheView = () => (
-    <section className="space-y-5">
-      <section className="rounded-2xl bg-gradient-to-r from-cyan-700 to-teal-600 p-6 text-white shadow-soft md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Apuracao de Campanhas</h1>
-            <p className="mt-2 text-sm text-cyan-100 md:text-base">
-              Busque por nome de campanha (e-mail ou SMS) e veja envios, aberturas e receita atribuida.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-sm text-white/90">
-              Inicio
-              <input
-                type="date"
-                value={campanhaDetalheStart}
-                onChange={(e) => setCampanhaDetalheStart(e.target.value)}
-                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white/90">
-              Fim
-              <input
-                type="date"
-                value={campanhaDetalheEnd}
-                onChange={(e) => setCampanhaDetalheEnd(e.target.value)}
-                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-          </div>
-        </div>
-      </section>
+    <section className="space-y-8">
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <form
-          onSubmit={(e) => { e.preventDefault(); loadCampanhaDetalhe() }}
-          className="flex gap-3"
-        >
-          <input
-            type="text"
-            placeholder="Digite o nome ou parte do nome da campanha..."
-            value={campanhaDetalheNome}
-            onChange={(e) => setCampanhaDetalheNome(e.target.value)}
-            minLength={2}
-            className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200"
-          />
-          <button
-            type="submit"
-            disabled={campanhaDetalheLoading || campanhaDetalheNome.trim().length < 2}
-            className="rounded-xl bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:opacity-50"
-          >
-            {campanhaDetalheLoading ? 'Buscando...' : 'Buscar'}
-          </button>
-        </form>
-      </section>
-
-      {campanhaDetalheError && (
-        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {campanhaDetalheError}
-        </section>
-      )}
-
-      {campanhaDetalheLoading ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-          <p className="text-sm text-slate-500">Consultando campanhas... Isso pode levar alguns segundos.</p>
-        </section>
-      ) : campanhaDetalheData && (
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+      {/* ── Bloco SMS ── */}
+      <section className="space-y-4">
+        <section className="rounded-2xl bg-gradient-to-r from-orange-600 to-amber-500 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">
-                Resultados para &ldquo;{campanhaDetalheData.nome}&rdquo;
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500">{campanhaDetalheData.total} campanha(s) encontrada(s)</p>
+              <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao SMS</h2>
+              <p className="mt-1 text-sm text-orange-100">
+                Informe a data de disparo. A apuracao considera compras nos 7 dias seguintes ao envio.
+              </p>
+            </div>
+            <label className="flex flex-col gap-1 text-sm text-white/90">
+              Data de disparo
+              <input
+                type="date"
+                value={smsApuracaoDate}
+                onChange={(e) => setSmsApuracaoDate(e.target.value)}
+                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <form onSubmit={(e) => { e.preventDefault(); loadSmsApuracao() }} className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Nome ou parte do nome da campanha SMS..."
+              value={smsApuracaoNome}
+              onChange={(e) => setSmsApuracaoNome(e.target.value)}
+              minLength={2}
+              className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+            />
+            <button
+              type="submit"
+              disabled={smsApuracaoLoading || smsApuracaoNome.trim().length < 2 || !smsApuracaoDate}
+              className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
+            >
+              {smsApuracaoLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </form>
+        </section>
+
+        {smsApuracaoError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {smsApuracaoError}
+          </section>
+        )}
+
+        {smsApuracaoLoading ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando campanhas SMS...</p>
+          </section>
+        ) : smsApuracaoData && (
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-900">
+                Resultados para &ldquo;{smsApuracaoData.nome}&rdquo;
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {smsApuracaoData.total} campanha(s) — disparo em {smsApuracaoData.dispatch_date}
+              </p>
+            </div>
+            {smsApuracaoData.total === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhuma campanha SMS encontrada.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Campanha</th>
+                      <th className="px-4 py-3 text-right">Enviados</th>
+                      <th className="px-4 py-3 text-right">Pedidos</th>
+                      <th className="px-4 py-3 text-right">Receita Atribuida</th>
+                      <th className="px-4 py-3 text-right">Receita Influenciada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {smsApuracaoData.items.map((item) => (
+                      <tr key={item.campaign_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+      </section>
+
+      {/* ── Bloco E-mail ── */}
+      <section className="space-y-4">
+        <section className="rounded-2xl bg-gradient-to-r from-blue-700 to-cyan-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao E-mail</h2>
+              <p className="mt-1 text-sm text-blue-100">
+                Informe o periodo de envio. A receita influenciada considera compras nos 7 dias apos a abertura.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Inicio
+                <input
+                  type="date"
+                  value={emailApuracaoStart}
+                  onChange={(e) => setEmailApuracaoStart(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input
+                  type="date"
+                  value={emailApuracaoEnd}
+                  onChange={(e) => setEmailApuracaoEnd(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
             </div>
           </div>
-          {campanhaDetalheData.total === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhuma campanha encontrada com esse nome.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3">Canal</th>
-                    <th className="px-4 py-3">Campanha</th>
-                    <th className="px-4 py-3 text-right">Enviados</th>
-                    <th className="px-4 py-3 text-right">Aberturas</th>
-                    <th className="px-4 py-3 text-right">Taxa Abertura</th>
-                    <th className="px-4 py-3 text-right">Pedidos</th>
-                    <th className="px-4 py-3 text-right">Receita Atribuida</th>
-                    <th className="px-4 py-3 text-right">Receita Influenciada</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {campanhaDetalheData.items.map((item) => (
-                    <tr key={`${item.canal}-${item.campaign_id}`} className="hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          item.canal === 'email'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-orange-100 text-orange-700'
-                        }`}>
-                          {item.canal === 'email' ? 'E-mail' : 'SMS'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {item.aberturas !== null ? item.aberturas.toLocaleString('pt-BR') : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {item.taxa_abertura !== null ? `${item.taxa_abertura.toLocaleString('pt-BR')}%` : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </section>
-      )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <form onSubmit={(e) => { e.preventDefault(); loadEmailApuracao() }} className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Nome ou parte do nome da campanha de e-mail..."
+              value={emailApuracaoNome}
+              onChange={(e) => setEmailApuracaoNome(e.target.value)}
+              minLength={2}
+              className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+            />
+            <button
+              type="submit"
+              disabled={emailApuracaoLoading || emailApuracaoNome.trim().length < 2 || !emailApuracaoStart || !emailApuracaoEnd}
+              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {emailApuracaoLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </form>
+        </section>
+
+        {emailApuracaoError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {emailApuracaoError}
+          </section>
+        )}
+
+        {emailApuracaoLoading ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando campanhas de e-mail...</p>
+          </section>
+        ) : emailApuracaoData && (
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-900">
+                Resultados para &ldquo;{emailApuracaoData.nome}&rdquo;
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {emailApuracaoData.total} campanha(s) — {emailApuracaoData.start_date} a {emailApuracaoData.end_date}
+              </p>
+            </div>
+            {emailApuracaoData.total === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhuma campanha de e-mail encontrada.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Campanha</th>
+                      <th className="px-4 py-3 text-right">Enviados</th>
+                      <th className="px-4 py-3 text-right">Aberturas</th>
+                      <th className="px-4 py-3 text-right">Taxa Abertura</th>
+                      <th className="px-4 py-3 text-right">Pedidos</th>
+                      <th className="px-4 py-3 text-right">Receita Atribuida</th>
+                      <th className="px-4 py-3 text-right">Receita Influenciada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {emailApuracaoData.items.map((item) => (
+                      <tr key={item.campaign_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.aberturas.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {item.taxa_abertura !== null ? `${item.taxa_abertura.toLocaleString('pt-BR')}%` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+      </section>
+
     </section>
   )
 
