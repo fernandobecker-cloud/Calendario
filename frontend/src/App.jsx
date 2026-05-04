@@ -2538,21 +2538,33 @@ export default function App({ mode = 'campanhas' }) {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium text-slate-700">Direcionamento</span>
-                  <input
-                    type="text"
+                  <select
                     value={eventFormData.direcionamento}
                     onChange={(e) => setEventFormData(d => ({ ...d, direcionamento: e.target.value }))}
                     className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  />
+                  >
+                    <option value="">Selecione</option>
+                    <option>E-comm</option>
+                    <option>Loja</option>
+                    <option>Televendas</option>
+                    <option>E-comm+Loja</option>
+                    <option>E-comm+Televendas</option>
+                  </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium text-slate-700">Status</span>
-                  <input
-                    type="text"
+                  <select
                     value={eventFormData.status}
                     onChange={(e) => setEventFormData(d => ({ ...d, status: e.target.value }))}
                     className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  />
+                  >
+                    <option value="">Selecione</option>
+                    <option>Planejada</option>
+                    <option>Briefing Enviado</option>
+                    <option>Programada</option>
+                    <option>Finalizada</option>
+                    <option>Cancelada</option>
+                  </select>
                 </label>
               </div>
 

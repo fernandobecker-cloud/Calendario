@@ -687,10 +687,19 @@ class EventWrite(BaseModel):
     observacao: str = Field(default="")
 
 
+def _iso_to_br_date(iso: str) -> str:
+    """Converte YYYY-MM-DD para DD/MM/YYYY (formato da planilha)."""
+    try:
+        from datetime import datetime as _dt
+        return _dt.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        return iso
+
+
 def _build_sheet_row(headers: list[str], ev: EventWrite) -> list[str]:
     """Monta a lista de valores na ordem dos cabeçalhos da planilha."""
     field_map: dict[str, str] = {
-        find_column(headers, ["data"]) or "": ev.data,
+        find_column(headers, ["data"]) or "": _iso_to_br_date(ev.data),
         find_column(headers, ["campanha", "assunto", "titulo", "title"]) or "": ev.campanha,
         find_column(headers, ["canal", "channel"]) or "": ev.canal,
         find_column(headers, ["direcionamento", "direcion", "target", "segmento"]) or "": ev.direcionamento,
