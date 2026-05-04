@@ -764,10 +764,16 @@ export default function App({ mode = 'campanhas' }) {
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
 
   const saturationDays = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const limit = new Date(today)
+    limit.setDate(limit.getDate() + 30)
     const map = {}
     filteredEvents.forEach((event) => {
       const key = event.start
       if (!key) return
+      const d = new Date(key + 'T00:00:00')
+      if (d < today || d > limit) return
       map[key] = (map[key] || 0) + 1
     })
     return Object.entries(map).filter(([, count]) => count >= 3)
