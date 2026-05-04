@@ -499,7 +499,7 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
   )
 }
 
-function DiretaDetalhadaView({ startDate, refreshKey }) {
+function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
   const reportYear = startDate ? Number(startDate.split('-')[0]) : new Date().getFullYear()
   const reportMonth = startDate ? Number(startDate.split('-')[1]) : new Date().getMonth() + 1
   const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
@@ -568,7 +568,7 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
   const loadCrmAssists = useCallback(async () => {
     setCrmAssistsLoading(true)
     setCrmAssistsError('')
-    const period = getMonthDateRange(reportYear, reportMonth)
+    const period = (startDate && endDate) ? { start: startDate, end: endDate } : getMonthDateRange(reportYear, reportMonth)
     try {
       const response = await fetch(`/api/ga4/crm-assists?start=${period.start}&end=${period.end}`)
       let payload = null
@@ -585,12 +585,12 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
     } finally {
       setCrmAssistsLoading(false)
     }
-  }, [reportMonth, reportYear])
+  }, [endDate, reportMonth, reportYear, startDate])
 
   const loadCrmLtv = useCallback(async () => {
     setCrmLtvLoading(true)
     setCrmLtvError('')
-    const period = getMonthDateRange(reportYear, reportMonth)
+    const period = (startDate && endDate) ? { start: startDate, end: endDate } : getMonthDateRange(reportYear, reportMonth)
     try {
       const response = await fetch(`/api/ga4/crm-ltv?start=${period.start}&end=${period.end}`)
       let payload = null
@@ -607,12 +607,12 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
     } finally {
       setCrmLtvLoading(false)
     }
-  }, [reportMonth, reportYear])
+  }, [endDate, reportMonth, reportYear, startDate])
 
   const loadAbandonedCartCoupons = useCallback(async () => {
     setAbandonedCartCouponsLoading(true)
     setAbandonedCartCouponsError('')
-    const period = getMonthDateRange(reportYear, reportMonth)
+    const period = (startDate && endDate) ? { start: startDate, end: endDate } : getMonthDateRange(reportYear, reportMonth)
     try {
       const params = new URLSearchParams({ start: period.start, end: period.end, crm_scope: abandonedCartCrmScope })
       const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
@@ -630,12 +630,12 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
     } finally {
       setAbandonedCartCouponsLoading(false)
     }
-  }, [abandonedCartCrmScope, reportMonth, reportYear])
+  }, [abandonedCartCrmScope, endDate, reportMonth, reportYear, startDate])
 
   const loadAbandonedCartNonCrmSummary = useCallback(async () => {
     setAbandonedCartNonCrmSummaryLoading(true)
     setAbandonedCartNonCrmSummaryError('')
-    const period = getMonthDateRange(reportYear, reportMonth)
+    const period = (startDate && endDate) ? { start: startDate, end: endDate } : getMonthDateRange(reportYear, reportMonth)
     try {
       const params = new URLSearchParams({ start: period.start, end: period.end, crm_scope: 'non_crm' })
       const response = await fetch(`/api/ga4/abandoned-cart-coupons?${params.toString()}`)
@@ -653,7 +653,7 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
     } finally {
       setAbandonedCartNonCrmSummaryLoading(false)
     }
-  }, [reportMonth, reportYear])
+  }, [endDate, reportMonth, reportYear, startDate])
 
   const loadCrmResultsComparisons = useCallback(async () => {
     setCrmResultsComparisonsLoading(true)
@@ -750,7 +750,7 @@ function DiretaDetalhadaView({ startDate, refreshKey }) {
   useEffect(() => {
     if (refreshKey > 0) loadAllResults()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey])
+  }, [refreshKey, startDate, endDate])
 
   if (refreshKey === 0) {
     return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
