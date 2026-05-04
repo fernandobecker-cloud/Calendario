@@ -1007,7 +1007,17 @@ export default function App({ mode = 'campanhas' }) {
 
       {saturationDays.length > 0 && (
         <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-          Risco de saturacao de comunicacao: ha {saturationDays.length} dia(s) com 3+ campanhas.
+          {(() => {
+            const sorted = [...saturationDays].sort(([a], [b]) => a.localeCompare(b))
+            const fmt = (iso) => {
+              const [, m, d] = iso.split('-')
+              return `${d}/${m}`
+            }
+            const LIMIT = 6
+            const shown = sorted.slice(0, LIMIT).map(([date, count]) => `${fmt(date)} (${count})`).join(', ')
+            const extra = sorted.length > LIMIT ? ` e mais ${sorted.length - LIMIT} dia(s)` : ''
+            return `Risco de saturacao: 3+ campanhas em ${shown}${extra}`
+          })()}
         </section>
       )}
 
