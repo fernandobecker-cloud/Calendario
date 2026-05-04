@@ -761,7 +761,6 @@ def _build_monthly_revenue_by_channel_sql(
 
     return f"""
 SELECT
-  FORMAT_DATE('%Y-%m', DATE(r.event_time)) AS mes,
   LOWER(t.channel) AS canal,
   ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida,
   COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
@@ -773,8 +772,8 @@ WHERE ARRAY_LENGTH(r.treatments) > 0
   AND t.attributed_amount > 0
   AND {event_time_filter}
   AND {partition_filter}
-GROUP BY mes, canal
-ORDER BY mes, canal
+GROUP BY canal
+ORDER BY canal
 """.strip()
 
 
