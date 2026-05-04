@@ -21,7 +21,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.event_sources import load_google_sheet
+from backend.event_sources import (
+    append_calendar_row,
+    delete_calendar_row,
+    get_sheet_headers,
+    load_google_sheet,
+    update_calendar_row,
+)
 from backend.ga4_client import (
     get_crm_assisted_conversions,
     get_abandoned_cart_coupon_orders,
@@ -439,7 +445,8 @@ def fetch_and_parse_csv_from_dataframe(dataframe: pd.DataFrame) -> list[dict[str
 
     events: list[dict[str, Any]] = []
 
-    for row in dataframe.to_dict(orient="records"):
+    for idx, row in enumerate(dataframe.to_dict(orient="records")):
+        sheet_row = idx + 2  # row 1 = headers; data starts at row 2
         date_str = (row.get(col_data) or "").strip()
         campaign = (row.get(col_campanha) or "").strip()
         channel = (row.get(col_canal) or "").strip() if col_canal else ""
@@ -476,6 +483,7 @@ def fetch_and_parse_csv_from_dataframe(dataframe: pd.DataFrame) -> list[dict[str
                     "produto": product,
                     "observacao": observation,
                     "data_original": date_str,
+                    "_row": sheet_row,
                 },
             }
         )
@@ -669,6 +677,30 @@ def delete_user(username: str, current_admin: AuthUser = Depends(get_admin_user)
     return {"username": target_username}
 
 
+class EventWrite(BaseModel):
+    data: str = Field(..., description="Data no formato YYYY-MM-DD")
+    campanha: str = Field(default="")
+    canal: str = Field(default="")
+    direcionamento: str = Field(default="")
+    status: str = Field(default="")
+    produto: str = Field(default="")
+    observacao: str = Field(default="")
+
+
+def _build_sheet_row(headers: list[str], ev: EventWrite) -> list[str]:
+    """Monta a lista de valores na ordem dos cabeçalhos da planilha."""
+    field_map: dict[str, str] = {
+        find_column(headers, ["data"]) or "": ev.data,
+        find_column(headers, ["campanha", "assunto", "titulo", "title"]) or "": ev.campanha,
+        find_column(headers, ["canal", "channel"]) or "": ev.canal,
+        find_column(headers, ["direcionamento", "direcion", "target", "segmento"]) or "": ev.direcionamento,
+        find_column(headers, ["status", "situacao", "situação"]) or "": ev.status,
+        find_column(headers, ["produto", "product"]) or "": ev.produto,
+        find_column(headers, ["observacao", "obs", "observation"]) or "": ev.observacao,
+    }
+    return [field_map.get(h, "") for h in headers]
+
+
 @app.get("/api/events")
 def get_events() -> dict[str, Any]:
     dataframe = load_google_sheet()
@@ -677,6 +709,36 @@ def get_events() -> dict[str, Any]:
 
     events = fetch_and_parse_csv_from_dataframe(dataframe)
     return {"events": events, "total": len(events), "source": "google_sheets"}
+
+
+@app.post("/api/events")
+def create_event(ev: EventWrite) -> dict[str, Any]:
+    headers = get_sheet_headers()
+    if not headers:
+        raise HTTPException(status_code=500, detail="Nao foi possivel ler os cabecalhos da planilha")
+    row_data = _build_sheet_row(headers, ev)
+    new_row = append_calendar_row(row_data)
+    return {"ok": True, "row": new_row}
+
+
+@app.put("/api/events/{row}")
+def update_event(row: int, ev: EventWrite) -> dict[str, Any]:
+    if row < 2:
+        raise HTTPException(status_code=400, detail="Indice de linha invalido")
+    headers = get_sheet_headers()
+    if not headers:
+        raise HTTPException(status_code=500, detail="Nao foi possivel ler os cabecalhos da planilha")
+    row_data = _build_sheet_row(headers, ev)
+    update_calendar_row(row, row_data)
+    return {"ok": True, "row": row}
+
+
+@app.delete("/api/events/{row}")
+def delete_event(row: int) -> dict[str, Any]:
+    if row < 2:
+        raise HTTPException(status_code=400, detail="Indice de linha invalido")
+    delete_calendar_row(row)
+    return {"ok": True, "row": row}
 
 
 @app.get("/api/ga4/test")

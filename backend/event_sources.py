@@ -30,24 +30,37 @@ def _load_service_account_info() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="GOOGLE_SERVICE_ACCOUNT contem JSON invalido") from exc
 
 
-def load_google_sheet() -> pd.DataFrame:
-    """Carrega a primeira aba da planilha via Service Account."""
+_READ_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+_WRITE_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+def _open_worksheet(scopes: list[str]) -> gspread.Worksheet:
     if not SPREADSHEET_ID:
         raise HTTPException(status_code=500, detail="Variavel SPREADSHEET_ID nao configurada")
-
     service_account_info = _load_service_account_info()
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-
     try:
         credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(SPREADSHEET_ID)
-        worksheet = spreadsheet.get_worksheet(0)
+        worksheet = client.open_by_key(SPREADSHEET_ID).get_worksheet(0)
         if worksheet is None:
             raise HTTPException(status_code=500, detail="A planilha nao possui abas")
+        return worksheet
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao conectar ao Google Sheets") from exc
+
+
+def load_google_sheet() -> pd.DataFrame:
+    """Carrega a primeira aba da planilha via Service Account."""
+    try:
+        worksheet = _open_worksheet(_READ_SCOPES)
         values = worksheet.get_all_values()
     except HTTPException:
         raise
@@ -63,6 +76,56 @@ def load_google_sheet() -> pd.DataFrame:
     headers = values[0]
     rows = values[1:]
     return pd.DataFrame(rows, columns=headers).fillna("")
+
+
+def get_sheet_headers() -> list[str]:
+    """Retorna a linha de cabeçalho da planilha do calendário."""
+    worksheet = _open_worksheet(_WRITE_SCOPES)
+    return worksheet.row_values(1)
+
+
+def append_calendar_row(row_data: list[str]) -> int:
+    """Adiciona uma linha ao final da planilha. Retorna o índice da linha (1-based)."""
+    worksheet = _open_worksheet(_WRITE_SCOPES)
+    try:
+        result = worksheet.append_row(row_data, value_input_option="USER_ENTERED")
+        updated_range = result.get("updates", {}).get("updatedRange", "")
+        # "Sheet1!A5:G5" -> extract row number
+        part = updated_range.split("!")[1] if "!" in updated_range else ""
+        digits = "".join(c for c in part.split(":")[0] if c.isdigit())
+        return int(digits) if digits else 0
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao inserir linha: {exc}") from exc
+
+
+def update_calendar_row(row_index: int, row_data: list[str]) -> None:
+    """Atualiza uma linha existente pelo índice (1-based)."""
+    worksheet = _open_worksheet(_WRITE_SCOPES)
+    try:
+        n = len(row_data)
+        end_col = chr(ord("A") + n - 1) if n <= 26 else "Z"
+        worksheet.update(
+            f"A{row_index}:{end_col}{row_index}",
+            [row_data],
+            value_input_option="USER_ENTERED",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao atualizar linha: {exc}") from exc
+
+
+def delete_calendar_row(row_index: int) -> None:
+    """Exclui uma linha da planilha pelo índice (1-based)."""
+    worksheet = _open_worksheet(_WRITE_SCOPES)
+    try:
+        worksheet.delete_rows(row_index)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao excluir linha: {exc}") from exc
 
 
 def build_bigquery_client(project_id: str) -> bigquery.Client:

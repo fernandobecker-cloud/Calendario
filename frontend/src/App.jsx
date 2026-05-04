@@ -149,6 +149,11 @@ export default function App({ mode = 'campanhas' }) {
   const [error, setError] = useState('')
   const [selectedChannel, setSelectedChannel] = useState('all')
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const [eventFormOpen, setEventFormOpen] = useState(false)
+  const [eventFormMode, setEventFormMode] = useState('create')
+  const [eventFormData, setEventFormData] = useState(null)
+  const [eventFormLoading, setEventFormLoading] = useState(false)
+  const [eventFormError, setEventFormError] = useState('')
   const [utmForm, setUtmForm] = useState({
     baseUrl: '',
     source: 'email',
@@ -787,6 +792,64 @@ export default function App({ mode = 'campanhas' }) {
     setSelectedEvent(null)
   }, [])
 
+  const openCreateForm = useCallback(() => {
+    setEventFormData({ data: '', campanha: '', canal: '', direcionamento: '', status: '', produto: '', observacao: '' })
+    setEventFormMode('create')
+    setEventFormError('')
+    setEventFormOpen(true)
+  }, [])
+
+  const openEditForm = useCallback((event) => {
+    const p = event.extendedProps || {}
+    setEventFormData({
+      data: event.startStr || '',
+      campanha: p.titulo_original || '',
+      canal: p.canal || '',
+      direcionamento: p.direcionamento || '',
+      status: p.status || '',
+      produto: p.produto || '',
+      observacao: p.observacao || '',
+      _row: p._row,
+    })
+    setEventFormMode('edit')
+    setEventFormError('')
+    setEventFormOpen(true)
+    setSelectedEvent(null)
+  }, [])
+
+  const handleSaveEvent = useCallback(async (formData) => {
+    setEventFormLoading(true)
+    setEventFormError('')
+    try {
+      const body = { ...formData }
+      delete body._row
+      const isEdit = eventFormMode === 'edit' && formData._row
+      const url = isEdit ? `/api/events/${formData._row}` : '/api/events'
+      const method = isEdit ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao salvar campanha.')
+      setEventFormOpen(false)
+      loadEvents()
+    } catch (err) {
+      setEventFormError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setEventFormLoading(false)
+    }
+  }, [eventFormMode, loadEvents])
+
+  const handleDeleteEvent = useCallback(async (row) => {
+    if (!window.confirm('Excluir esta campanha da planilha?')) return
+    try {
+      const res = await fetch(`/api/events/${row}`, { method: 'DELETE' })
+      if (!res.ok) { const p = await res.json(); throw new Error(p?.detail || 'Erro ao excluir.') }
+      setSelectedEvent(null)
+      loadEvents()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro inesperado ao excluir.')
+    }
+  }, [loadEvents])
+
   const handleDatesSet = useCallback(() => {
     loadEvents()
   }, [loadEvents])
@@ -1001,13 +1064,22 @@ export default function App({ mode = 'campanhas' }) {
             <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">CRM Campaign Planner</h1>
             <p className="mt-2 text-sm text-blue-100 md:text-base">Calendario editorial de campanhas</p>
           </div>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold transition hover:bg-white/30"
-          >
-            Atualizar
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-blue-50"
+            >
+              + Nova Campanha
+            </button>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold transition hover:bg-white/30"
+            >
+              Atualizar
+            </button>
+          </div>
         </div>
       </section>
 
@@ -2379,6 +2451,148 @@ export default function App({ mode = 'campanhas' }) {
                 {selectedEvent.extendedProps?.observacao || 'Sem observacao'}
               </p>
             </div>
+
+            {selectedEvent.extendedProps?._row && (
+              <div className="mt-5 flex gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => openEditForm(selectedEvent)}
+                  className="flex-1 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                >
+                  Editar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteEvent(selectedEvent.extendedProps._row)}
+                  className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  Excluir
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {eventFormOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setEventFormOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">
+                {eventFormMode === 'create' ? 'Nova Campanha' : 'Editar Campanha'}
+              </h2>
+              <button type="button" onClick={() => setEventFormOpen(false)} className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100">X</button>
+            </div>
+
+            {eventFormError && (
+              <div className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{eventFormError}</div>
+            )}
+
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleSaveEvent(eventFormData) }}
+              className="space-y-4"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Data *</span>
+                  <input
+                    type="date" required
+                    value={eventFormData.data}
+                    onChange={(e) => setEventFormData(d => ({ ...d, data: e.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Canal</span>
+                  <select
+                    value={eventFormData.canal}
+                    onChange={(e) => setEventFormData(d => ({ ...d, canal: e.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  >
+                    <option value="">Selecione</option>
+                    <option value="Email">Email</option>
+                    <option value="SMS">SMS</option>
+                    <option value="WhatsApp">WhatsApp</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-medium text-slate-700">Campanha</span>
+                <input
+                  type="text"
+                  value={eventFormData.campanha}
+                  onChange={(e) => setEventFormData(d => ({ ...d, campanha: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Direcionamento</span>
+                  <input
+                    type="text"
+                    value={eventFormData.direcionamento}
+                    onChange={(e) => setEventFormData(d => ({ ...d, direcionamento: e.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Status</span>
+                  <input
+                    type="text"
+                    value={eventFormData.status}
+                    onChange={(e) => setEventFormData(d => ({ ...d, status: e.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  />
+                </label>
+              </div>
+
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-medium text-slate-700">Produto</span>
+                <input
+                  type="text"
+                  value={eventFormData.produto}
+                  onChange={(e) => setEventFormData(d => ({ ...d, produto: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-medium text-slate-700">Observacao</span>
+                <textarea
+                  rows={2}
+                  value={eventFormData.observacao}
+                  onChange={(e) => setEventFormData(d => ({ ...d, observacao: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                />
+              </label>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEventFormOpen(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={eventFormLoading || !eventFormData.data}
+                  className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {eventFormLoading ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
