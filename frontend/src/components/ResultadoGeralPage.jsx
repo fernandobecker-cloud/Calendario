@@ -783,6 +783,8 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
           const lastYear = crmResultsComparisons?.lastYearSameMonth?.totalRevenue
           const mom = prevMonth ? ((total - prevMonth) / prevMonth) * 100 : null
           const yoy = lastYear ? ((total - lastYear) / lastYear) * 100 : null
+          const momDiff = prevMonth != null ? total - prevMonth : null
+          const yoyDiff = lastYear != null ? total - lastYear : null
           return (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -795,10 +797,12 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">MoM</p>
                       <p className={`font-semibold ${variationTextColor(mom)}`}>{formatVariation(mom)}</p>
+                      {momDiff != null && <p className={`text-xs ${variationTextColor(momDiff)}`}>{momDiff >= 0 ? '+' : ''}{formatCurrency(momDiff)}</p>}
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">YoY</p>
                       <p className={`font-semibold ${variationTextColor(yoy)}`}>{formatVariation(yoy)}</p>
+                      {yoyDiff != null && <p className={`text-xs ${variationTextColor(yoyDiff)}`}>{yoyDiff >= 0 ? '+' : ''}{formatCurrency(yoyDiff)}</p>}
                     </div>
                   </div>
                 ) : null}
