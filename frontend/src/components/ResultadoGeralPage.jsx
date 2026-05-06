@@ -26,9 +26,17 @@ function getMonthDateRange(year, month) {
   }
 }
 
-function getRelativeMonth(year, month, offset) {
-  const baseDate = new Date(Number(year), Number(month) - 1 + Number(offset), 1)
-  return { year: baseDate.getFullYear(), month: baseDate.getMonth() + 1 }
+
+function shiftDateByMonths(dateStr, months) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const base = new Date(y, m - 1 + months, d)
+  return base.toISOString().slice(0, 10)
+}
+
+function shiftDateByYears(dateStr, years) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const base = new Date(y + years, m - 1, d)
+  return base.toISOString().slice(0, 10)
 }
 
 function isGa4NoDataError(detail) {
@@ -658,14 +666,20 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
   const loadCrmResultsComparisons = useCallback(async () => {
     setCrmResultsComparisonsLoading(true)
     setCrmResultsComparisonsError('')
-    const sameMonthLastYear = { year: reportYear - 1, month: reportMonth }
-    const previousMonth = getRelativeMonth(reportYear, reportMonth, -1)
+    const effectiveStart = startDate || getMonthDateRange(reportYear, reportMonth).start
+    const effectiveEnd = endDate || getMonthDateRange(reportYear, reportMonth).end
 
-    const loadComparisonSummary = async ({ year, month }) => {
-      const period = getMonthDateRange(year, month)
+    const momStart = shiftDateByMonths(effectiveStart, -1)
+    const momEnd = shiftDateByMonths(effectiveEnd, -1)
+    const yoyStart = shiftDateByYears(effectiveStart, -1)
+    const yoyEnd = shiftDateByYears(effectiveEnd, -1)
+
+    const loadComparisonSummary = async ({ start, end }) => {
+      const year = Number(start.split('-')[0])
+      const month = Number(start.split('-')[1])
       const [ga4Response, nonCrmResponse] = await Promise.all([
         fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
-        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start: period.start, end: period.end, crm_scope: 'non_crm' }).toString()}`),
+        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
       let nonCrmPayload = null
@@ -694,8 +708,8 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
 
     try {
       const [lastYearSummary, previousMonthSummary] = await Promise.all([
-        loadComparisonSummary(sameMonthLastYear),
-        loadComparisonSummary(previousMonth),
+        loadComparisonSummary({ start: yoyStart, end: yoyEnd }),
+        loadComparisonSummary({ start: momStart, end: momEnd }),
       ])
       setCrmResultsComparisons({ lastYearSameMonth: lastYearSummary, previousMonth: previousMonthSummary })
     } catch (err) {
@@ -704,7 +718,7 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     } finally {
       setCrmResultsComparisonsLoading(false)
     }
-  }, [reportMonth, reportYear])
+  }, [endDate, reportMonth, reportYear, startDate])
 
   const loadCrmFunnel = useCallback(async () => {
     setCrmFunnelLoading(true)
