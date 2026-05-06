@@ -675,10 +675,8 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     const yoyEnd = shiftDateByYears(effectiveEnd, -1)
 
     const loadComparisonSummary = async ({ start, end }) => {
-      const year = Number(start.split('-')[0])
-      const month = Number(start.split('-')[1])
       const [ga4Response, nonCrmResponse] = await Promise.all([
-        fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
+        fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
         fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
@@ -694,14 +692,14 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
         const detail = nonCrmPayload?.detail || 'Nao foi possivel carregar comparativo de carrinho abandonado nao CRM.'
         if (isGa4NoDataError(detail)) {
           return {
-            totalRevenue: Number(ga4Payload?.current_year?.purchaseRevenue || 0),
-            purchaseRevenue: Number(ga4Payload?.current_year?.purchaseRevenue || 0),
+            totalRevenue: Number(ga4Payload?.purchaseRevenue || 0),
+            purchaseRevenue: Number(ga4Payload?.purchaseRevenue || 0),
             nonCrmRevenue: 0,
           }
         }
         throw new Error(detail)
       }
-      const purchaseRevenue = Number(ga4Payload?.current_year?.purchaseRevenue || 0)
+      const purchaseRevenue = Number(ga4Payload?.purchaseRevenue || 0)
       const nonCrmRevenue = Number(nonCrmPayload?.purchaseRevenue || 0)
       return { totalRevenue: purchaseRevenue + nonCrmRevenue, purchaseRevenue, nonCrmRevenue }
     }

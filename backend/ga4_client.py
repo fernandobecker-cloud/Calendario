@@ -267,6 +267,15 @@ def get_crm_monthly_report(property_id: str, year: int, month: int) -> dict[str,
     }
 
 
+def get_crm_range_report(property_id: str, start_date: str, end_date: str) -> dict[str, Any]:
+    """Retorna métricas CRM GA4 para um intervalo de datas livre (YYYY-MM-DD)."""
+    property_resource = _resolve_property_resource(property_id)
+    client = _get_ga4_client()
+    result = _run_crm_report(client, property_resource, start_date, end_date)
+    return {"purchaseRevenue": result["purchaseRevenue"], "sessions": result["sessions"],
+            "totalUsers": result["totalUsers"], "transactions": result["transactions"]}
+
+
 def _validate_iso_date(date_text: str) -> str:
     try:
         return date.fromisoformat(date_text).isoformat()
