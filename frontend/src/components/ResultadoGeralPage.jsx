@@ -52,6 +52,35 @@ function formatMetricValue(key, value) {
   return new Intl.NumberFormat('pt-BR').format(Number(value || 0))
 }
 
+function formatDateBR(isoDate) {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return ''
+  const [y, m, d] = isoDate.split('-')
+  return `${d}/${m}/${y}`
+}
+
+function dateDiffDays(start, end) {
+  if (!start || !end) return null
+  const s = new Date(start + 'T00:00:00')
+  const e = new Date(end + 'T00:00:00')
+  const diff = Math.round((e - s) / 86400000) + 1
+  return diff > 0 ? diff : null
+}
+
+function shiftDateByDays(dateStr, days) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+const COMPARISON_LABELS = {
+  previous: 'vs período anterior',
+  yoy: 'vs mesmo período ano anterior',
+  last7: 'vs últimos 7 dias',
+  last30: 'vs últimos 30 dias',
+  custom: 'vs período personalizado',
+}
+
 function formatVariation(value) {
   if (value === null || value === undefined) return 'N/A'
   const numeric = Number(value)
@@ -514,6 +543,13 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
   const reportMonth = startDate ? Number(startDate.split('-')[1]) : new Date().getMonth() + 1
   const [abandonedCartCrmScope, setAbandonedCartCrmScope] = useState('all')
 
+  const [comparisonMode, setComparisonMode] = useState('previous')
+  const [customCompStart, setCustomCompStart] = useState('')
+  const [customCompEnd, setCustomCompEnd] = useState('')
+  const [dynamicCompData, setDynamicCompData] = useState(null)
+  const [dynamicCompLoading, setDynamicCompLoading] = useState(false)
+  const [dynamicCompError, setDynamicCompError] = useState('')
+
   const [ga4Report, setGa4Report] = useState(null)
   const [ga4Loading, setGa4Loading] = useState(false)
   const [ga4Error, setGa4Error] = useState('')
@@ -749,6 +785,63 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     }
   }, [reportMonth, reportYear])
 
+  const loadDynamicComparison = useCallback(async (start, end) => {
+    if (!start || !end) return
+    setDynamicCompLoading(true)
+    setDynamicCompError('')
+    setDynamicCompData(null)
+    try {
+      const [ga4Res, nonCrmRes] = await Promise.all([
+        fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
+        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
+      ])
+      let ga4Payload = null
+      let nonCrmPayload = null
+      try { ga4Payload = await ga4Res.json() } catch (_) { ga4Payload = null }
+      try { nonCrmPayload = await nonCrmRes.json() } catch (_) { nonCrmPayload = null }
+      const purchaseRevenue = ga4Res.ok ? Number(ga4Payload?.purchaseRevenue || 0) : 0
+      const nonCrmRevenue = nonCrmRes.ok ? Number(nonCrmPayload?.purchaseRevenue || 0) : 0
+      setDynamicCompData({ purchaseRevenue, nonCrmRevenue, totalRevenue: purchaseRevenue + nonCrmRevenue })
+    } catch (err) {
+      setDynamicCompError(err instanceof Error ? err.message : 'Falha ao carregar comparativo.')
+    } finally {
+      setDynamicCompLoading(false)
+    }
+  }, [])
+
+  const comparisonPeriod = useMemo(() => {
+    if (!startDate || !endDate) return null
+    const today = new Date().toISOString().slice(0, 10)
+    switch (comparisonMode) {
+      case 'previous': return { start: shiftDateByMonths(startDate, -1), end: shiftDateByMonths(endDate, -1) }
+      case 'yoy': return { start: shiftDateByYears(startDate, -1), end: shiftDateByYears(endDate, -1) }
+      case 'last7': return { start: shiftDateByDays(today, -7), end: today }
+      case 'last30': return { start: shiftDateByDays(today, -30), end: today }
+      case 'custom': return (customCompStart && customCompEnd) ? { start: customCompStart, end: customCompEnd } : null
+      default: return null
+    }
+  }, [comparisonMode, customCompEnd, customCompStart, endDate, startDate])
+
+  const comparisonValue = useMemo(() => {
+    if (comparisonMode === 'previous') return crmResultsComparisons?.previousMonth ?? null
+    if (comparisonMode === 'yoy') return crmResultsComparisons?.lastYearSameMonth ?? null
+    return dynamicCompData
+  }, [comparisonMode, crmResultsComparisons, dynamicCompData])
+
+  const compLoading = (comparisonMode === 'previous' || comparisonMode === 'yoy')
+    ? crmResultsComparisonsLoading
+    : dynamicCompLoading
+
+  const compError = (comparisonMode === 'previous' || comparisonMode === 'yoy')
+    ? crmResultsComparisonsError
+    : dynamicCompError
+
+  useEffect(() => {
+    if (comparisonMode !== 'last7' && comparisonMode !== 'last30') return
+    if (!comparisonPeriod?.start || !comparisonPeriod?.end) return
+    loadDynamicComparison(comparisonPeriod.start, comparisonPeriod.end)
+  }, [comparisonMode, comparisonPeriod, loadDynamicComparison])
+
   const loadAllResults = useCallback(async () => {
     await Promise.all([
       loadGa4MonthlyReport(),
@@ -791,57 +884,128 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
         <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{ga4Error}</section>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <h2 className="text-xl font-semibold text-slate-900">Receita GA4</h2>
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+        {/* Header */}
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">Receita GA4</h2>
+          {startDate && endDate && (
+            <p className="mt-0.5 text-sm text-slate-500">
+              {formatDateBR(startDate)} → {formatDateBR(endDate)}
+              {dateDiffDays(startDate, endDate) && (
+                <span className="ml-2 text-slate-400">· {dateDiffDays(startDate, endDate)} dias</span>
+              )}
+            </p>
+          )}
+        </div>
+
+        {/* Erros */}
         {abandonedCartNonCrmSummaryError && (
-          <p className="mt-4 text-sm text-rose-700">{abandonedCartNonCrmSummaryError}</p>
+          <p className="mt-3 text-sm text-rose-700">{abandonedCartNonCrmSummaryError}</p>
         )}
-        {crmResultsComparisonsError && <p className="mt-2 text-sm text-rose-700">{crmResultsComparisonsError}</p>}
+
+        {/* Valor principal */}
         {ga4Loading || abandonedCartNonCrmSummaryLoading ? (
-          <p className="mt-4 text-sm text-slate-600">Calculando resumo geral...</p>
-        ) : ga4Error ? null : (() => {
-          const total = crmResultsSummary.totalRevenue
-          const prevMonth = crmResultsComparisons?.previousMonth?.totalRevenue
-          const lastYear = crmResultsComparisons?.lastYearSameMonth?.totalRevenue
-          const mom = prevMonth ? ((total - prevMonth) / prevMonth) * 100 : null
-          const yoy = lastYear ? ((total - lastYear) / lastYear) * 100 : null
-          const momDiff = prevMonth != null ? total - prevMonth : null
-          const yoyDiff = lastYear != null ? total - lastYear : null
-          return (
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Total consolidado</h3>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{formatCurrency(total)}</p>
-                {crmResultsComparisonsLoading ? (
-                  <p className="mt-3 text-sm text-slate-600">Carregando comparativos...</p>
-                ) : crmResultsComparisons ? (
-                  <div className="mt-3 flex gap-4 text-sm">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">MoM</p>
-                      <p className={`font-semibold ${variationTextColor(mom)}`}>{formatVariation(mom)}</p>
-                      {momDiff != null && <p className={`text-xs ${variationTextColor(momDiff)}`}>{momDiff >= 0 ? '+' : ''}{formatCurrency(momDiff)}</p>}
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">YoY</p>
-                      <p className={`font-semibold ${variationTextColor(yoy)}`}>{formatVariation(yoy)}</p>
-                      {yoyDiff != null && <p className={`text-xs ${variationTextColor(yoyDiff)}`}>{yoyDiff >= 0 ? '+' : ''}{formatCurrency(yoyDiff)}</p>}
-                    </div>
-                  </div>
-                ) : null}
-              </article>
-              <div className="flex flex-col gap-4">
-                <article className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita de compras</h3>
-                  <p className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.purchaseRevenue)}</p>
-                </article>
-                <article className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carrinho abandonado nao CRM</h3>
-                  <p className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(crmResultsSummary.nonCrmRevenue)}</p>
-                </article>
-              </div>
+          <p className="mt-5 text-sm text-slate-500">Calculando receita...</p>
+        ) : ga4Error ? null : (
+          <>
+            <p className="mt-5 text-4xl font-bold tracking-tight text-slate-900">
+              {formatCurrency(crmResultsSummary.totalRevenue)}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+              <span>Compras GA4: {formatCurrency(crmResultsSummary.purchaseRevenue)}</span>
+              <span>Carrinho nao-CRM: {formatCurrency(crmResultsSummary.nonCrmRevenue)}</span>
             </div>
-          )
-        })()}
+          </>
+        )}
+
+        <hr className="my-5 border-slate-100" />
+
+        {/* Seletor de comparação */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-600">Comparar com</span>
+          <select
+            value={comparisonMode}
+            onChange={e => { setComparisonMode(e.target.value); setDynamicCompData(null) }}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          >
+            <option value="previous">Período anterior</option>
+            <option value="yoy">Mesmo período ano anterior</option>
+            <option value="last7">Últimos 7 dias</option>
+            <option value="last30">Últimos 30 dias</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+
+        {/* Datepickers do modo personalizado */}
+        {comparisonMode === 'custom' && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              type="date" value={customCompStart}
+              onChange={e => setCustomCompStart(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
+            <span className="text-slate-400">→</span>
+            <input
+              type="date" value={customCompEnd}
+              onChange={e => setCustomCompEnd(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
+            <button
+              onClick={() => loadDynamicComparison(customCompStart, customCompEnd)}
+              disabled={!customCompStart || !customCompEnd}
+              className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-slate-700 transition-colors"
+            >
+              Comparar
+            </button>
+          </div>
+        )}
+
+        {/* Painel de comparação */}
+        {comparisonPeriod && (
+          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+            {compLoading ? (
+              <p className="text-sm text-slate-500">Carregando comparativo...</p>
+            ) : compError ? (
+              <p className="text-sm text-rose-600">{compError}</p>
+            ) : comparisonValue ? (() => {
+              const base = crmResultsSummary.totalRevenue
+              const comp = comparisonValue.totalRevenue
+              const pct = comp ? ((base - comp) / comp) * 100 : null
+              const diff = base - comp
+              const isUp = diff >= 0
+              const compDays = dateDiffDays(comparisonPeriod.start, comparisonPeriod.end)
+              return (
+                <>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      {COMPARISON_LABELS[comparisonMode]}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {formatDateBR(comparisonPeriod.start)} → {formatDateBR(comparisonPeriod.end)}
+                      {compDays && <span className="ml-1.5">· {compDays} dias</span>}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-xl font-semibold text-slate-700">{formatCurrency(comp)}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <span className={`text-lg font-bold ${isUp ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {isUp ? '▲' : '▼'} {pct != null ? `${Math.abs(pct).toFixed(2)}%` : '—'}
+                    </span>
+                    <span className={`text-sm font-medium ${isUp ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {isUp ? '+' : ''}{formatCurrency(diff)}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-400">
+                    {formatDateBR(startDate)} → {formatDateBR(endDate)} · {dateDiffDays(startDate, endDate)} dias
+                    {' '}vs{' '}
+                    {formatDateBR(comparisonPeriod.start)} → {formatDateBR(comparisonPeriod.end)} · {compDays} dias
+                  </p>
+                </>
+              )
+            })() : (
+              <p className="text-sm text-slate-400">Sem dados para o período de comparação.</p>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
