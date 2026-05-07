@@ -702,19 +702,15 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     setCompError('')
     setCompData(null)
     try {
-      const year = Number(start.split('-')[0])
-      const month = Number(start.split('-')[1])
-      // Usa ga4/crm/monthly + mês completo para non-CRM — mesma fonte do card principal
-      const { start: monthStart, end: monthEnd } = getMonthDateRange(year, month)
       const [ga4Res, nonCrmRes] = await Promise.all([
-        fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
-        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start: monthStart, end: monthEnd, crm_scope: 'non_crm' }).toString()}`),
+        fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
+        fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
       let nonCrmPayload = null
       try { ga4Payload = await ga4Res.json() } catch (_) { ga4Payload = null }
       try { nonCrmPayload = await nonCrmRes.json() } catch (_) { nonCrmPayload = null }
-      const purchaseRevenue = ga4Res.ok ? Number(ga4Payload?.current_year?.purchaseRevenue || 0) : 0
+      const purchaseRevenue = ga4Res.ok ? Number(ga4Payload?.purchaseRevenue || 0) : 0
       const nonCrmRevenue = nonCrmRes.ok ? Number(nonCrmPayload?.purchaseRevenue || 0) : 0
       setCompData({ purchaseRevenue, nonCrmRevenue, totalRevenue: purchaseRevenue + nonCrmRevenue })
     } catch (err) {
