@@ -718,7 +718,22 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
       return
     }
 
-    const loadComparisonSummary = async ({ start, end }) => {
+    // YoY: busca apenas non-CRM (GA4 vem de ga4Report.last_year para garantir consistência)
+    const fetchNonCrm = async (start, end) => {
+      const res = await fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`)
+      let payload = null
+      try { payload = await res.json() } catch (_) { payload = null }
+      if (!res.ok) {
+        const raw = payload?.detail
+        const detail = typeof raw === 'string' ? raw : ''
+        if (isGa4NoDataError(detail)) return 0
+        return 0
+      }
+      return Number(payload?.purchaseRevenue || 0)
+    }
+
+    // MoM: busca GA4 CRM + non-CRM completo (mes anterior, dados historicos)
+    const fetchMomSummary = async (start, end) => {
       const [ga4Response, nonCrmResponse] = await Promise.all([
         fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
         fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
@@ -733,29 +748,18 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
         if (isGa4NoDataError(detail)) return { totalRevenue: 0, purchaseRevenue: 0, nonCrmRevenue: 0 }
         throw new Error(detail)
       }
-      if (!nonCrmResponse.ok) {
-        const raw = nonCrmPayload?.detail
-        const detail = typeof raw === 'string' ? raw : 'Nao foi possivel carregar comparativo de carrinho abandonado nao CRM.'
-        if (isGa4NoDataError(detail)) {
-          return {
-            totalRevenue: Number(ga4Payload?.purchaseRevenue || 0),
-            purchaseRevenue: Number(ga4Payload?.purchaseRevenue || 0),
-            nonCrmRevenue: 0,
-          }
-        }
-        throw new Error(detail)
-      }
       const purchaseRevenue = Number(ga4Payload?.purchaseRevenue || 0)
-      const nonCrmRevenue = Number(nonCrmPayload?.purchaseRevenue || 0)
+      const nonCrmRevenue = nonCrmResponse.ok ? Number(nonCrmPayload?.purchaseRevenue || 0) : 0
       return { totalRevenue: purchaseRevenue + nonCrmRevenue, purchaseRevenue, nonCrmRevenue }
     }
 
     try {
-      const [lastYearSummary, previousMonthSummary] = await Promise.all([
-        loadComparisonSummary({ start: yoyStart, end: yoyEnd }),
-        loadComparisonSummary({ start: momStart, end: momEnd }),
+      const [yoyNonCrm, previousMonthSummary] = await Promise.all([
+        fetchNonCrm(yoyStart, yoyEnd),
+        fetchMomSummary(momStart, momEnd),
       ])
-      setCrmResultsComparisons({ lastYearSameMonth: lastYearSummary, previousMonth: previousMonthSummary })
+      // lastYearSameMonth armazena apenas nonCrmRevenue; GA4 CRM vira de ga4Report.last_year
+      setCrmResultsComparisons({ lastYearSameMonth: { nonCrmRevenue: yoyNonCrm }, previousMonth: previousMonthSummary })
     } catch (err) {
       setCrmResultsComparisons(null)
       setCrmResultsComparisonsError(err instanceof Error ? err.message : 'Falha ao carregar comparativos do resultado geral CRM.')
@@ -824,9 +828,16 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
 
   const comparisonValue = useMemo(() => {
     if (comparisonMode === 'previous') return crmResultsComparisons?.previousMonth ?? null
-    if (comparisonMode === 'yoy') return crmResultsComparisons?.lastYearSameMonth ?? null
+    if (comparisonMode === 'yoy') {
+      // GA4 CRM vem de ga4Report.last_year (mesma fonte do valor principal)
+      // non-CRM vem de crmResultsComparisons.lastYearSameMonth.nonCrmRevenue
+      const ga4Portion = Number(ga4Report?.last_year?.purchaseRevenue || 0)
+      const nonCrmPortion = Number(crmResultsComparisons?.lastYearSameMonth?.nonCrmRevenue || 0)
+      if (!ga4Report?.last_year && !crmResultsComparisons?.lastYearSameMonth) return null
+      return { purchaseRevenue: ga4Portion, nonCrmRevenue: nonCrmPortion, totalRevenue: ga4Portion + nonCrmPortion }
+    }
     return dynamicCompData
-  }, [comparisonMode, crmResultsComparisons, dynamicCompData])
+  }, [comparisonMode, crmResultsComparisons, dynamicCompData, ga4Report])
 
   const compLoading = (comparisonMode === 'previous' || comparisonMode === 'yoy')
     ? crmResultsComparisonsLoading
