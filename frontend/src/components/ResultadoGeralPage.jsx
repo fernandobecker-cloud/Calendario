@@ -66,18 +66,9 @@ function dateDiffDays(start, end) {
   return diff > 0 ? diff : null
 }
 
-function shiftDateByDays(dateStr, days) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
-  const d = new Date(dateStr + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
 const COMPARISON_LABELS = {
   previous: 'vs período anterior',
   yoy: 'vs mesmo período ano anterior',
-  last7: 'vs últimos 7 dias',
-  last30: 'vs últimos 30 dias',
   custom: 'vs período personalizado',
 }
 
@@ -718,27 +709,13 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
       return
     }
 
-    // YoY: busca apenas non-CRM (GA4 vem de ga4Report.last_year para garantir consistência)
-    const fetchNonCrm = async (start, end) => {
-      const res = await fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`)
-      let payload = null
-      try { payload = await res.json() } catch (_) { payload = null }
-      if (!res.ok) {
-        const raw = payload?.detail
-        const detail = typeof raw === 'string' ? raw : ''
-        if (isGa4NoDataError(detail)) return 0
-        return 0
-      }
-      return Number(payload?.purchaseRevenue || 0)
-    }
-
-    // MoM: usa ga4/crm/monthly (mesma fonte do card principal) para manter consistência.
+    // Usa ga4/crm/monthly (mesma fonte do card principal) para manter consistência.
     // O endpoint retorna dados do mês completo para meses passados, igual ao comportamento do card.
-    const fetchMomSummary = async (start, end) => {
-      const momYear = Number(start.split('-')[0])
-      const momMonth = Number(start.split('-')[1])
+    const fetchMonthlySummary = async (start, end) => {
+      const year = Number(start.split('-')[0])
+      const month = Number(start.split('-')[1])
       const [ga4Response, nonCrmResponse] = await Promise.all([
-        fetch(`/api/ga4/crm/monthly?year=${momYear}&month=${momMonth}`),
+        fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
         fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
@@ -757,12 +734,11 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     }
 
     try {
-      const [yoyNonCrm, previousMonthSummary] = await Promise.all([
-        fetchNonCrm(yoyStart, yoyEnd),
-        fetchMomSummary(momStart, momEnd),
+      const [lastYearSummary, previousMonthSummary] = await Promise.all([
+        fetchMonthlySummary(yoyStart, yoyEnd),
+        fetchMonthlySummary(momStart, momEnd),
       ])
-      // lastYearSameMonth armazena apenas nonCrmRevenue; GA4 CRM vira de ga4Report.last_year
-      setCrmResultsComparisons({ lastYearSameMonth: { nonCrmRevenue: yoyNonCrm }, previousMonth: previousMonthSummary })
+      setCrmResultsComparisons({ lastYearSameMonth: lastYearSummary, previousMonth: previousMonthSummary })
     } catch (err) {
       setCrmResultsComparisons(null)
       setCrmResultsComparisonsError(err instanceof Error ? err.message : 'Falha ao carregar comparativos do resultado geral CRM.')
@@ -798,15 +774,17 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     setDynamicCompError('')
     setDynamicCompData(null)
     try {
+      const year = Number(start.split('-')[0])
+      const month = Number(start.split('-')[1])
       const [ga4Res, nonCrmRes] = await Promise.all([
-        fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
+        fetch(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
         fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
       let nonCrmPayload = null
       try { ga4Payload = await ga4Res.json() } catch (_) { ga4Payload = null }
       try { nonCrmPayload = await nonCrmRes.json() } catch (_) { nonCrmPayload = null }
-      const purchaseRevenue = ga4Res.ok ? Number(ga4Payload?.purchaseRevenue || 0) : 0
+      const purchaseRevenue = ga4Res.ok ? Number(ga4Payload?.current_year?.purchaseRevenue || 0) : 0
       const nonCrmRevenue = nonCrmRes.ok ? Number(nonCrmPayload?.purchaseRevenue || 0) : 0
       setDynamicCompData({ purchaseRevenue, nonCrmRevenue, totalRevenue: purchaseRevenue + nonCrmRevenue })
     } catch (err) {
@@ -818,12 +796,9 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
 
   const comparisonPeriod = useMemo(() => {
     if (!startDate || !endDate) return null
-    const today = new Date().toISOString().slice(0, 10)
     switch (comparisonMode) {
       case 'previous': return { start: shiftDateByMonths(startDate, -1), end: shiftDateByMonths(endDate, -1) }
       case 'yoy': return { start: shiftDateByYears(startDate, -1), end: shiftDateByYears(endDate, -1) }
-      case 'last7': return { start: shiftDateByDays(today, -7), end: today }
-      case 'last30': return { start: shiftDateByDays(today, -30), end: today }
       case 'custom': return (customCompStart && customCompEnd) ? { start: customCompStart, end: customCompEnd } : null
       default: return null
     }
@@ -831,30 +806,13 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
 
   const comparisonValue = useMemo(() => {
     if (comparisonMode === 'previous') return crmResultsComparisons?.previousMonth ?? null
-    if (comparisonMode === 'yoy') {
-      // GA4 CRM vem de ga4Report.last_year (mesma fonte do valor principal)
-      // non-CRM vem de crmResultsComparisons.lastYearSameMonth.nonCrmRevenue
-      const ga4Portion = Number(ga4Report?.last_year?.purchaseRevenue || 0)
-      const nonCrmPortion = Number(crmResultsComparisons?.lastYearSameMonth?.nonCrmRevenue || 0)
-      if (!ga4Report?.last_year && !crmResultsComparisons?.lastYearSameMonth) return null
-      return { purchaseRevenue: ga4Portion, nonCrmRevenue: nonCrmPortion, totalRevenue: ga4Portion + nonCrmPortion }
-    }
+    if (comparisonMode === 'yoy') return crmResultsComparisons?.lastYearSameMonth ?? null
     return dynamicCompData
-  }, [comparisonMode, crmResultsComparisons, dynamicCompData, ga4Report])
+  }, [comparisonMode, crmResultsComparisons, dynamicCompData])
 
-  const compLoading = (comparisonMode === 'previous' || comparisonMode === 'yoy')
-    ? crmResultsComparisonsLoading
-    : dynamicCompLoading
+  const compLoading = comparisonMode === 'custom' ? dynamicCompLoading : crmResultsComparisonsLoading
 
-  const compError = (comparisonMode === 'previous' || comparisonMode === 'yoy')
-    ? crmResultsComparisonsError
-    : dynamicCompError
-
-  useEffect(() => {
-    if (comparisonMode !== 'last7' && comparisonMode !== 'last30') return
-    if (!comparisonPeriod?.start || !comparisonPeriod?.end) return
-    loadDynamicComparison(comparisonPeriod.start, comparisonPeriod.end)
-  }, [comparisonMode, comparisonPeriod, loadDynamicComparison])
+  const compError = comparisonMode === 'custom' ? dynamicCompError : crmResultsComparisonsError
 
   const loadAllResults = useCallback(async () => {
     await Promise.all([
@@ -944,8 +902,6 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
           >
             <option value="previous">Período anterior</option>
             <option value="yoy">Mesmo período ano anterior</option>
-            <option value="last7">Últimos 7 dias</option>
-            <option value="last30">Últimos 30 dias</option>
             <option value="custom">Personalizado</option>
           </select>
         </div>
