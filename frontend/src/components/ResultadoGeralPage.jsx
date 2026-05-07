@@ -732,10 +732,13 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
       return Number(payload?.purchaseRevenue || 0)
     }
 
-    // MoM: busca GA4 CRM + non-CRM completo (mes anterior, dados historicos)
+    // MoM: usa ga4/crm/monthly (mesma fonte do card principal) para manter consistência.
+    // O endpoint retorna dados do mês completo para meses passados, igual ao comportamento do card.
     const fetchMomSummary = async (start, end) => {
+      const momYear = Number(start.split('-')[0])
+      const momMonth = Number(start.split('-')[1])
       const [ga4Response, nonCrmResponse] = await Promise.all([
-        fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
+        fetch(`/api/ga4/crm/monthly?year=${momYear}&month=${momMonth}`),
         fetch(`/api/ga4/abandoned-cart-coupons?${new URLSearchParams({ start, end, crm_scope: 'non_crm' }).toString()}`),
       ])
       let ga4Payload = null
@@ -748,7 +751,7 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
         if (isGa4NoDataError(detail)) return { totalRevenue: 0, purchaseRevenue: 0, nonCrmRevenue: 0 }
         throw new Error(detail)
       }
-      const purchaseRevenue = Number(ga4Payload?.purchaseRevenue || 0)
+      const purchaseRevenue = Number(ga4Payload?.current_year?.purchaseRevenue || 0)
       const nonCrmRevenue = nonCrmResponse.ok ? Number(nonCrmPayload?.purchaseRevenue || 0) : 0
       return { totalRevenue: purchaseRevenue + nonCrmRevenue, purchaseRevenue, nonCrmRevenue }
     }
