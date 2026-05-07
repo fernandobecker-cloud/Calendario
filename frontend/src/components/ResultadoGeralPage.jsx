@@ -28,12 +28,14 @@ function getMonthDateRange(year, month) {
 
 
 function shiftDateByMonths(dateStr, months) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
   const [y, m, d] = dateStr.split('-').map(Number)
   const base = new Date(y, m - 1 + months, d)
   return base.toISOString().slice(0, 10)
 }
 
 function shiftDateByYears(dateStr, years) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
   const [y, m, d] = dateStr.split('-').map(Number)
   const base = new Date(y + years, m - 1, d)
   return base.toISOString().slice(0, 10)
@@ -560,7 +562,8 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
       let payload = null
       try { payload = await response.json() } catch (_) { payload = null }
       if (!response.ok) {
-        const detail = payload?.detail || 'Nao foi possivel carregar resumo de resultados.'
+        const raw = payload?.detail
+        const detail = typeof raw === 'string' ? raw : 'Nao foi possivel carregar resumo de resultados.'
         if (isGa4NoDataError(detail)) { setGa4Report(null); setGa4Error(''); return }
         throw new Error(detail)
       }
@@ -674,6 +677,11 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
     const yoyStart = shiftDateByYears(effectiveStart, -1)
     const yoyEnd = shiftDateByYears(effectiveEnd, -1)
 
+    if (!momStart || !momEnd || !yoyStart || !yoyEnd) {
+      setCrmResultsComparisonsLoading(false)
+      return
+    }
+
     const loadComparisonSummary = async ({ start, end }) => {
       const [ga4Response, nonCrmResponse] = await Promise.all([
         fetch(`/api/ga4/crm/range?start=${start}&end=${end}`),
@@ -684,12 +692,14 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
       try { ga4Payload = await ga4Response.json() } catch (_) { ga4Payload = null }
       try { nonCrmPayload = await nonCrmResponse.json() } catch (_) { nonCrmPayload = null }
       if (!ga4Response.ok) {
-        const detail = ga4Payload?.detail || 'Nao foi possivel carregar comparativo de resultados.'
+        const raw = ga4Payload?.detail
+        const detail = typeof raw === 'string' ? raw : 'Nao foi possivel carregar comparativo de resultados.'
         if (isGa4NoDataError(detail)) return { totalRevenue: 0, purchaseRevenue: 0, nonCrmRevenue: 0 }
         throw new Error(detail)
       }
       if (!nonCrmResponse.ok) {
-        const detail = nonCrmPayload?.detail || 'Nao foi possivel carregar comparativo de carrinho abandonado nao CRM.'
+        const raw = nonCrmPayload?.detail
+        const detail = typeof raw === 'string' ? raw : 'Nao foi possivel carregar comparativo de carrinho abandonado nao CRM.'
         if (isGa4NoDataError(detail)) {
           return {
             totalRevenue: Number(ga4Payload?.purchaseRevenue || 0),
@@ -762,7 +772,7 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
   useEffect(() => {
     if (refreshKey > 0) loadAllResults()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey, startDate, endDate])
+  }, [refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (refreshKey === 0) {
     return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
