@@ -62,6 +62,7 @@ function buildRow(event, today) {
 
   return {
     id: event.id,
+    originalEvent: event,
     campaignDate,
     status,
     canal,
@@ -83,7 +84,7 @@ function DaysCell({ row }) {
   return <span className={`font-semibold ${DAYS_TEXT[row.dotColor]}`}>{label}</span>
 }
 
-export default function BriefingsPanel({ events }) {
+export default function BriefingsPanel({ events, onEdit }) {
   const [statusFilter, setStatusFilter] = useState('Todas')
 
   const today = useMemo(() => getStartOfDay(new Date()), [])
@@ -165,6 +166,7 @@ export default function BriefingsPanel({ events }) {
                   <th className="px-3 py-2 font-semibold">Status</th>
                   <th className="px-3 py-2 font-semibold">Data limite briefing</th>
                   <th className="px-3 py-2 font-semibold">Dias restantes</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -182,6 +184,16 @@ export default function BriefingsPanel({ events }) {
                     </td>
                     <td className="px-3 py-3">
                       <DaysCell row={row} />
+                    </td>
+                    <td className="px-3 py-3">
+                      {onEdit && (
+                        <button
+                          onClick={() => onEdit(row.originalEvent)}
+                          className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                        >
+                          Editar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -1155,7 +1155,7 @@ export default function App({ mode = 'campanhas' }) {
         </div>
       </section>
 
-      <BriefingsPanel events={events} />
+      <BriefingsPanel events={events} onEdit={openEditForm} />
     </>
   )
 
