@@ -31,14 +31,16 @@ export default function LoginPage({ onLogin, sessionMessage }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4">
+      <img
+        src="https://link.iplace.com.br/custloads/1091660394/md_250883.png"
+        alt="iPlace"
+        className="mb-6 object-contain"
+        style={{ width: '685px', height: '320px', maxWidth: '100%' }}
+      />
+
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <img
-            src="https://link.iplace.com.br/custloads/1091660394/md_250880.png"
-            alt="iPlace"
-            className="mx-auto mb-4 h-12 w-auto object-contain"
-          />
+        <div className="mb-6 text-center">
           <p className="text-sm text-slate-500">Acesse com suas credenciais</p>
         </div>
 
@@ -96,3 +98,4 @@ export default function LoginPage({ onLogin, sessionMessage }) {
     </div>
   )
 }
+
