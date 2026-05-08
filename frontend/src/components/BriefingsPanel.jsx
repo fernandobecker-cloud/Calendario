@@ -22,7 +22,11 @@ function getStartOfDay(date) {
 
 function getCampaignDate(value) {
   if (!value) return null
-  const date = new Date(value)
+  const str = String(value)
+  // Parse YYYY-MM-DD como data local para evitar desvio de timezone UTC
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const date = new Date(str)
   if (Number.isNaN(date.getTime())) return null
   return getStartOfDay(date)
 }

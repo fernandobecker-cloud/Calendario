@@ -72,7 +72,10 @@ function normalizeChannel(channel) {
 
 function formatDate(value) {
   if (!value) return 'Sem data'
-  const date = new Date(value)
+  // Parseia YYYY-MM-DD como data local para evitar desvio de timezone UTC
+  const str = String(value)
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(str)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
