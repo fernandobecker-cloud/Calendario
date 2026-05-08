@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-const STATUS_FILTERS = ['Todas', 'Briefing Urgente', 'Planejada', 'Briefing Enviado', 'Programada', 'Finalizada']
+const STATUS_FILTERS = ['Todas', 'Briefing Urgente', 'Planejada', 'Briefing Enviado', 'Programada']
 
 const DOT_COLORS = {
   red:    'bg-rose-500',
@@ -91,7 +91,7 @@ export default function BriefingsPanel({ events }) {
   const allRows = useMemo(() =>
     (events || [])
       .map((e) => buildRow(e, today))
-      .filter(Boolean)
+      .filter((r) => r && r.status.toLowerCase() !== 'finalizada')
       .sort((a, b) => a.campaignDate.getTime() - b.campaignDate.getTime()),
   [events, today])
 
