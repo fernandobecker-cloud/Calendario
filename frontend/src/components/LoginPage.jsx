@@ -34,8 +34,12 @@ export default function LoginPage({ onLogin, sessionMessage }) {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold text-slate-900">CRM iPlace</h1>
-          <p className="mt-1 text-sm text-slate-500">Acesse com suas credenciais</p>
+          <img
+            src="https://link.iplace.com.br/custloads/1091660394/md_250880.png"
+            alt="iPlace"
+            className="mx-auto mb-4 h-12 w-auto object-contain"
+          />
+          <p className="text-sm text-slate-500">Acesse com suas credenciais</p>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-soft">
