@@ -802,7 +802,7 @@ export default function App({ mode = 'campanhas' }) {
   const openEditForm = useCallback((event) => {
     const p = event.extendedProps || {}
     setEventFormData({
-      data: event.startStr || '',
+      data: event.startStr || (typeof event.start === 'string' ? event.start.slice(0, 10) : '') || '',
       campanha: p.titulo_original || '',
       canal: p.canal || '',
       direcionamento: p.direcionamento || '',
