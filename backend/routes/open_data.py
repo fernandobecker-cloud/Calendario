@@ -2379,3 +2379,88 @@ def campanha_detalhe(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao apurar campanha: {exc}") from exc
+
+
+def _build_daily_revenue_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Receita total iPlace e receita atribuída Emarsys agrupadas por dia."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+    elif normalized_start:
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+    elif normalized_end:
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+    else:
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+
+    attr_event_time_filter, attr_partition_filter = _build_attribution_date_filters(normalized_start, normalized_end, "r")
+
+    return f"""
+WITH orders_net AS (
+  SELECT
+    order_id,
+    DATE(MIN(purchase_date)) AS purchase_date,
+    ROUND(SUM(sales_amount), 2) AS receita_liquida
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY order_id
+),
+attribution_per_order AS (
+  SELECT
+    order_id,
+    ROUND(MAX(COALESCE(
+      (SELECT SUM(t.attributed_amount)
+       FROM UNNEST(r.treatments) AS t
+       WHERE t.attributed_amount > 0),
+      0
+    )), 2) AS receita_atribuida
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY order_id
+)
+SELECT
+  o.purchase_date                              AS dia,
+  COUNT(DISTINCT o.order_id)                   AS pedidos,
+  ROUND(SUM(o.receita_liquida), 2)             AS total_iplace,
+  ROUND(SUM(COALESCE(a.receita_atribuida, 0)), 2) AS receita_atribuida
+FROM orders_net o
+LEFT JOIN attribution_per_order a USING (order_id)
+GROUP BY o.purchase_date
+ORDER BY o.purchase_date
+"""
+
+
+@router.get("/emarsys/daily-revenue")
+def emarsys_daily_revenue(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_daily_revenue_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        items = []
+        for row in records:
+            dia = row.get("dia")
+            items.append({
+                "dia": str(dia) if dia is not None else None,
+                "pedidos": int(row.get("pedidos") or 0),
+                "total_iplace": float(row.get("total_iplace") or 0),
+                "receita_atribuida": float(row.get("receita_atribuida") or 0),
+            })
+        return {
+            "items": items,
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar receita diária: {exc}") from exc

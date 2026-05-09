@@ -1,4 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import {
+  ResponsiveContainer, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts'
 
 function formatCurrency(value) {
   if (value == null || isNaN(Number(value))) return '-'
@@ -213,10 +217,13 @@ export default function ResultadoGeralPage() {
         const [year, month] = startDate.split('-').map(Number)
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
 
-        const [atribuida, ga4, abandoned] = await Promise.all([
+        const dailyParams = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
+
+        const [atribuida, ga4, abandoned, daily] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
           fetchJson(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
           fetchJson(`/api/ga4/abandoned-cart-coupons?start=${startDate}&end=${endDate || startDate}&crm_scope=non_crm`),
+          fetchJson(`/api/open-data/emarsys/daily-revenue?${dailyParams}`),
         ])
 
         const purchaseCrm = Number(ga4.data?.current_year?.purchaseRevenue || 0)
@@ -229,6 +236,7 @@ export default function ResultadoGeralPage() {
             purchaseCrm,
             purchaseNonCrm,
           },
+          dailyRevenue: daily.ok ? (daily.data?.items ?? []) : [],
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
@@ -335,6 +343,73 @@ export default function ResultadoGeralPage() {
   )
 }
 
+function fmtCurrencyShort(value) {
+  const n = Number(value || 0)
+  if (n >= 1_000_000) return `R$ ${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}k`
+  return formatCurrency(n)
+}
+
+function DailyRevenueChart({ items }) {
+  if (!items || items.length === 0) return null
+
+  const data = items.map((r) => ({
+    dia: (() => {
+      const m = String(r.dia || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+      return m ? `${m[3]}/${m[2]}` : r.dia
+    })(),
+    'Total iPlace': r.total_iplace,
+    'Receita Atribuída': r.receita_atribuida,
+  }))
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Receita dia a dia
+      </h2>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis
+            dataKey="dia"
+            tick={{ fontSize: 11, fill: '#64748b' }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis
+            tickFormatter={fmtCurrencyShort}
+            tick={{ fontSize: 11, fill: '#64748b' }}
+            tickLine={false}
+            axisLine={false}
+            width={72}
+          />
+          <Tooltip
+            formatter={(value, name) => [formatCurrency(value), name]}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+          <Line
+            type="monotone"
+            dataKey="Total iPlace"
+            stroke="#6366f1"
+            strokeWidth={2}
+            dot={data.length <= 31}
+            activeDot={{ r: 4 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="Receita Atribuída"
+            stroke="#10b981"
+            strokeWidth={2}
+            dot={data.length <= 31}
+            activeDot={{ r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </section>
+  )
+}
+
 function ExecutivoView({ data, loading }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
@@ -343,7 +418,7 @@ function ExecutivoView({ data, loading }) {
     return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
   }
 
-  const { atribuida, direta } = data
+  const { atribuida, direta, dailyRevenue } = data
   const monthRow = atribuida?.items?.[0] ?? null
   const byChannel = atribuida?.by_channel ?? []
 
@@ -429,6 +504,8 @@ function ExecutivoView({ data, loading }) {
           </article>
         </div>
       </section>
+
+      <DailyRevenueChart items={dailyRevenue} />
     </div>
   )
 }
