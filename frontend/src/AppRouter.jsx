@@ -6,6 +6,7 @@ import GanttPage from './components/gantt/GanttPage'
 import ResultadoGeralPage from './components/ResultadoGeralPage'
 import AuditoriaPage from './components/AuditoriaPage'
 import AdmPage from './components/AdmPage'
+import PortalMapPage from './components/PortalMapPage'
 import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
@@ -14,6 +15,7 @@ const ALL_TABS = [
   { to: '/gantt', label: 'Projetos', key: 'projetos' },
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
   { to: '/adm', label: 'Adm', key: 'adm' },
+  { to: '/mapa-portal', label: 'Mapa', key: 'mapa' },
 ]
 
 // 14 min 30 s — desloga antes dos 15 min do Render free entrar em sleep
@@ -23,7 +25,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
-    if (tab.key === 'adm') return currentRole === 'admin'
+    if (tab.key === 'adm' || tab.key === 'mapa') return currentRole === 'admin'
     if (currentRole === 'admin') return true
     if (viewerTabs && viewerTabs[tab.key] === false) return false
     return true
@@ -193,6 +195,7 @@ export default function AppRouter() {
           <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
           <Route path="/auditoria" element={<AuditoriaPage />} />
           <Route path="/adm" element={<AdmPage />} />
+          <Route path="/mapa-portal" element={<PortalMapPage />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>
