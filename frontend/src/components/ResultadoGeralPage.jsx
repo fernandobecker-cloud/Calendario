@@ -345,9 +345,27 @@ export default function ResultadoGeralPage() {
 
 function fmtCurrencyShort(value) {
   const n = Number(value || 0)
-  if (n >= 1_000_000) return `R$ ${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}k`
-  return formatCurrency(n)
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}MM`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return `R$ ${Math.round(n)}`
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null
+  // Garante ordem: Total iPlace primeiro, Receita Atribuída segundo
+  const ordered = ['Total iPlace', 'Receita Atribuída']
+    .map((key) => payload.find((p) => p.dataKey === key))
+    .filter(Boolean)
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-md">
+      <p className="mb-1.5 font-semibold text-slate-700">{label}</p>
+      {ordered.map((p) => (
+        <p key={p.dataKey} style={{ color: p.color }} className="leading-5">
+          {p.name}: {formatCurrency(p.value)}
+        </p>
+      ))}
+    </div>
+  )
 }
 
 function DailyRevenueChart({ items }) {
@@ -361,6 +379,10 @@ function DailyRevenueChart({ items }) {
     'Total iPlace': r.total_iplace,
     'Receita Atribuída': r.receita_atribuida,
   }))
+
+  const totalIplace = items.reduce((s, r) => s + Number(r.total_iplace || 0), 0)
+  const totalAtribuida = items.reduce((s, r) => s + Number(r.receita_atribuida || 0), 0)
+  const hasDots = data.length <= 31
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -381,19 +403,16 @@ function DailyRevenueChart({ items }) {
             tick={{ fontSize: 11, fill: '#64748b' }}
             tickLine={false}
             axisLine={false}
-            width={72}
+            width={68}
           />
-          <Tooltip
-            formatter={(value, name) => [formatCurrency(value), name]}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-          />
+          <Tooltip content={<ChartTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
           <Line
             type="monotone"
             dataKey="Total iPlace"
             stroke="#6366f1"
             strokeWidth={2}
-            dot={data.length <= 31}
+            dot={hasDots}
             activeDot={{ r: 4 }}
           />
           <Line
@@ -401,11 +420,22 @@ function DailyRevenueChart({ items }) {
             dataKey="Receita Atribuída"
             stroke="#10b981"
             strokeWidth={2}
-            dot={data.length <= 31}
+            dot={hasDots}
             activeDot={{ r: 4 }}
           />
         </LineChart>
       </ResponsiveContainer>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">Total iPlace</p>
+          <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(totalIplace)}</p>
+        </div>
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Atribuída</p>
+          <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(totalAtribuida)}</p>
+        </div>
+      </div>
     </section>
   )
 }
