@@ -1821,6 +1821,207 @@ def receita_teste(
         raise HTTPException(status_code=502, detail=f"Falha ao calcular receita teste: {exc}") from exc
 
 
+def _build_receita_influenciada_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Quatro métricas de influência CRM: Total iPlace, Atribuída (marketing), Gap (sem atribuição com toque marketing), Influenciada (Atribuída + Gap)."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    elif normalized_start:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+    elif normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    else:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+
+    return f"""
+WITH
+email_names AS (
+  SELECT
+    CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+orders_period AS (
+  SELECT
+    p.order_id,
+    MAX(p.si_contact_id) AS contact_id,
+    DATE(MIN(p.purchase_date)) AS purchase_date,
+    ROUND(SUM(p.sales_amount), 2) AS receita_pedido
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY p.order_id
+  HAVING SUM(p.sales_amount) > 0
+),
+treatments_classified AS (
+  SELECT
+    r.order_id,
+    CASE
+      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
+        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
+      THEN 'transacional'
+      ELSE 'marketing'
+    END AS categoria
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  LEFT JOIN email_names en ON CAST(t.campaign_id AS STRING) = en.campaign_id
+  LEFT JOIN sms_names sn ON CAST(t.campaign_id AS STRING) = sn.campaign_id
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
+),
+marketing_orders AS (
+  SELECT DISTINCT order_id
+  FROM treatments_classified
+  WHERE categoria = 'marketing'
+),
+agg_total AS (
+  SELECT ROUND(SUM(receita_pedido), 2) AS total_receita, COUNT(DISTINCT order_id) AS total_pedidos
+  FROM orders_period
+),
+atribuida AS (
+  SELECT op.order_id, op.receita_pedido
+  FROM orders_period op
+  INNER JOIN marketing_orders mo USING (order_id)
+),
+agg_atribuida AS (
+  SELECT ROUND(SUM(receita_pedido), 2) AS atribuida_receita, COUNT(DISTINCT order_id) AS atribuida_pedidos
+  FROM atribuida
+),
+unattributed AS (
+  SELECT op.order_id, op.contact_id, op.purchase_date, op.receita_pedido
+  FROM orders_period op
+  WHERE op.order_id NOT IN (SELECT order_id FROM marketing_orders)
+    AND op.contact_id IS NOT NULL
+),
+email_mkt_touch AS (
+  SELECT DISTINCT u.order_id
+  FROM unattributed u
+  JOIN `{project_id}.{dataset}.{email_opens_table}` e
+    ON e.contact_id = u.contact_id
+    AND DATE(e.event_time) BETWEEN DATE_SUB(u.purchase_date, INTERVAL 7 DAY) AND u.purchase_date
+    AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  LEFT JOIN email_names en ON CAST(e.campaign_id AS STRING) = en.campaign_id
+  WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, '')),
+    r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
+),
+sms_mkt_touch AS (
+  SELECT DISTINCT u.order_id
+  FROM unattributed u
+  JOIN `{project_id}.{dataset}.{sms_sends_table}` s
+    ON s.contact_id = u.contact_id
+    AND DATE(s.event_time) BETWEEN DATE_SUB(u.purchase_date, INTERVAL 7 DAY) AND u.purchase_date
+    AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  LEFT JOIN sms_names sn ON CAST(s.campaign_id AS STRING) = sn.campaign_id
+  WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(sn.nome_campanha, '')),
+    r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
+),
+gap_orders AS (
+  SELECT order_id FROM email_mkt_touch
+  UNION DISTINCT
+  SELECT order_id FROM sms_mkt_touch
+),
+agg_gap AS (
+  SELECT ROUND(SUM(u.receita_pedido), 2) AS gap_receita, COUNT(DISTINCT u.order_id) AS gap_pedidos
+  FROM unattributed u
+  INNER JOIN gap_orders g USING (order_id)
+)
+SELECT
+  COALESCE((SELECT total_receita    FROM agg_total),     0) AS total_receita,
+  COALESCE((SELECT total_pedidos    FROM agg_total),     0) AS total_pedidos,
+  COALESCE((SELECT atribuida_receita FROM agg_atribuida), 0) AS atribuida_receita,
+  COALESCE((SELECT atribuida_pedidos FROM agg_atribuida), 0) AS atribuida_pedidos,
+  COALESCE((SELECT gap_receita      FROM agg_gap),       0) AS gap_receita,
+  COALESCE((SELECT gap_pedidos      FROM agg_gap),       0) AS gap_pedidos,
+  ROUND(
+    COALESCE((SELECT atribuida_receita FROM agg_atribuida), 0) +
+    COALESCE((SELECT gap_receita      FROM agg_gap),       0), 2
+  )                                                          AS influenciada_receita,
+  COALESCE((SELECT atribuida_pedidos FROM agg_atribuida), 0) +
+  COALESCE((SELECT gap_pedidos      FROM agg_gap),       0)  AS influenciada_pedidos
+""".strip()
+
+
+@router.get("/emarsys/receita-influenciada")
+def emarsys_receita_influenciada(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_receita_influenciada_sql(start, end)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        if not records:
+            return {
+                "total_receita": 0.0,
+                "total_pedidos": 0,
+                "atribuida_receita": 0.0,
+                "atribuida_pedidos": 0,
+                "gap_receita": 0.0,
+                "gap_pedidos": 0,
+                "influenciada_receita": 0.0,
+                "influenciada_pedidos": 0,
+                "start_date": _validate_optional_iso_date(start),
+                "end_date": _validate_optional_iso_date(end),
+            }
+        row = records[0]
+        return {
+            "total_receita": float(row.get("total_receita") or 0),
+            "total_pedidos": int(row.get("total_pedidos") or 0),
+            "atribuida_receita": float(row.get("atribuida_receita") or 0),
+            "atribuida_pedidos": int(row.get("atribuida_pedidos") or 0),
+            "gap_receita": float(row.get("gap_receita") or 0),
+            "gap_pedidos": int(row.get("gap_pedidos") or 0),
+            "influenciada_receita": float(row.get("influenciada_receita") or 0),
+            "influenciada_pedidos": int(row.get("influenciada_pedidos") or 0),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita influenciada: {exc}") from exc
+
+
 def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     """Atribuição vs Influência usando a mesma base de pedidos.
 

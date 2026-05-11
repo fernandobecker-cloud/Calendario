@@ -79,6 +79,7 @@ const VIEWS = [
   { key: 'executivo', label: 'Executivo' },
   { key: 'atribuida', label: 'Atribuída Detalhada' },
   { key: 'direta', label: 'Direta Detalhada' },
+  { key: 'influenciada', label: 'Influenciada CRM' },
 ]
 
 const CHANNEL_CONFIG = {
@@ -206,6 +207,7 @@ export default function ResultadoGeralPage() {
   const [executivoData, setExecutivoData] = useState(null)
   const [atribuidaData, setAtribuidaData] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
+  const [influenciadaData, setInfluenciadaData] = useState(null)
 
   const handleAtualizar = useCallback(async () => {
     if (!startDate) return
@@ -252,6 +254,14 @@ export default function ResultadoGeralPage() {
         })
       } else if (activeView === 'direta') {
         setDiretaRefreshKey((k) => k + 1)
+      } else if (activeView === 'influenciada') {
+        const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
+        const res = await fetchJson(`/api/open-data/emarsys/receita-influenciada?${params}`)
+        if (!res.ok) {
+          setError('Falha ao carregar dados de receita influenciada.')
+          return
+        }
+        setInfluenciadaData(res.data)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
@@ -336,6 +346,9 @@ export default function ResultadoGeralPage() {
           )}
           {activeView === 'direta' && (
             <DiretaDetalhadaView startDate={startDate} endDate={endDate} refreshKey={diretaRefreshKey} />
+          )}
+          {activeView === 'influenciada' && (
+            <InfluenciadaView data={influenciadaData} loading={loading} />
           )}
         </main>
       </div>
@@ -1180,5 +1193,87 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
         )}
       </section>
     </section>
+  )
+}
+
+function InfluenciadaView({ data, loading }) {
+  if (loading) return <p className="text-sm text-slate-500">Carregando...</p>
+  if (!data) return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
+
+  const total = data.total_receita || 0
+  const atribuidaPct = total > 0 ? (data.atribuida_receita / total) * 100 : 0
+  const gapPct = total > 0 ? (data.gap_receita / total) * 100 : 0
+  const influenciadaPct = total > 0 ? (data.influenciada_receita / total) * 100 : 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">{formatCurrency(data.total_receita)}</p>
+          <p className="mt-1 text-xs text-violet-600">
+            {(data.total_pedidos ?? 0).toLocaleString('pt-BR')} pedidos no período
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Receita Influenciada CRM</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">{formatCurrency(data.influenciada_receita)}</p>
+          <p className="mt-1 text-xs text-emerald-700">
+            {influenciadaPct.toFixed(1)}% do total · {(data.influenciada_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Atribuída pelo Emarsys</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.atribuida_receita)}</p>
+          <p className="mt-1 text-xs text-blue-600">
+            {atribuidaPct.toFixed(1)}% do total · {(data.atribuida_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Gap de Atribuição CRM</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.gap_receita)}</p>
+          <p className="mt-1 text-xs text-amber-600">
+            {gapPct.toFixed(1)}% do total · {(data.gap_pedidos ?? 0).toLocaleString('pt-BR')} pedidos sem atribuição com toque marketing
+          </p>
+        </div>
+      </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Composição da Receita Influenciada
+        </h3>
+        <div className="flex h-4 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full bg-blue-400 transition-all"
+            style={{ width: `${atribuidaPct}%` }}
+            title={`Atribuída: ${atribuidaPct.toFixed(1)}%`}
+          />
+          <div
+            className="h-full bg-amber-400 transition-all"
+            style={{ width: `${gapPct}%` }}
+            title={`Gap: ${gapPct.toFixed(1)}%`}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-5 text-xs text-slate-600">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-400" />
+            Atribuída: {atribuidaPct.toFixed(1)}% — {formatCurrency(data.atribuida_receita)}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />
+            Gap: {gapPct.toFixed(1)}% — {formatCurrency(data.gap_receita)}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-slate-200" />
+            Não influenciada: {(100 - influenciadaPct).toFixed(1)}% — {formatCurrency(total - data.influenciada_receita)}
+          </span>
+        </div>
+      </section>
+    </div>
   )
 }
