@@ -1934,17 +1934,17 @@ agg_atribuida AS (
   WHERE order_attributed > 0
 ),
 agg_atribuida_full AS (
-  -- Receita total dos pedidos atribuídos pelo Emarsys (valor completo, sem filtro de purchase_date)
+  -- Receita total dos pedidos atribuídos: espelha a Auditoria (orders_net sem HAVING, purchase_date_filter)
   SELECT
     ROUND(SUM(receita_pedido), 2) AS atribuida_full_receita,
     COUNT(DISTINCT order_id)      AS atribuida_full_pedidos
   FROM (
     SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS receita_pedido
-    FROM attributed_order_ids a
-    JOIN `{project_id}.{dataset}.{si_purchases_table}` p USING (order_id)
+    FROM `{project_id}.{dataset}.{si_purchases_table}` p
+    WHERE {purchase_date_filter}
     GROUP BY p.order_id
-    HAVING SUM(p.sales_amount) > 0
-  )
+  ) op
+  INNER JOIN attributed_order_ids a USING (order_id)
 ),
 unattributed AS (
   -- Pedidos sem nenhuma atribuição; contact_id preferencial da revenue_attribution (fallback: si_contact_id)
