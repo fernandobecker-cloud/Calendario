@@ -1990,14 +1990,40 @@ agg_gap AS (
   FROM unattributed u
   INNER JOIN gap_orders g USING (order_id)
 ),
+marketing_attributed_orders AS (
+  -- Pedidos com ao menos um treatment de campanha de marketing no período
+  SELECT DISTINCT r.order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  LEFT JOIN email_names en ON CAST(t.campaign_id AS STRING) = en.campaign_id
+  LEFT JOIN sms_names sn ON CAST(t.campaign_id AS STRING) = sn.campaign_id
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
+    AND NOT REGEXP_CONTAINS(
+      LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
+      r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps'
+    )
+),
+transacional_order_ids AS (
+  -- Atribuídos pelo Emarsys mas apenas via campanhas transacionais (sem nenhuma de marketing)
+  SELECT order_id FROM attributed_order_ids
+  EXCEPT DISTINCT
+  SELECT order_id FROM marketing_attributed_orders
+),
 agg_transacional AS (
-  -- Pedidos sem atribuição e sem nenhum toque de marketing (excluídos do gap)
+  -- Receita completa dos pedidos transacional-only atribuídos pelo Emarsys
   SELECT
-    ROUND(SUM(op.receita_pedido), 2) AS transacional_receita,
-    COUNT(DISTINCT op.order_id)      AS transacional_pedidos
-  FROM orders_period op
-  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_order_ids)
-    AND op.order_id NOT IN (SELECT order_id FROM gap_orders)
+    ROUND(SUM(receita_pedido), 2) AS transacional_receita,
+    COUNT(DISTINCT order_id)      AS transacional_pedidos
+  FROM (
+    SELECT p.order_id, ROUND(SUM(p.sales_amount), 2) AS receita_pedido
+    FROM `{project_id}.{dataset}.{si_purchases_table}` p
+    WHERE {purchase_date_filter}
+    GROUP BY p.order_id
+  ) op
+  INNER JOIN transacional_order_ids t USING (order_id)
 )
 SELECT
   COALESCE((SELECT total_receita           FROM agg_total),          0) AS total_receita,
