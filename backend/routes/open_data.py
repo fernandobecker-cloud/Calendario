@@ -1884,13 +1884,20 @@ sms_names AS (
 orders_period AS (
   SELECT
     p.order_id,
-    MAX(p.si_contact_id) AS contact_id,
+    MAX(p.si_contact_id) AS si_contact_id,
     DATE(MIN(p.purchase_date)) AS purchase_date,
     ROUND(SUM(p.sales_amount), 2) AS receita_pedido
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   WHERE {purchase_date_filter}
   GROUP BY p.order_id
   HAVING SUM(p.sales_amount) > 0
+),
+attribution_contacts AS (
+  -- contact_id da revenue_attribution é mais confiável que si_purchases.si_contact_id
+  SELECT order_id, MAX(contact_id) AS contact_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {attr_partition_filter}
+  GROUP BY order_id
 ),
 treatments_classified AS (
   SELECT
@@ -1930,11 +1937,16 @@ agg_atribuida AS (
   WHERE categoria = 'marketing'
 ),
 unattributed AS (
-  -- Pedidos sem nenhuma atribuição a campanha marketing (inclui transacional-only e não atribuídos)
-  SELECT op.order_id, op.contact_id, op.purchase_date, op.receita_pedido
+  -- Pedidos sem atribuição marketing; contact_id preferencial da revenue_attribution (fallback: si_contact_id)
+  SELECT
+    op.order_id,
+    COALESCE(ac.contact_id, op.si_contact_id) AS contact_id,
+    op.purchase_date,
+    op.receita_pedido
   FROM orders_period op
+  LEFT JOIN attribution_contacts ac USING (order_id)
   WHERE op.order_id NOT IN (SELECT order_id FROM marketing_orders)
-    AND op.contact_id IS NOT NULL
+    AND COALESCE(ac.contact_id, op.si_contact_id) IS NOT NULL
 ),
 email_mkt_touch AS (
   SELECT DISTINCT u.order_id
