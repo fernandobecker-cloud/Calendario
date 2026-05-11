@@ -1361,8 +1361,18 @@ def _build_si_purchases_total_sql(start_date: str | None = None, end_date: str |
         date_filter = "purchase_date IS NOT NULL"
 
     return f"""
-SELECT ROUND(COALESCE(SUM(sales_amount), 0), 2) AS total_crm
-FROM `{project_id}.{dataset}.{purchases_table}`
+WITH orders_net AS (
+  -- Agrupa por order_id usando a data da compra ORIGINAL (MIN) para que devoluções
+  -- registradas em datas posteriores sejam abatidas do período correto, igual ao Emarsys.
+  SELECT
+    order_id,
+    DATE(MIN(purchase_date)) AS purchase_date,
+    ROUND(SUM(sales_amount), 2) AS net_amount
+  FROM `{project_id}.{dataset}.{purchases_table}`
+  GROUP BY order_id
+)
+SELECT ROUND(COALESCE(SUM(net_amount), 0), 2) AS total_crm
+FROM orders_net
 WHERE {date_filter}
 """.strip()
 
