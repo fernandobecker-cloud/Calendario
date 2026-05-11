@@ -1989,6 +1989,15 @@ agg_gap AS (
   SELECT ROUND(SUM(u.receita_pedido), 2) AS gap_receita, COUNT(DISTINCT u.order_id) AS gap_pedidos
   FROM unattributed u
   INNER JOIN gap_orders g USING (order_id)
+),
+agg_transacional AS (
+  -- Pedidos sem atribuição e sem nenhum toque de marketing (excluídos do gap)
+  SELECT
+    ROUND(SUM(op.receita_pedido), 2) AS transacional_receita,
+    COUNT(DISTINCT op.order_id)      AS transacional_pedidos
+  FROM orders_period op
+  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_order_ids)
+    AND op.order_id NOT IN (SELECT order_id FROM gap_orders)
 )
 SELECT
   COALESCE((SELECT total_receita           FROM agg_total),          0) AS total_receita,
@@ -2000,7 +2009,14 @@ SELECT
   COALESCE((SELECT gap_receita             FROM agg_gap),            0) AS gap_receita,
   COALESCE((SELECT gap_pedidos             FROM agg_gap),            0) AS gap_pedidos,
   COALESCE((SELECT atribuida_full_receita  FROM agg_atribuida_full), 0) AS influenciada_receita,
-  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) AS influenciada_pedidos
+  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) AS influenciada_pedidos,
+  COALESCE((SELECT transacional_receita    FROM agg_transacional),   0) AS transacional_receita,
+  COALESCE((SELECT transacional_pedidos    FROM agg_transacional),   0) AS transacional_pedidos,
+  ROUND(
+    COALESCE((SELECT atribuida_full_receita FROM agg_atribuida_full), 0) +
+    COALESCE((SELECT gap_receita            FROM agg_gap),            0) -
+    COALESCE((SELECT transacional_receita   FROM agg_transacional),   0), 2
+  ) AS receita_final
 """.strip()
 
 
@@ -2024,6 +2040,9 @@ def emarsys_receita_influenciada(
                 "gap_pedidos": 0,
                 "influenciada_receita": 0.0,
                 "influenciada_pedidos": 0,
+                "transacional_receita": 0.0,
+                "transacional_pedidos": 0,
+                "receita_final": 0.0,
                 "start_date": _validate_optional_iso_date(start),
                 "end_date": _validate_optional_iso_date(end),
             }
@@ -2039,6 +2058,9 @@ def emarsys_receita_influenciada(
             "gap_pedidos": int(row.get("gap_pedidos") or 0),
             "influenciada_receita": float(row.get("influenciada_receita") or 0),
             "influenciada_pedidos": int(row.get("influenciada_pedidos") or 0),
+            "transacional_receita": float(row.get("transacional_receita") or 0),
+            "transacional_pedidos": int(row.get("transacional_pedidos") or 0),
+            "receita_final": float(row.get("receita_final") or 0),
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
         }

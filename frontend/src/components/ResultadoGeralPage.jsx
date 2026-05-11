@@ -1204,6 +1204,8 @@ function InfluenciadaView({ data, loading }) {
   const atribuidaFullPct = total > 0 ? (data.atribuida_full_receita / total) * 100 : 0
   const gapPct = total > 0 ? (data.gap_receita / total) * 100 : 0
   const influenciadaPct = total > 0 ? (data.influenciada_receita / total) * 100 : 0
+  const transacionalPct = total > 0 ? (data.transacional_receita / total) * 100 : 0
+  const receitaFinalPct = total > 0 ? (data.receita_final / total) * 100 : 0
 
   return (
     <div className="flex flex-col gap-4">
@@ -1239,6 +1241,24 @@ function InfluenciadaView({ data, loading }) {
           <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.gap_receita)}</p>
           <p className="mt-1 text-xs text-amber-600">
             {gapPct.toFixed(1)}% do total · {(data.gap_pedidos ?? 0).toLocaleString('pt-BR')} pedidos sem atribuição com toque marketing
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Receita Transacional</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.transacional_receita)}</p>
+          <p className="mt-1 text-xs text-rose-600">
+            {transacionalPct.toFixed(1)}% do total · {(data.transacional_pedidos ?? 0).toLocaleString('pt-BR')} pedidos sem interação de marketing
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Receita Final</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.receita_final)}</p>
+          <p className="mt-1 text-xs text-teal-600">
+            {receitaFinalPct.toFixed(1)}% do total · Pedidos total + Gap − Transacional
           </p>
         </div>
       </div>
