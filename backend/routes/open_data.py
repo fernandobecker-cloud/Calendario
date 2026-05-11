@@ -718,18 +718,33 @@ def _build_monthly_revenue_sql(
         partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
+WITH per_order AS (
+  -- Deduplica por order_id: para cada pedido, soma attributed_amount de todos os
+  -- treatments dentro da mesma linha e usa MAX para lidar com linhas duplicadas
+  -- de um mesmo pedido (partições reprocessadas).
+  SELECT
+    r.order_id,
+    MAX(r.contact_id) AS contact_id,
+    FORMAT_DATE('%Y-%m', DATE(MIN(r.event_time))) AS mes,
+    MAX(COALESCE(
+      (SELECT ROUND(SUM(t.attributed_amount), 2)
+       FROM UNNEST(r.treatments) AS t
+       WHERE t.attributed_amount > 0),
+      0
+    )) AS order_attributed
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE r.event_time IS NOT NULL
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY r.order_id
+)
 SELECT
-  FORMAT_DATE('%Y-%m', DATE(r.event_time)) AS mes,
-  ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida,
-  COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
-  COUNT(DISTINCT r.contact_id) AS compradores_unicos
-FROM `{project_id}.{dataset}.{revenue_table}` r
-CROSS JOIN UNNEST(r.treatments) AS t
-WHERE ARRAY_LENGTH(r.treatments) > 0
-  AND r.event_time IS NOT NULL
-  AND t.attributed_amount > 0
-  AND {event_time_filter}
-  AND {partition_filter}
+  mes,
+  ROUND(SUM(order_attributed), 2) AS receita_atribuida,
+  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
+  COUNT(DISTINCT contact_id) AS compradores_unicos
+FROM per_order
+WHERE order_attributed > 0
 GROUP BY mes
 ORDER BY mes
 """.strip()
@@ -760,18 +775,29 @@ def _build_monthly_revenue_by_channel_sql(
         partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
+WITH per_order_channel AS (
+  -- Agrupa por (order_id, canal) para evitar dupla contagem em pedidos que
+  -- tiveram tratamentos de múltiplos canais com attributed_amount > 0.
+  SELECT
+    r.order_id,
+    MAX(r.contact_id) AS contact_id,
+    LOWER(t.channel) AS canal,
+    ROUND(SUM(t.attributed_amount), 2) AS order_channel_attributed
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND r.event_time IS NOT NULL
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY r.order_id, canal
+)
 SELECT
-  LOWER(t.channel) AS canal,
-  ROUND(SUM(t.attributed_amount), 2) AS receita_atribuida,
-  COUNT(DISTINCT r.order_id) AS pedidos_atribuidos,
-  COUNT(DISTINCT r.contact_id) AS compradores_unicos
-FROM `{project_id}.{dataset}.{revenue_table}` r
-CROSS JOIN UNNEST(r.treatments) AS t
-WHERE ARRAY_LENGTH(r.treatments) > 0
-  AND r.event_time IS NOT NULL
-  AND t.attributed_amount > 0
-  AND {event_time_filter}
-  AND {partition_filter}
+  canal,
+  ROUND(SUM(order_channel_attributed), 2) AS receita_atribuida,
+  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
+  COUNT(DISTINCT contact_id) AS compradores_unicos
+FROM per_order_channel
 GROUP BY canal
 ORDER BY canal
 """.strip()
