@@ -1895,6 +1895,7 @@ orders_period AS (
 treatments_classified AS (
   SELECT
     r.order_id,
+    t.attributed_amount,
     CASE
       WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
         r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
@@ -1910,29 +1911,29 @@ treatments_classified AS (
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
 ),
-attributed_orders AS (
-  -- Todos os pedidos com qualquer atribuição Emarsys (marketing + transacional)
+marketing_orders AS (
+  -- Pedidos com ao menos um treatment de campanha marketing
   SELECT DISTINCT order_id
   FROM treatments_classified
+  WHERE categoria = 'marketing'
 ),
 agg_total AS (
   SELECT ROUND(SUM(receita_pedido), 2) AS total_receita, COUNT(DISTINCT order_id) AS total_pedidos
   FROM orders_period
 ),
-atribuida AS (
-  SELECT op.order_id, op.receita_pedido
-  FROM orders_period op
-  INNER JOIN attributed_orders ao USING (order_id)
-),
 agg_atribuida AS (
-  SELECT ROUND(SUM(receita_pedido), 2) AS atribuida_receita, COUNT(DISTINCT order_id) AS atribuida_pedidos
-  FROM atribuida
+  -- Usa attributed_amount (crédito parcial Emarsys) para campanhas marketing — alinha com o que o Emarsys reporta
+  SELECT
+    ROUND(SUM(attributed_amount), 2) AS atribuida_receita,
+    COUNT(DISTINCT order_id)         AS atribuida_pedidos
+  FROM treatments_classified
+  WHERE categoria = 'marketing'
 ),
 unattributed AS (
-  -- Pedidos sem nenhuma atribuição Emarsys (marketing ou transacional)
+  -- Pedidos sem nenhuma atribuição a campanha marketing (inclui transacional-only e não atribuídos)
   SELECT op.order_id, op.contact_id, op.purchase_date, op.receita_pedido
   FROM orders_period op
-  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_orders)
+  WHERE op.order_id NOT IN (SELECT order_id FROM marketing_orders)
     AND op.contact_id IS NOT NULL
 ),
 email_mkt_touch AS (
