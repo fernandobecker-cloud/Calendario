@@ -1218,21 +1218,21 @@ function InfluenciadaView({ data, loading }) {
           </p>
         </div>
 
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Receita Pedidos total</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{formatCurrency(data.influenciada_receita)}</p>
-          <p className="mt-1 text-xs text-emerald-700">
-            {influenciadaPct.toFixed(1)}% do total · {(data.influenciada_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Atribuída pelo Emarsys</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">{formatCurrency(data.atribuida_receita)}</p>
+          <p className="mt-1 text-xs text-blue-600">
+            {atribuidaFullPct.toFixed(1)}% do total · {(data.atribuida_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
           </p>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Atribuída pelo Emarsys</p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.atribuida_receita)}</p>
-          <p className="mt-1 text-xs text-blue-600">
-            {atribuidaFullPct.toFixed(1)}% do total · {(data.atribuida_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Receita de Pedidos</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.influenciada_receita)}</p>
+          <p className="mt-1 text-xs text-emerald-700">
+            {influenciadaPct.toFixed(1)}% do total · {(data.influenciada_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
           </p>
         </div>
 
@@ -1265,7 +1265,7 @@ function InfluenciadaView({ data, loading }) {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Composição da Receita Pedidos total
+          Composição da Receita de Pedidos
         </h3>
         <div className="flex h-4 overflow-hidden rounded-full bg-slate-100">
           <div
