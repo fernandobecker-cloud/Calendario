@@ -52,6 +52,10 @@ EMARSYS_OPEN_DATA_SMS_SENDS_TABLE = os.getenv(
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
+# Fuso horário do Emarsys/iPlace. event_time é UTC no BigQuery;
+# usar este TZ garante que as datas de corte de cada dia coincidam com o painel Emarsys.
+EMARSYS_TZ = "America/Sao_Paulo"
+
 
 def _quote_identifier(value: str) -> str:
     safe = value.strip().replace("`", "")
@@ -702,19 +706,21 @@ def _build_monthly_revenue_sql(
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
-    # event_time = data do pedido; partitiontime = data de carga (até ~7 dias de delay).
-    # Filtramos por event_time para precisão e por partitiontime para eficiência de custo.
+    # event_time = data do pedido (UTC); partitiontime = data de carga (até ~7 dias de delay).
+    # Filtramos por event_time convertido para BRT (America/Sao_Paulo) para coincidir
+    # com o fuso que o Emarsys usa na interface — evita desvio de ±3h nas bordas do mês.
+    tz = EMARSYS_TZ
     if normalized_start and normalized_end:
-        event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
     elif normalized_start:
-        event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') >= DATE('{normalized_start}')"
         partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
     elif normalized_end:
-        event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') <= DATE('{normalized_end}')"
         partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
     else:
-        event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        event_time_filter = f"DATE(r.event_time, '{tz}') >= DATE_SUB(CURRENT_DATE('{tz}'), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
         partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
@@ -725,7 +731,7 @@ WITH per_order AS (
   SELECT
     r.order_id,
     MAX(r.contact_id) AS contact_id,
-    FORMAT_DATE('%Y-%m', DATE(MIN(r.event_time))) AS mes,
+    FORMAT_DATE('%Y-%m', DATE(MIN(r.event_time), '{tz}')) AS mes,
     MAX(COALESCE(
       (SELECT ROUND(SUM(t.attributed_amount), 2)
        FROM UNNEST(r.treatments) AS t
@@ -761,17 +767,18 @@ def _build_monthly_revenue_by_channel_sql(
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
 
+    tz = EMARSYS_TZ
     if normalized_start and normalized_end:
-        event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
     elif normalized_start:
-        event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') >= DATE('{normalized_start}')"
         partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
     elif normalized_end:
-        event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        event_time_filter = f"DATE(r.event_time, '{tz}') <= DATE('{normalized_end}')"
         partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
     else:
-        event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        event_time_filter = f"DATE(r.event_time, '{tz}') >= DATE_SUB(CURRENT_DATE('{tz}'), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
         partition_filter = f"r.partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return f"""
@@ -917,11 +924,16 @@ def _build_attribution_date_filters(
     end_date: str | None,
     table_alias: str = "r",
 ) -> tuple[str, str]:
-    """Returns (event_time_filter, partition_filter) for revenue_attribution queries."""
+    """Returns (event_time_filter, partition_filter) for revenue_attribution queries.
+
+    event_time é UTC no BigQuery; convertemos para America/Sao_Paulo antes de comparar
+    datas para coincidir com o fuso que o Emarsys usa na interface.
+    """
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
     p = f"{table_alias}.partitiontime" if table_alias else "partitiontime"
-    e = f"DATE({table_alias}.event_time)" if table_alias else "DATE(event_time)"
+    et_col = f"{table_alias}.event_time" if table_alias else "event_time"
+    e = f"DATE({et_col}, '{EMARSYS_TZ}')"
 
     if normalized_start and normalized_end:
         event_time_filter = f"{e} BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
@@ -933,7 +945,7 @@ def _build_attribution_date_filters(
         event_time_filter = f"{e} <= DATE('{normalized_end}')"
         partition_filter = f"DATE({p}) <= CURRENT_DATE()"
     else:
-        event_time_filter = f"{e} >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        event_time_filter = f"{e} >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
         partition_filter = f"{p} >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
 
     return event_time_filter, partition_filter
@@ -1199,25 +1211,25 @@ def _build_audit_cruzamento_sql(start_date: str | None = None, end_date: str | N
     # Both filters are required (same pattern as the working audit-receita-por-campanha SQL)
     if normalized_start and normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     else:
         purchase_date_filter = "p.purchase_date IS NOT NULL"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {EMARSYS_OPEN_DATA_LOOKBACK_DAYS + 7} DAY)"
         touch_partition_end = "CURRENT_DATE()"
@@ -1509,25 +1521,25 @@ def _build_audit_deveria_atribuir_detail_sql(start_date: str | None = None, end_
 
     if normalized_start and normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
         touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         touch_partition_end = f"DATE('{normalized_end}')"
     else:
         purchase_date_filter = "p.purchase_date IS NOT NULL"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         touch_partition_end = "CURRENT_DATE()"
@@ -1671,19 +1683,19 @@ def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None
     normalized_end = _validate_optional_iso_date(end_date)
 
     if normalized_start and normalized_end:
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
@@ -1828,19 +1840,19 @@ def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | No
     normalized_end = _validate_optional_iso_date(end_date)
 
     if normalized_start and normalized_end:
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
@@ -1981,22 +1993,22 @@ def _build_campanha_detalhe_sql(
 
     if normalized_start and normalized_end:
         period_filter = f"DATE(partitiontime) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
     elif normalized_start:
         period_filter = f"DATE(partitiontime) >= DATE('{normalized_start}')"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE('{normalized_start}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
     elif normalized_end:
         period_filter = f"DATE(partitiontime) <= DATE('{normalized_end}')"
-        attr_event_time_filter = f"DATE(r.event_time) <= DATE('{normalized_end}')"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
     else:
         period_filter = f"DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        attr_event_time_filter = f"DATE(r.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
 
