@@ -1994,12 +1994,8 @@ SELECT
   COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) AS atribuida_full_pedidos,
   COALESCE((SELECT gap_receita             FROM agg_gap),            0) AS gap_receita,
   COALESCE((SELECT gap_pedidos             FROM agg_gap),            0) AS gap_pedidos,
-  ROUND(
-    COALESCE((SELECT atribuida_full_receita FROM agg_atribuida_full), 0) +
-    COALESCE((SELECT gap_receita            FROM agg_gap),            0), 2
-  )                                                                      AS influenciada_receita,
-  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) +
-  COALESCE((SELECT gap_pedidos             FROM agg_gap),            0)  AS influenciada_pedidos
+  COALESCE((SELECT atribuida_full_receita  FROM agg_atribuida_full), 0) AS influenciada_receita,
+  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) AS influenciada_pedidos
 """.strip()
 
 
