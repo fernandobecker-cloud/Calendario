@@ -1913,27 +1913,25 @@ agg_total AS (
   SELECT ROUND(SUM(receita_pedido), 2) AS total_receita, COUNT(DISTINCT order_id) AS total_pedidos
   FROM orders_period
 ),
-attribution_amounts AS (
-  -- Credited amount do Emarsys por pedido, filtrado por event_time (igual à Auditoria)
-  SELECT
-    r.order_id,
-    ROUND(MAX(COALESCE(
-      (SELECT SUM(t.attributed_amount) FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0), 0
-    )), 2) AS order_attributed
-  FROM `{project_id}.{dataset}.{revenue_table}` r
-  WHERE r.event_time IS NOT NULL
-    AND {attr_event_time_filter}
-    AND {attr_partition_filter}
-  GROUP BY r.order_id
-),
 agg_atribuida AS (
-  -- Espelha a Auditoria: base = orders_period (purchase_date) cruzado com attribution_amounts (event_time)
+  -- Mesma lógica de deduplicação do Executivo (monthly-revenue): MAX por order_id
   SELECT
-    ROUND(SUM(aa.order_attributed), 2) AS atribuida_receita,
-    COUNT(DISTINCT op.order_id)        AS atribuida_pedidos
-  FROM orders_period op
-  INNER JOIN attribution_amounts aa USING (order_id)
-  WHERE aa.order_attributed > 0
+    ROUND(SUM(order_attributed), 2) AS atribuida_receita,
+    COUNT(DISTINCT order_id)        AS atribuida_pedidos
+  FROM (
+    SELECT
+      r.order_id,
+      MAX(COALESCE(
+        (SELECT ROUND(SUM(t.attributed_amount), 2)
+         FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0), 0
+      )) AS order_attributed
+    FROM `{project_id}.{dataset}.{revenue_table}` r
+    WHERE r.event_time IS NOT NULL
+      AND {attr_event_time_filter}
+      AND {attr_partition_filter}
+    GROUP BY r.order_id
+  )
+  WHERE order_attributed > 0
 ),
 agg_atribuida_full AS (
   -- Receita total dos pedidos atribuídos: espelha a Auditoria (orders_net sem HAVING, purchase_date_filter)
