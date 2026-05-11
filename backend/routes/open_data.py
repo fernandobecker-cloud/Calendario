@@ -1910,10 +1910,10 @@ treatments_classified AS (
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
 ),
-marketing_orders AS (
+attributed_orders AS (
+  -- Todos os pedidos com qualquer atribuição Emarsys (marketing + transacional)
   SELECT DISTINCT order_id
   FROM treatments_classified
-  WHERE categoria = 'marketing'
 ),
 agg_total AS (
   SELECT ROUND(SUM(receita_pedido), 2) AS total_receita, COUNT(DISTINCT order_id) AS total_pedidos
@@ -1922,16 +1922,17 @@ agg_total AS (
 atribuida AS (
   SELECT op.order_id, op.receita_pedido
   FROM orders_period op
-  INNER JOIN marketing_orders mo USING (order_id)
+  INNER JOIN attributed_orders ao USING (order_id)
 ),
 agg_atribuida AS (
   SELECT ROUND(SUM(receita_pedido), 2) AS atribuida_receita, COUNT(DISTINCT order_id) AS atribuida_pedidos
   FROM atribuida
 ),
 unattributed AS (
+  -- Pedidos sem nenhuma atribuição Emarsys (marketing ou transacional)
   SELECT op.order_id, op.contact_id, op.purchase_date, op.receita_pedido
   FROM orders_period op
-  WHERE op.order_id NOT IN (SELECT order_id FROM marketing_orders)
+  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_orders)
     AND op.contact_id IS NOT NULL
 ),
 email_mkt_touch AS (
