@@ -1899,45 +1899,42 @@ attribution_contacts AS (
   WHERE {attr_partition_filter}
   GROUP BY order_id
 ),
-treatments_classified AS (
-  SELECT
-    r.order_id,
-    t.attributed_amount,
-    CASE
-      WHEN REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, sn.nome_campanha, '')),
-        r'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps')
-      THEN 'transacional'
-      ELSE 'marketing'
-    END AS categoria
+attributed_order_ids AS (
+  -- Todos os pedidos com qualquer atribuição no período (todas as campanhas)
+  SELECT DISTINCT r.order_id
   FROM `{project_id}.{dataset}.{revenue_table}` r
   CROSS JOIN UNNEST(r.treatments) AS t
-  LEFT JOIN email_names en ON CAST(t.campaign_id AS STRING) = en.campaign_id
-  LEFT JOIN sms_names sn ON CAST(t.campaign_id AS STRING) = sn.campaign_id
   WHERE ARRAY_LENGTH(r.treatments) > 0
     AND t.attributed_amount > 0
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
-),
-marketing_orders AS (
-  -- Pedidos com ao menos um treatment de campanha marketing
-  SELECT DISTINCT order_id
-  FROM treatments_classified
-  WHERE categoria = 'marketing'
 ),
 agg_total AS (
   SELECT ROUND(SUM(receita_pedido), 2) AS total_receita, COUNT(DISTINCT order_id) AS total_pedidos
   FROM orders_period
 ),
 agg_atribuida AS (
-  -- Usa attributed_amount (crédito parcial Emarsys) para campanhas marketing — alinha com o que o Emarsys reporta
+  -- Mesma lógica de deduplicação do Executivo (monthly-revenue): MAX por order_id
   SELECT
-    ROUND(SUM(attributed_amount), 2) AS atribuida_receita,
-    COUNT(DISTINCT order_id)         AS atribuida_pedidos
-  FROM treatments_classified
-  WHERE categoria = 'marketing'
+    ROUND(SUM(order_attributed), 2) AS atribuida_receita,
+    COUNT(DISTINCT order_id)        AS atribuida_pedidos
+  FROM (
+    SELECT
+      r.order_id,
+      MAX(COALESCE(
+        (SELECT ROUND(SUM(t.attributed_amount), 2)
+         FROM UNNEST(r.treatments) AS t WHERE t.attributed_amount > 0), 0
+      )) AS order_attributed
+    FROM `{project_id}.{dataset}.{revenue_table}` r
+    WHERE r.event_time IS NOT NULL
+      AND {attr_event_time_filter}
+      AND {attr_partition_filter}
+    GROUP BY r.order_id
+  )
+  WHERE order_attributed > 0
 ),
 unattributed AS (
-  -- Pedidos sem atribuição marketing; contact_id preferencial da revenue_attribution (fallback: si_contact_id)
+  -- Pedidos sem nenhuma atribuição; contact_id preferencial da revenue_attribution (fallback: si_contact_id)
   SELECT
     op.order_id,
     COALESCE(ac.contact_id, op.si_contact_id) AS contact_id,
@@ -1945,7 +1942,7 @@ unattributed AS (
     op.receita_pedido
   FROM orders_period op
   LEFT JOIN attribution_contacts ac USING (order_id)
-  WHERE op.order_id NOT IN (SELECT order_id FROM marketing_orders)
+  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_order_ids)
     AND COALESCE(ac.contact_id, op.si_contact_id) IS NOT NULL
 ),
 email_mkt_touch AS (
