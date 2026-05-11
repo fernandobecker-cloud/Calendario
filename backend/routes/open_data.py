@@ -1933,6 +1933,14 @@ agg_atribuida AS (
   )
   WHERE order_attributed > 0
 ),
+agg_atribuida_full AS (
+  -- Receita total dos pedidos atribuídos pelo Emarsys (valor completo do pedido, não o crédito parcial)
+  SELECT
+    ROUND(SUM(op.receita_pedido), 2) AS atribuida_full_receita,
+    COUNT(DISTINCT op.order_id)      AS atribuida_full_pedidos
+  FROM orders_period op
+  INNER JOIN attributed_order_ids a USING (order_id)
+),
 unattributed AS (
   -- Pedidos sem nenhuma atribuição; contact_id preferencial da revenue_attribution (fallback: si_contact_id)
   SELECT
@@ -1978,18 +1986,20 @@ agg_gap AS (
   INNER JOIN gap_orders g USING (order_id)
 )
 SELECT
-  COALESCE((SELECT total_receita    FROM agg_total),     0) AS total_receita,
-  COALESCE((SELECT total_pedidos    FROM agg_total),     0) AS total_pedidos,
-  COALESCE((SELECT atribuida_receita FROM agg_atribuida), 0) AS atribuida_receita,
-  COALESCE((SELECT atribuida_pedidos FROM agg_atribuida), 0) AS atribuida_pedidos,
-  COALESCE((SELECT gap_receita      FROM agg_gap),       0) AS gap_receita,
-  COALESCE((SELECT gap_pedidos      FROM agg_gap),       0) AS gap_pedidos,
+  COALESCE((SELECT total_receita           FROM agg_total),          0) AS total_receita,
+  COALESCE((SELECT total_pedidos           FROM agg_total),          0) AS total_pedidos,
+  COALESCE((SELECT atribuida_receita       FROM agg_atribuida),      0) AS atribuida_receita,
+  COALESCE((SELECT atribuida_pedidos       FROM agg_atribuida),      0) AS atribuida_pedidos,
+  COALESCE((SELECT atribuida_full_receita  FROM agg_atribuida_full), 0) AS atribuida_full_receita,
+  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) AS atribuida_full_pedidos,
+  COALESCE((SELECT gap_receita             FROM agg_gap),            0) AS gap_receita,
+  COALESCE((SELECT gap_pedidos             FROM agg_gap),            0) AS gap_pedidos,
   ROUND(
-    COALESCE((SELECT atribuida_receita FROM agg_atribuida), 0) +
-    COALESCE((SELECT gap_receita      FROM agg_gap),       0), 2
-  )                                                          AS influenciada_receita,
-  COALESCE((SELECT atribuida_pedidos FROM agg_atribuida), 0) +
-  COALESCE((SELECT gap_pedidos      FROM agg_gap),       0)  AS influenciada_pedidos
+    COALESCE((SELECT atribuida_full_receita FROM agg_atribuida_full), 0) +
+    COALESCE((SELECT gap_receita            FROM agg_gap),            0), 2
+  )                                                                      AS influenciada_receita,
+  COALESCE((SELECT atribuida_full_pedidos  FROM agg_atribuida_full), 0) +
+  COALESCE((SELECT gap_pedidos             FROM agg_gap),            0)  AS influenciada_pedidos
 """.strip()
 
 
@@ -2007,6 +2017,8 @@ def emarsys_receita_influenciada(
                 "total_pedidos": 0,
                 "atribuida_receita": 0.0,
                 "atribuida_pedidos": 0,
+                "atribuida_full_receita": 0.0,
+                "atribuida_full_pedidos": 0,
                 "gap_receita": 0.0,
                 "gap_pedidos": 0,
                 "influenciada_receita": 0.0,
@@ -2020,6 +2032,8 @@ def emarsys_receita_influenciada(
             "total_pedidos": int(row.get("total_pedidos") or 0),
             "atribuida_receita": float(row.get("atribuida_receita") or 0),
             "atribuida_pedidos": int(row.get("atribuida_pedidos") or 0),
+            "atribuida_full_receita": float(row.get("atribuida_full_receita") or 0),
+            "atribuida_full_pedidos": int(row.get("atribuida_full_pedidos") or 0),
             "gap_receita": float(row.get("gap_receita") or 0),
             "gap_pedidos": int(row.get("gap_pedidos") or 0),
             "influenciada_receita": float(row.get("influenciada_receita") or 0),
