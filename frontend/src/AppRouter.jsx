@@ -192,7 +192,7 @@ export default function AppRouter() {
           <Route path="/" element={<Navigate to="/resultado-geral" replace />} />
           <Route path="/campanhas" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
-          <Route path="/resultado-geral" element={<ResultadoGeralPage />} />
+          <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
           <Route path="/auditoria" element={<AuditoriaPage />} />
           <Route path="/adm" element={<AdmPage />} />
           <Route path="/mapa-portal" element={<PortalMapPage />} />

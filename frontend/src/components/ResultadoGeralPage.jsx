@@ -79,7 +79,7 @@ const VIEWS = [
   { key: 'executivo', label: 'Executivo' },
   { key: 'atribuida', label: 'Atribuída Detalhada' },
   { key: 'direta', label: 'Direta Detalhada' },
-  { key: 'influenciada', label: 'Influenciada CRM' },
+  { key: 'influenciada', label: 'Influenciada CRM', adminOnly: true },
 ]
 
 const CHANNEL_CONFIG = {
@@ -195,7 +195,7 @@ function ResumoAtribuicao({ totais, resumoPorCategoria }) {
   )
 }
 
-export default function ResultadoGeralPage() {
+export default function ResultadoGeralPage({ currentRole }) {
   const defaults = getDefaultDates()
   const [activeView, setActiveView] = useState('executivo')
   const [startDate, setStartDate] = useState(defaults.start)
@@ -278,7 +278,7 @@ export default function ResultadoGeralPage() {
         {/* Sidebar */}
         <aside className="w-52 shrink-0">
           <nav className="flex flex-col gap-1">
-            {VIEWS.map((v) => (
+            {VIEWS.filter((v) => !v.adminOnly || currentRole === 'admin').map((v) => (
               <button
                 key={v.key}
                 onClick={() => setActiveView(v.key)}
