@@ -78,6 +78,30 @@ def load_google_sheet() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=headers).fillna("")
 
 
+def load_google_sheet_by_name(spreadsheet_name: str, worksheet_title: str | None = None) -> pd.DataFrame:
+    """Carrega uma planilha compartilhada com a Service Account pelo nome do arquivo."""
+    service_account_info = _load_service_account_info()
+    try:
+        credentials = Credentials.from_service_account_info(service_account_info, scopes=_READ_SCOPES)
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open(spreadsheet_name)
+        worksheet = spreadsheet.worksheet(worksheet_title) if worksheet_title else spreadsheet.get_worksheet(0)
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="A planilha nao possui abas")
+        values = worksheet.get_all_values()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao ler a planilha '{spreadsheet_name}'") from exc
+
+    if not values:
+        return pd.DataFrame()
+
+    headers = values[0]
+    rows = values[1:]
+    return pd.DataFrame(rows, columns=headers).fillna("")
+
+
 def get_sheet_headers() -> list[str]:
     """Retorna a linha de cabeçalho da planilha do calendário."""
     worksheet = _open_worksheet(_WRITE_SCOPES)

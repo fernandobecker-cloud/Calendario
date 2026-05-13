@@ -24,6 +24,7 @@ const ADM_MENU_ITEMS = [
   { key: 'receita-teste', label: 'Receita Teste' },
   { key: 'comparativo-crm', label: 'Comparativo CRM' },
   { key: 'campanha-detalhe', label: 'Apuracao de Campanhas' },
+  { key: 'unidade-venda', label: 'Unidade de Venda' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
 ]
 
@@ -238,6 +239,11 @@ export default function App({ mode = 'campanhas' }) {
   const [emailApuracaoData, setEmailApuracaoData] = useState(null)
   const [emailApuracaoLoading, setEmailApuracaoLoading] = useState(false)
   const [emailApuracaoError, setEmailApuracaoError] = useState('')
+  const [unidadeVendaData, setUnidadeVendaData] = useState(null)
+  const [unidadeVendaLoading, setUnidadeVendaLoading] = useState(false)
+  const [unidadeVendaError, setUnidadeVendaError] = useState('')
+  const [unidadeVendaMaxDocuments, setUnidadeVendaMaxDocuments] = useState(5000)
+  const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -770,6 +776,30 @@ export default function App({ mode = 'campanhas' }) {
       setEmailApuracaoLoading(false)
     }
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
+
+  const loadUnidadeVenda = useCallback(async () => {
+    setUnidadeVendaLoading(true)
+    setUnidadeVendaError('')
+    try {
+      const params = new URLSearchParams({
+        max_documents: String(unidadeVendaMaxDocuments),
+        sample_limit: String(unidadeVendaSampleLimit)
+      })
+      const res = await fetch(`/api/open-data/unidade-venda/contacts-match?${params}`)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao cruzar Base Vendas com si_contacts.')
+      setUnidadeVendaData(payload)
+    } catch (err) {
+      setUnidadeVendaError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setUnidadeVendaData(null)
+    } finally {
+      setUnidadeVendaLoading(false)
+    }
+  }, [unidadeVendaMaxDocuments, unidadeVendaSampleLimit])
+
+  useEffect(() => {
+    if (activeView === 'unidade-venda') loadUnidadeVenda()
+  }, [activeView, loadUnidadeVenda])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -1935,6 +1965,154 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderUnidadeVendaView = () => {
+    const summary = unidadeVendaData?.summary || {}
+    const items = Array.isArray(unidadeVendaData?.items) ? unidadeVendaData.items : []
+    const statusLabel = {
+      bateu: 'Bateu',
+      nao_bateu: 'Nao bateu',
+      sem_documento: 'Sem documento',
+      nao_consultado: 'Nao consultado'
+    }
+    const statusClass = {
+      bateu: 'bg-emerald-50 text-emerald-700',
+      nao_bateu: 'bg-rose-50 text-rose-700',
+      sem_documento: 'bg-slate-100 text-slate-600',
+      nao_consultado: 'bg-amber-50 text-amber-700'
+    }
+
+    return (
+      <section className="space-y-5">
+        <section className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Unidade de Venda</h1>
+              <p className="mt-2 text-sm text-emerald-50 md:text-base">
+                Cruzamento de Base Vendas: Documento Cliente com si_contacts.external_id.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Docs consultados
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={unidadeVendaMaxDocuments}
+                  onChange={(event) => setUnidadeVendaMaxDocuments(Number(event.target.value || 5000))}
+                  className="w-36 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Amostra
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={unidadeVendaSampleLimit}
+                  onChange={(event) => setUnidadeVendaSampleLimit(Number(event.target.value || 200))}
+                  className="w-28 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={loadUnidadeVenda}
+                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-slate-100"
+              >
+                Atualizar
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {unidadeVendaError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {unidadeVendaError}
+          </section>
+        )}
+
+        {unidadeVendaLoading ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Cruzando Base Vendas com si_contacts...</p>
+          </section>
+        ) : unidadeVendaData && (
+          <>
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Linhas na planilha</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.sheet_rows || 0).toLocaleString('pt-BR')}</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Docs unicos</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.unique_documents || 0).toLocaleString('pt-BR')}</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Consultados</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.documents_checked || 0).toLocaleString('pt-BR')}</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bateram</p>
+                <p className="mt-2 text-2xl font-semibold text-emerald-700">{Number(summary.matched_documents || 0).toLocaleString('pt-BR')}</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Taxa de match</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {Number(summary.match_rate || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+                </p>
+              </article>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Amostra do cruzamento</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Planilha {unidadeVendaData.sheet_name}, coluna {unidadeVendaData.document_column}, contra tabela {unidadeVendaData.contacts_table}.
+                </p>
+              </div>
+
+              {items.length === 0 ? (
+                <p className="mt-4 text-sm text-slate-500">Nenhuma linha retornada na amostra.</p>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-600">
+                        <th className="px-3 py-2 font-semibold">Linha</th>
+                        <th className="px-3 py-2 font-semibold">Documento Cliente</th>
+                        <th className="px-3 py-2 font-semibold">Normalizado</th>
+                        <th className="px-3 py-2 font-semibold">Status</th>
+                        <th className="px-3 py-2 font-semibold">external_id encontrado</th>
+                        <th className="px-3 py-2 font-semibold">Linhas contato</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {items.map((item) => (
+                        <tr key={`${item.row_index}-${item.normalized_documento}`} className="align-top">
+                          <td className="px-3 py-3 text-slate-700">{item.row_index}</td>
+                          <td className="px-3 py-3 text-slate-900">{formatOpenDataValue(item.documento_cliente)}</td>
+                          <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.normalized_documento)}</td>
+                          <td className="px-3 py-3">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass[item.status] || statusClass.sem_documento}`}>
+                              {statusLabel[item.status] || item.status}
+                            </span>
+                          </td>
+                          <td className="max-w-[360px] px-3 py-3 text-slate-700">
+                            {(item.external_ids || []).length > 0 ? item.external_ids.join(', ') : '-'}
+                          </td>
+                          <td className="px-3 py-3 text-slate-700">{Number(item.contact_rows || 0).toLocaleString('pt-BR')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </section>
+    )
+  }
+
   const renderCampanhaDetalheView = () => (
     <section className="space-y-8">
 
@@ -2411,6 +2589,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'receita-teste' && renderReceitaTesteView()}
           {activeView === 'comparativo-crm' && renderComparativoCRMView()}
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
+          {activeView === 'unidade-venda' && renderUnidadeVendaView()}
         </div>
       </div>
 

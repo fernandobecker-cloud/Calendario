@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
 
-from backend.event_sources import run_bigquery_records
+from backend.event_sources import load_google_sheet_by_name, run_bigquery_records
 
 EMARSYS_OPEN_DATA_PROJECT_ID = os.getenv("EMARSYS_OPEN_DATA_PROJECT_ID", "sap-od-herval").strip()
 EMARSYS_OPEN_DATA_DATASET = os.getenv("EMARSYS_OPEN_DATA_DATASET", "emarsys_herval_1091660394").strip()
@@ -29,6 +29,10 @@ EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE = os.getenv(
 EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE",
     "si_purchases_1091660394",
+).strip()
+EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE",
+    "si_contacts_1091660394",
 ).strip()
 EMARSYS_OPEN_DATA_LOCATION = os.getenv("EMARSYS_OPEN_DATA_LOCATION", "EU").strip()
 EMARSYS_OPEN_DATA_QUERY = os.getenv("EMARSYS_OPEN_DATA_QUERY", "").strip()
@@ -55,6 +59,9 @@ TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 # Fuso horário do Emarsys/iPlace. event_time é UTC no BigQuery;
 # usar este TZ garante que as datas de corte de cada dia coincidam com o painel Emarsys.
 EMARSYS_TZ = "America/Sao_Paulo"
+BASE_VENDAS_SPREADSHEET_NAME = os.getenv("BASE_VENDAS_SPREADSHEET_NAME", "Base Vendas").strip()
+BASE_VENDAS_WORKSHEET_NAME = os.getenv("BASE_VENDAS_WORKSHEET_NAME", "").strip()
+BASE_VENDAS_DOCUMENT_COLUMN = os.getenv("BASE_VENDAS_DOCUMENT_COLUMN", "Documento Cliente").strip()
 
 
 def _quote_identifier(value: str) -> str:
@@ -86,6 +93,22 @@ def _records_to_response_items(records: list[dict[str, Any]]) -> list[dict[str, 
         {key: _normalize_open_data_value(value) for key, value in record.items()}
         for record in records
     ]
+
+
+def _normalize_match_key(value: Any) -> str:
+    return re.sub(r"[^0-9A-Za-z]+", "", str(value or "")).lower()
+
+
+def _find_column(columns: list[str], expected: str) -> str | None:
+    expected_key = _normalize_match_key(expected)
+    for column in columns:
+        if _normalize_match_key(column) == expected_key:
+            return column
+    return None
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _validate_optional_iso_date(value: str | None) -> str | None:
@@ -917,6 +940,163 @@ def emarsys_open_data_table_preview(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
+
+
+def _build_sales_unit_contacts_sql(document_keys: list[str]) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    key_values = ", ".join(_sql_string_literal(value) for value in document_keys)
+
+    return f"""
+WITH contacts AS (
+  SELECT
+    CAST(external_id AS STRING) AS external_id,
+    REGEXP_REPLACE(LOWER(CAST(external_id AS STRING)), r'[^0-9a-z]', '') AS normalized_external_id
+  FROM `{project_id}.{dataset}.{contacts_table}`
+  WHERE external_id IS NOT NULL
+)
+SELECT
+  normalized_external_id,
+  ARRAY_AGG(DISTINCT external_id IGNORE NULLS LIMIT 5) AS external_ids,
+  COUNT(*) AS contact_rows
+FROM contacts
+WHERE normalized_external_id IN ({key_values})
+GROUP BY normalized_external_id
+""".strip()
+
+
+@router.get("/unidade-venda/contacts-match")
+def unidade_venda_contacts_match(
+    max_documents: int = Query(default=5000, ge=1, le=10000),
+    sample_limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    try:
+        df = load_google_sheet_by_name(
+            BASE_VENDAS_SPREADSHEET_NAME,
+            BASE_VENDAS_WORKSHEET_NAME or None,
+        )
+        if df.empty:
+            return {
+                "items": [],
+                "summary": {
+                    "sheet_rows": 0,
+                    "documents_with_value": 0,
+                    "unique_documents": 0,
+                    "documents_checked": 0,
+                    "matched_documents": 0,
+                    "unmatched_documents": 0,
+                    "not_checked_documents": 0,
+                    "match_rate": 0,
+                },
+                "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
+                "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
+                "document_column": BASE_VENDAS_DOCUMENT_COLUMN,
+                "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
+                "source": "google_sheets_base_vendas_x_bigquery_si_contacts",
+            }
+
+        document_column = _find_column([str(column) for column in df.columns], BASE_VENDAS_DOCUMENT_COLUMN)
+        if not document_column:
+            available_columns = [str(column) for column in df.columns]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Coluna '{BASE_VENDAS_DOCUMENT_COLUMN}' nao encontrada na planilha. Colunas disponiveis: {', '.join(available_columns)}",
+            )
+
+        sheet_rows: list[dict[str, Any]] = []
+        unique_document_keys: list[str] = []
+        seen_keys: set[str] = set()
+
+        for idx, row in df.iterrows():
+            raw_document = str(row.get(document_column) or "").strip()
+            normalized_document = _normalize_match_key(raw_document)
+            if normalized_document and normalized_document not in seen_keys:
+                seen_keys.add(normalized_document)
+                unique_document_keys.append(normalized_document)
+            sheet_rows.append(
+                {
+                    "row_index": int(idx) + 2,
+                    "documento_cliente": raw_document,
+                    "normalized_documento": normalized_document,
+                }
+            )
+
+        documents_to_check = unique_document_keys[:max_documents]
+        matches_by_key: dict[str, dict[str, Any]] = {}
+        if documents_to_check:
+            sql = _build_sales_unit_contacts_sql(documents_to_check)
+            records = run_bigquery_records(
+                sql,
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+            )
+            for record in records:
+                key = str(record.get("normalized_external_id") or "")
+                if key:
+                    matches_by_key[key] = {
+                        "external_ids": list(record.get("external_ids") or []),
+                        "contact_rows": int(record.get("contact_rows") or 0),
+                    }
+
+        checked_keys = set(documents_to_check)
+        matched_keys = set(matches_by_key)
+        not_checked_keys = set(unique_document_keys[max_documents:])
+        unmatched_keys = checked_keys - matched_keys
+
+        items: list[dict[str, Any]] = []
+        for row in sheet_rows:
+            key = row["normalized_documento"]
+            match = matches_by_key.get(key)
+            if not key:
+                status = "sem_documento"
+            elif key in not_checked_keys:
+                status = "nao_consultado"
+            elif match:
+                status = "bateu"
+            else:
+                status = "nao_bateu"
+
+            items.append(
+                {
+                    **row,
+                    "status": status,
+                    "external_ids": match["external_ids"] if match else [],
+                    "contact_rows": match["contact_rows"] if match else 0,
+                }
+            )
+
+        documents_with_value = sum(1 for row in sheet_rows if row["normalized_documento"])
+        match_rate = (len(matched_keys) / len(checked_keys) * 100) if checked_keys else 0
+
+        return {
+            "items": items[:sample_limit],
+            "summary": {
+                "sheet_rows": len(sheet_rows),
+                "documents_with_value": documents_with_value,
+                "unique_documents": len(unique_document_keys),
+                "documents_checked": len(checked_keys),
+                "matched_documents": len(matched_keys),
+                "unmatched_documents": len(unmatched_keys),
+                "not_checked_documents": len(not_checked_keys),
+                "match_rate": round(match_rate, 2),
+            },
+            "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
+            "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
+            "document_column": document_column,
+            "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
+            "dataset": EMARSYS_OPEN_DATA_DATASET,
+            "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
+            "location": EMARSYS_OPEN_DATA_LOCATION or None,
+            "max_documents": max_documents,
+            "sample_limit": sample_limit,
+            "total_items_returned": min(len(items), sample_limit),
+            "source": "google_sheets_base_vendas_x_bigquery_si_contacts",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao cruzar Base Vendas com si_contacts: {exc}") from exc
 
 
 def _build_attribution_date_filters(
