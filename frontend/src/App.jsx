@@ -2065,6 +2065,12 @@ export default function App({ mode = 'campanhas' }) {
           </section>
         )}
 
+        {unidadeVendaData?.warning && (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {unidadeVendaData.warning}
+          </section>
+        )}
+
         {unidadeVendaLoading ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
             <p className="text-sm text-slate-500">Cruzando Base Vendas com compras e contatos...</p>
@@ -2108,7 +2114,8 @@ export default function App({ mode = 'campanhas' }) {
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Amostra do cruzamento</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Planilha {unidadeVendaData.sheet_name}, coluna {unidadeVendaData.document_column}, contra {unidadeVendaData.purchases_table} e {unidadeVendaData.contacts_table}.
+                  Planilha {unidadeVendaData.sheet_name}, documento em {unidadeVendaData.document_column}
+                  {unidadeVendaData.date_column ? `, data em ${unidadeVendaData.date_column}` : ''}, contra {unidadeVendaData.purchases_table} e {unidadeVendaData.contacts_table}.
                 </p>
               </div>
 

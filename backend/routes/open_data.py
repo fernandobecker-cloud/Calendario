@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 from typing import Any
 
@@ -62,6 +62,22 @@ EMARSYS_TZ = "America/Sao_Paulo"
 BASE_VENDAS_SPREADSHEET_NAME = os.getenv("BASE_VENDAS_SPREADSHEET_NAME", "Base Vendas").strip()
 BASE_VENDAS_WORKSHEET_NAME = os.getenv("BASE_VENDAS_WORKSHEET_NAME", "").strip()
 BASE_VENDAS_DOCUMENT_COLUMN = os.getenv("BASE_VENDAS_DOCUMENT_COLUMN", "Documento Cliente").strip()
+BASE_VENDAS_DATE_COLUMN = os.getenv("BASE_VENDAS_DATE_COLUMN", "").strip()
+BASE_VENDAS_DATE_COLUMN_CANDIDATES = [
+    "Data Venda",
+    "Data da Venda",
+    "Data Pedido",
+    "Data do Pedido",
+    "Data Compra",
+    "Data da Compra",
+    "Data Emissao",
+    "Data de Emissao",
+    "Data Faturamento",
+    "Dt Venda",
+    "Dt. Venda",
+    "Data",
+    "purchase_date",
+]
 
 
 def _quote_identifier(value: str) -> str:
@@ -108,6 +124,49 @@ def _find_column(columns: list[str], expected: str) -> str | None:
         if _normalize_match_key(column) == expected_key:
             return column
     return None
+
+
+def _find_base_vendas_date_column(columns: list[str]) -> str | None:
+    if BASE_VENDAS_DATE_COLUMN:
+        return _find_column(columns, BASE_VENDAS_DATE_COLUMN)
+
+    for candidate in BASE_VENDAS_DATE_COLUMN_CANDIDATES:
+        found = _find_column(columns, candidate)
+        if found:
+            return found
+    return None
+
+
+def _parse_base_vendas_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip()
+    if not text or text == "-":
+        return None
+
+    numeric_text = text.replace(".", "").replace(",", ".")
+    try:
+        serial = float(numeric_text)
+        if serial > 20000:
+            return date(1899, 12, 30) + timedelta(days=int(serial))
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text[:10], fmt).date()
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
 
 
 def _sql_string_literal(value: str) -> str:
@@ -998,7 +1057,8 @@ matched_contact_external_ids AS (
     MIN(primeira_compra_periodo) AS primeira_compra_periodo,
     MAX(ultima_compra_periodo) AS ultima_compra_periodo
   FROM contact_external_ids
-  WHERE normalized_external_id IN ({key_values})
+  WHERE normalized_external_id != ''
+    AND normalized_external_id IN ({key_values})
   GROUP BY normalized_external_id, si_contact_id
 )
 SELECT
@@ -1047,12 +1107,18 @@ def unidade_venda_contacts_match(
                     "not_checked_documents": 0,
                     "match_rate": 0,
                     "ignored_documents": 0,
+                    "source_sheet_rows": 0,
+                    "sheet_rows_in_period": 0,
+                    "invalid_date_rows": 0,
                     "matched_orders_period": 0,
                     "matched_revenue_period": 0,
                 },
                 "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
                 "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
                 "document_column": BASE_VENDAS_DOCUMENT_COLUMN,
+                "date_column": None,
+                "date_filter_applied": False,
+                "warning": None,
                 "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
                 "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
                 "start_date": start_date,
@@ -1060,19 +1126,36 @@ def unidade_venda_contacts_match(
                 "source": "google_sheets_base_vendas_x_bigquery_si_contacts",
             }
 
-        document_column = _find_column([str(column) for column in df.columns], BASE_VENDAS_DOCUMENT_COLUMN)
+        available_columns = [str(column) for column in df.columns]
+        document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
         if not document_column:
-            available_columns = [str(column) for column in df.columns]
             raise HTTPException(
                 status_code=400,
                 detail=f"Coluna '{BASE_VENDAS_DOCUMENT_COLUMN}' nao encontrada na planilha. Colunas disponiveis: {', '.join(available_columns)}",
             )
 
+        date_column = _find_base_vendas_date_column(available_columns)
+        start_obj = date.fromisoformat(start_date)
+        end_obj = date.fromisoformat(end_date)
+        source_sheet_rows = len(df.index)
+        rows_iterable = []
+        invalid_date_rows = 0
+
+        for idx, row in df.iterrows():
+            if date_column:
+                row_date = _parse_base_vendas_date(row.get(date_column))
+                if row_date is None:
+                    invalid_date_rows += 1
+                    continue
+                if row_date < start_obj or row_date > end_obj:
+                    continue
+            rows_iterable.append((idx, row))
+
         sheet_rows: list[dict[str, Any]] = []
         unique_document_keys: list[str] = []
         seen_keys: set[str] = set()
 
-        for idx, row in df.iterrows():
+        for idx, row in rows_iterable:
             raw_document = str(row.get(document_column) or "").strip()
             normalized_document = _normalize_match_key(raw_document)
             if not normalized_document:
@@ -1141,7 +1224,7 @@ def unidade_venda_contacts_match(
             )
 
         documents_with_value = sum(1 for row in sheet_rows if row["normalized_documento"])
-        ignored_documents = len(df.index) - len(sheet_rows)
+        ignored_documents = len(rows_iterable) - len(sheet_rows)
         match_rate = (len(matched_keys) / len(checked_keys) * 100) if checked_keys else 0
         matched_orders = sum(match["pedidos_periodo"] for match in matches_by_key.values())
         matched_revenue = sum(match["receita_periodo"] for match in matches_by_key.values())
@@ -1158,12 +1241,18 @@ def unidade_venda_contacts_match(
                 "not_checked_documents": len(not_checked_keys),
                 "match_rate": round(match_rate, 2),
                 "ignored_documents": ignored_documents,
+                "source_sheet_rows": source_sheet_rows,
+                "sheet_rows_in_period": len(rows_iterable),
+                "invalid_date_rows": invalid_date_rows,
                 "matched_orders_period": matched_orders,
                 "matched_revenue_period": round(matched_revenue, 2),
             },
             "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
             "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
             "document_column": document_column,
+            "date_column": date_column,
+            "date_filter_applied": bool(date_column),
+            "warning": None if date_column else "Nao encontrei uma coluna de data na Base Vendas; o periodo foi aplicado apenas na si_purchases.",
             "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
             "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
             "start_date": start_date,
