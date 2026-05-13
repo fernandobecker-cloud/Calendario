@@ -244,6 +244,7 @@ export default function App({ mode = 'campanhas' }) {
   const [unidadeVendaError, setUnidadeVendaError] = useState('')
   const [unidadeVendaMaxDocuments, setUnidadeVendaMaxDocuments] = useState(5000)
   const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
+  const [unidadeVendaYear, setUnidadeVendaYear] = useState(2026)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -783,7 +784,8 @@ export default function App({ mode = 'campanhas' }) {
     try {
       const params = new URLSearchParams({
         max_documents: String(unidadeVendaMaxDocuments),
-        sample_limit: String(unidadeVendaSampleLimit)
+        sample_limit: String(unidadeVendaSampleLimit),
+        year: String(unidadeVendaYear)
       })
       const res = await fetch(`/api/open-data/unidade-venda/contacts-match?${params}`)
       const payload = await res.json()
@@ -795,7 +797,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setUnidadeVendaLoading(false)
     }
-  }, [unidadeVendaMaxDocuments, unidadeVendaSampleLimit])
+  }, [unidadeVendaMaxDocuments, unidadeVendaSampleLimit, unidadeVendaYear])
 
   useEffect(() => {
     if (activeView === 'unidade-venda') loadUnidadeVenda()
@@ -1988,10 +1990,21 @@ export default function App({ mode = 'campanhas' }) {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Unidade de Venda</h1>
               <p className="mt-2 text-sm text-emerald-50 md:text-base">
-                Cruzamento de Base Vendas: Documento Cliente com si_contacts.external_id.
+                Vendas de 2026 em si_purchases, contato em si_contacts e external_id contra Documento Cliente.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Ano
+                <input
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  value={unidadeVendaYear}
+                  onChange={(event) => setUnidadeVendaYear(Number(event.target.value || 2026))}
+                  className="w-24 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
               <label className="flex flex-col gap-1 text-sm text-white/90">
                 Docs consultados
                 <input
@@ -2033,11 +2046,11 @@ export default function App({ mode = 'campanhas' }) {
 
         {unidadeVendaLoading ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-            <p className="text-sm text-slate-500">Cruzando Base Vendas com si_contacts...</p>
+            <p className="text-sm text-slate-500">Cruzando Base Vendas com compras e contatos...</p>
           </section>
         ) : unidadeVendaData && (
           <>
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
               <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Linhas na planilha</p>
                 <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.sheet_rows || 0).toLocaleString('pt-BR')}</p>
@@ -2060,13 +2073,17 @@ export default function App({ mode = 'campanhas' }) {
                   {Number(summary.match_rate || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
                 </p>
               </article>
+              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pedidos {unidadeVendaData.purchase_year}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.matched_orders_2026 || 0).toLocaleString('pt-BR')}</p>
+              </article>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Amostra do cruzamento</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Planilha {unidadeVendaData.sheet_name}, coluna {unidadeVendaData.document_column}, contra tabela {unidadeVendaData.contacts_table}.
+                  Planilha {unidadeVendaData.sheet_name}, coluna {unidadeVendaData.document_column}, contra {unidadeVendaData.purchases_table} e {unidadeVendaData.contacts_table}.
                 </p>
               </div>
 
@@ -2082,6 +2099,9 @@ export default function App({ mode = 'campanhas' }) {
                         <th className="px-3 py-2 font-semibold">Normalizado</th>
                         <th className="px-3 py-2 font-semibold">Status</th>
                         <th className="px-3 py-2 font-semibold">external_id encontrado</th>
+                        <th className="px-3 py-2 font-semibold">si_contact_id</th>
+                        <th className="px-3 py-2 font-semibold">Pedidos 2026</th>
+                        <th className="px-3 py-2 font-semibold">Receita 2026</th>
                         <th className="px-3 py-2 font-semibold">Linhas contato</th>
                       </tr>
                     </thead>
@@ -2099,6 +2119,11 @@ export default function App({ mode = 'campanhas' }) {
                           <td className="max-w-[360px] px-3 py-3 text-slate-700">
                             {(item.external_ids || []).length > 0 ? item.external_ids.join(', ') : '-'}
                           </td>
+                          <td className="max-w-[240px] px-3 py-3 text-slate-700">
+                            {(item.si_contact_ids || []).length > 0 ? item.si_contact_ids.join(', ') : '-'}
+                          </td>
+                          <td className="px-3 py-3 text-slate-700">{Number(item.pedidos_2026 || 0).toLocaleString('pt-BR')}</td>
+                          <td className="px-3 py-3 text-slate-700">{formatCurrency(item.receita_2026)}</td>
                           <td className="px-3 py-3 text-slate-700">{Number(item.contact_rows || 0).toLocaleString('pt-BR')}</td>
                         </tr>
                       ))}
