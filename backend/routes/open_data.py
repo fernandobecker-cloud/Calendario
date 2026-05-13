@@ -945,23 +945,21 @@ def emarsys_open_data_table_preview(
         raise HTTPException(status_code=502, detail=f"Falha ao consultar tabela Open Data: {exc}") from exc
 
 
-def _build_sales_unit_contacts_sql(document_keys: list[str], year: int) -> str:
+def _build_sales_unit_contacts_sql(document_keys: list[str], start_date: str, end_date: str) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     key_values = ", ".join(_sql_string_literal(value) for value in document_keys)
-    start_date = f"{year}-01-01"
-    end_date = f"{year}-12-31"
 
     return f"""
 WITH purchase_contacts AS (
   SELECT
     CAST(si_contact_id AS STRING) AS si_contact_id,
-    COUNT(DISTINCT order_id) AS pedidos_2026,
-    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS receita_2026,
-    DATE(MIN(purchase_date)) AS primeira_compra_2026,
-    DATE(MAX(purchase_date)) AS ultima_compra_2026
+    COUNT(DISTINCT order_id) AS pedidos_periodo,
+    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS receita_periodo,
+    DATE(MIN(purchase_date)) AS primeira_compra_periodo,
+    DATE(MAX(purchase_date)) AS ultima_compra_periodo
   FROM `{project_id}.{dataset}.{purchases_table}`
   WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     AND si_contact_id IS NOT NULL
@@ -977,10 +975,10 @@ contact_external_ids AS (
       THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
       ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
     END AS normalized_external_id,
-    pc.pedidos_2026,
-    pc.receita_2026,
-    pc.primeira_compra_2026,
-    pc.ultima_compra_2026
+    pc.pedidos_periodo,
+    pc.receita_periodo,
+    pc.primeira_compra_periodo,
+    pc.ultima_compra_periodo
   FROM purchase_contacts pc
   JOIN `{project_id}.{dataset}.{contacts_table}` c
     ON pc.si_contact_id = COALESCE(
@@ -989,18 +987,30 @@ contact_external_ids AS (
       JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
     )
   WHERE c.external_id IS NOT NULL
+),
+matched_contact_external_ids AS (
+  SELECT
+    normalized_external_id,
+    si_contact_id,
+    ARRAY_AGG(DISTINCT external_id IGNORE NULLS LIMIT 5) AS contact_external_ids,
+    MAX(pedidos_periodo) AS pedidos_periodo,
+    MAX(receita_periodo) AS receita_periodo,
+    MIN(primeira_compra_periodo) AS primeira_compra_periodo,
+    MAX(ultima_compra_periodo) AS ultima_compra_periodo
+  FROM contact_external_ids
+  WHERE normalized_external_id IN ({key_values})
+  GROUP BY normalized_external_id, si_contact_id
 )
 SELECT
   normalized_external_id,
-  ARRAY_AGG(DISTINCT external_id IGNORE NULLS LIMIT 5) AS external_ids,
+  ARRAY_CONCAT_AGG(contact_external_ids LIMIT 5) AS external_ids,
   ARRAY_AGG(DISTINCT si_contact_id IGNORE NULLS LIMIT 5) AS si_contact_ids,
   COUNT(DISTINCT si_contact_id) AS contact_rows,
-  SUM(pedidos_2026) AS pedidos_2026,
-  ROUND(SUM(receita_2026), 2) AS receita_2026,
-  MIN(primeira_compra_2026) AS primeira_compra_2026,
-  MAX(ultima_compra_2026) AS ultima_compra_2026
-FROM contact_external_ids
-WHERE normalized_external_id IN ({key_values})
+  SUM(pedidos_periodo) AS pedidos_periodo,
+  ROUND(SUM(receita_periodo), 2) AS receita_periodo,
+  MIN(primeira_compra_periodo) AS primeira_compra_periodo,
+  MAX(ultima_compra_periodo) AS ultima_compra_periodo
+FROM matched_contact_external_ids
 GROUP BY normalized_external_id
 """.strip()
 
@@ -1009,9 +1019,17 @@ GROUP BY normalized_external_id
 def unidade_venda_contacts_match(
     max_documents: int = Query(default=5000, ge=1, le=10000),
     sample_limit: int = Query(default=200, ge=1, le=1000),
-    year: int = Query(default=2026, ge=2020, le=2100),
+    start: str = Query(default="2026-01-01", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(default="2026-12-31", pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
+        start_date = _validate_optional_iso_date(start)
+        end_date = _validate_optional_iso_date(end)
+        if not start_date or not end_date:
+            raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+        if start_date > end_date:
+            raise HTTPException(status_code=400, detail="A data de inicio deve ser menor ou igual a data de fim.")
+
         df = load_google_sheet_by_name(
             BASE_VENDAS_SPREADSHEET_NAME,
             BASE_VENDAS_WORKSHEET_NAME or None,
@@ -1028,15 +1046,17 @@ def unidade_venda_contacts_match(
                     "unmatched_documents": 0,
                     "not_checked_documents": 0,
                     "match_rate": 0,
-                    "matched_orders_2026": 0,
-                    "matched_revenue_2026": 0,
+                    "ignored_documents": 0,
+                    "matched_orders_period": 0,
+                    "matched_revenue_period": 0,
                 },
                 "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
                 "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
                 "document_column": BASE_VENDAS_DOCUMENT_COLUMN,
                 "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
                 "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
-                "purchase_year": year,
+                "start_date": start_date,
+                "end_date": end_date,
                 "source": "google_sheets_base_vendas_x_bigquery_si_contacts",
             }
 
@@ -1055,7 +1075,9 @@ def unidade_venda_contacts_match(
         for idx, row in df.iterrows():
             raw_document = str(row.get(document_column) or "").strip()
             normalized_document = _normalize_match_key(raw_document)
-            if normalized_document and normalized_document not in seen_keys:
+            if not normalized_document:
+                continue
+            if normalized_document not in seen_keys:
                 seen_keys.add(normalized_document)
                 unique_document_keys.append(normalized_document)
             sheet_rows.append(
@@ -1069,7 +1091,7 @@ def unidade_venda_contacts_match(
         documents_to_check = unique_document_keys[:max_documents]
         matches_by_key: dict[str, dict[str, Any]] = {}
         if documents_to_check:
-            sql = _build_sales_unit_contacts_sql(documents_to_check, year)
+            sql = _build_sales_unit_contacts_sql(documents_to_check, start_date, end_date)
             records = run_bigquery_records(
                 sql,
                 EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -1082,10 +1104,10 @@ def unidade_venda_contacts_match(
                         "external_ids": list(record.get("external_ids") or []),
                         "si_contact_ids": list(record.get("si_contact_ids") or []),
                         "contact_rows": int(record.get("contact_rows") or 0),
-                        "pedidos_2026": int(record.get("pedidos_2026") or 0),
-                        "receita_2026": float(record.get("receita_2026") or 0),
-                        "primeira_compra_2026": _normalize_open_data_value(record.get("primeira_compra_2026")),
-                        "ultima_compra_2026": _normalize_open_data_value(record.get("ultima_compra_2026")),
+                        "pedidos_periodo": int(record.get("pedidos_periodo") or 0),
+                        "receita_periodo": float(record.get("receita_periodo") or 0),
+                        "primeira_compra_periodo": _normalize_open_data_value(record.get("primeira_compra_periodo")),
+                        "ultima_compra_periodo": _normalize_open_data_value(record.get("ultima_compra_periodo")),
                     }
 
         checked_keys = set(documents_to_check)
@@ -1097,9 +1119,7 @@ def unidade_venda_contacts_match(
         for row in sheet_rows:
             key = row["normalized_documento"]
             match = matches_by_key.get(key)
-            if not key:
-                status = "sem_documento"
-            elif key in not_checked_keys:
+            if key in not_checked_keys:
                 status = "nao_consultado"
             elif match:
                 status = "bateu"
@@ -1113,17 +1133,18 @@ def unidade_venda_contacts_match(
                     "external_ids": match["external_ids"] if match else [],
                     "si_contact_ids": match["si_contact_ids"] if match else [],
                     "contact_rows": match["contact_rows"] if match else 0,
-                    "pedidos_2026": match["pedidos_2026"] if match else 0,
-                    "receita_2026": match["receita_2026"] if match else 0,
-                    "primeira_compra_2026": match["primeira_compra_2026"] if match else None,
-                    "ultima_compra_2026": match["ultima_compra_2026"] if match else None,
+                    "pedidos_periodo": match["pedidos_periodo"] if match else 0,
+                    "receita_periodo": match["receita_periodo"] if match else 0,
+                    "primeira_compra_periodo": match["primeira_compra_periodo"] if match else None,
+                    "ultima_compra_periodo": match["ultima_compra_periodo"] if match else None,
                 }
             )
 
         documents_with_value = sum(1 for row in sheet_rows if row["normalized_documento"])
+        ignored_documents = len(df.index) - len(sheet_rows)
         match_rate = (len(matched_keys) / len(checked_keys) * 100) if checked_keys else 0
-        matched_orders = sum(match["pedidos_2026"] for match in matches_by_key.values())
-        matched_revenue = sum(match["receita_2026"] for match in matches_by_key.values())
+        matched_orders = sum(match["pedidos_periodo"] for match in matches_by_key.values())
+        matched_revenue = sum(match["receita_periodo"] for match in matches_by_key.values())
 
         return {
             "items": items[:sample_limit],
@@ -1136,15 +1157,17 @@ def unidade_venda_contacts_match(
                 "unmatched_documents": len(unmatched_keys),
                 "not_checked_documents": len(not_checked_keys),
                 "match_rate": round(match_rate, 2),
-                "matched_orders_2026": matched_orders,
-                "matched_revenue_2026": round(matched_revenue, 2),
+                "ignored_documents": ignored_documents,
+                "matched_orders_period": matched_orders,
+                "matched_revenue_period": round(matched_revenue, 2),
             },
             "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
             "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
             "document_column": document_column,
             "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
             "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
-            "purchase_year": year,
+            "start_date": start_date,
+            "end_date": end_date,
             "dataset": EMARSYS_OPEN_DATA_DATASET,
             "project_id": EMARSYS_OPEN_DATA_PROJECT_ID,
             "location": EMARSYS_OPEN_DATA_LOCATION or None,
