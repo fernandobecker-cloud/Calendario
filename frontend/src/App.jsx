@@ -2128,13 +2128,13 @@ export default function App({ mode = 'campanhas' }) {
                       <tr className="text-left text-slate-600">
                         <th className="px-3 py-2 font-semibold">Linha</th>
                         <th className="px-3 py-2 font-semibold">Documento Cliente</th>
-                        <th className="px-3 py-2 font-semibold">Normalizado</th>
                         <th className="px-3 py-2 font-semibold">Status</th>
-                        <th className="px-3 py-2 font-semibold">external_id encontrado</th>
-                        <th className="px-3 py-2 font-semibold">si_contact_id</th>
+                        {unidadeVendaData.canal_column && <th className="px-3 py-2 font-semibold">Canal</th>}
+                        {unidadeVendaData.unidade_negocio_column && <th className="px-3 py-2 font-semibold">Unidade de Negócio</th>}
+                        {unidadeVendaData.codigo_filial_column && <th className="px-3 py-2 font-semibold">Cód. Filial</th>}
                         <th className="px-3 py-2 font-semibold">Pedidos periodo</th>
                         <th className="px-3 py-2 font-semibold">Receita periodo</th>
-                        <th className="px-3 py-2 font-semibold">Linhas contato</th>
+                        <th className="px-3 py-2 font-semibold">si_contact_id</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2142,21 +2142,19 @@ export default function App({ mode = 'campanhas' }) {
                         <tr key={`${item.row_index}-${item.normalized_documento}`} className="align-top">
                           <td className="px-3 py-3 text-slate-700">{item.row_index}</td>
                           <td className="px-3 py-3 text-slate-900">{formatOpenDataValue(item.documento_cliente)}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatOpenDataValue(item.normalized_documento)}</td>
                           <td className="px-3 py-3">
                             <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass[item.status] || statusClass.sem_documento}`}>
                               {statusLabel[item.status] || item.status}
                             </span>
                           </td>
-                          <td className="max-w-[360px] px-3 py-3 text-slate-700">
-                            {(item.external_ids || []).length > 0 ? item.external_ids.join(', ') : '-'}
-                          </td>
+                          {unidadeVendaData.canal_column && <td className="px-3 py-3 text-slate-700">{item.canal || '-'}</td>}
+                          {unidadeVendaData.unidade_negocio_column && <td className="px-3 py-3 text-slate-700">{item.unidade_negocio || '-'}</td>}
+                          {unidadeVendaData.codigo_filial_column && <td className="px-3 py-3 text-slate-700">{item.codigo_filial || '-'}</td>}
+                          <td className="px-3 py-3 text-slate-700">{Number(item.pedidos_periodo || 0).toLocaleString('pt-BR')}</td>
+                          <td className="px-3 py-3 text-slate-700">{formatCurrency(item.receita_periodo)}</td>
                           <td className="max-w-[240px] px-3 py-3 text-slate-700">
                             {(item.si_contact_ids || []).length > 0 ? item.si_contact_ids.join(', ') : '-'}
                           </td>
-                          <td className="px-3 py-3 text-slate-700">{Number(item.pedidos_periodo || 0).toLocaleString('pt-BR')}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatCurrency(item.receita_periodo)}</td>
-                          <td className="px-3 py-3 text-slate-700">{Number(item.contact_rows || 0).toLocaleString('pt-BR')}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2164,6 +2162,44 @@ export default function App({ mode = 'campanhas' }) {
                 </div>
               )}
             </section>
+
+            {/* Breakdowns por dimensão */}
+            {(['canal', 'unidade_negocio', 'codigo_filial']).map((field) => {
+              const colKey = `${field}_column`
+              const dataKey = `breakdown_${field}`
+              const labels = { canal: 'Canal', unidade_negocio: 'Unidade de Negócio', codigo_filial: 'Código Filial' }
+              const rows = unidadeVendaData[dataKey]
+              if (!unidadeVendaData[colKey] || !rows || rows.length === 0) return null
+              return (
+                <section key={field} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+                  <h2 className="mb-4 text-lg font-semibold text-slate-900">Receita CRM por {labels[field]}</h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-600">
+                          <th className="px-3 py-2 font-semibold">{labels[field]}</th>
+                          <th className="px-3 py-2 text-right font-semibold">Clientes CRM</th>
+                          <th className="px-3 py-2 text-right font-semibold">Linhas</th>
+                          <th className="px-3 py-2 text-right font-semibold">Pedidos Open Data</th>
+                          <th className="px-3 py-2 text-right font-semibold">Receita Open Data</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {rows.map((r) => (
+                          <tr key={r.dimension} className="hover:bg-slate-50">
+                            <td className="px-3 py-3 font-medium text-slate-900">{r.dimension}</td>
+                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.unique_docs).toLocaleString('pt-BR')}</td>
+                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.linhas).toLocaleString('pt-BR')}</td>
+                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.pedidos_periodo).toLocaleString('pt-BR')}</td>
+                            <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatCurrency(r.receita_periodo)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )
+            })}
           </>
         )}
       </section>

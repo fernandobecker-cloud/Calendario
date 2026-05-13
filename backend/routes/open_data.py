@@ -1125,6 +1125,9 @@ def unidade_venda_contacts_match(
             )
 
         date_column = _find_base_vendas_date_column(available_columns)
+        canal_column = _find_column(available_columns, "Canal")
+        unidade_negocio_column = _find_column(available_columns, "Unidade de Negocio")
+        codigo_filial_column = _find_column(available_columns, "Codigo Filial")
         start_obj = date.fromisoformat(start_date)
         end_obj = date.fromisoformat(end_date)
         source_sheet_rows = len(df.index)
@@ -1158,6 +1161,9 @@ def unidade_venda_contacts_match(
                     "row_index": int(idx) + 2,
                     "documento_cliente": raw_document,
                     "normalized_documento": normalized_document,
+                    "canal": str(row.get(canal_column) or "").strip() if canal_column else None,
+                    "unidade_negocio": str(row.get(unidade_negocio_column) or "").strip() if unidade_negocio_column else None,
+                    "codigo_filial": str(row.get(codigo_filial_column) or "").strip() if codigo_filial_column else None,
                 }
             )
 
@@ -1219,6 +1225,25 @@ def unidade_venda_contacts_match(
         matched_orders = sum(match["pedidos_periodo"] for match in matches_by_key.values())
         matched_revenue = sum(match["receita_periodo"] for match in matches_by_key.values())
 
+        def _dim_breakdown(field: str) -> list[dict[str, Any]]:
+            groups: dict[str, dict[str, Any]] = {}
+            for item in items:
+                if item["status"] != "bateu":
+                    continue
+                dim = item.get(field) or "(sem valor)"
+                if dim not in groups:
+                    groups[dim] = {"dimension": dim, "linhas": 0, "unique_docs": set(), "pedidos_periodo": 0, "receita_periodo": 0.0}
+                groups[dim]["linhas"] += 1
+                groups[dim]["unique_docs"].add(item["normalized_documento"])
+                groups[dim]["pedidos_periodo"] += item.get("pedidos_periodo") or 0
+                groups[dim]["receita_periodo"] += float(item.get("receita_periodo") or 0)
+            return sorted(
+                [{"dimension": g["dimension"], "linhas": g["linhas"], "unique_docs": len(g["unique_docs"]),
+                  "pedidos_periodo": g["pedidos_periodo"], "receita_periodo": round(g["receita_periodo"], 2)}
+                 for g in groups.values()],
+                key=lambda x: -x["receita_periodo"],
+            )
+
         return {
             "items": items[:sample_limit],
             "summary": {
@@ -1241,8 +1266,14 @@ def unidade_venda_contacts_match(
             "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
             "document_column": document_column,
             "date_column": date_column,
+            "canal_column": canal_column,
+            "unidade_negocio_column": unidade_negocio_column,
+            "codigo_filial_column": codigo_filial_column,
             "date_filter_applied": bool(date_column),
             "warning": None if date_column else "Nao encontrei uma coluna de data na Base Vendas; o periodo foi aplicado apenas na si_purchases.",
+            "breakdown_canal": _dim_breakdown("canal") if canal_column else [],
+            "breakdown_unidade_negocio": _dim_breakdown("unidade_negocio") if unidade_negocio_column else [],
+            "breakdown_codigo_filial": _dim_breakdown("codigo_filial") if codigo_filial_column else [],
             "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
             "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
             "start_date": start_date,
