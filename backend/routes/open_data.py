@@ -64,6 +64,7 @@ BASE_VENDAS_WORKSHEET_NAME = os.getenv("BASE_VENDAS_WORKSHEET_NAME", "").strip()
 BASE_VENDAS_DOCUMENT_COLUMN = os.getenv("BASE_VENDAS_DOCUMENT_COLUMN", "Documento Cliente").strip()
 BASE_VENDAS_DATE_COLUMN = os.getenv("BASE_VENDAS_DATE_COLUMN", "").strip()
 BASE_VENDAS_DATE_COLUMN_CANDIDATES = [
+    "Data Completa",
     "Data Venda",
     "Data da Venda",
     "Data Pedido",
@@ -1012,7 +1013,32 @@ def _build_sales_unit_contacts_sql(document_keys: list[str], start_date: str, en
     key_values = ", ".join(_sql_string_literal(value) for value in document_keys)
 
     return f"""
-WITH purchase_contacts AS (
+WITH matched_contacts AS (
+  -- Parte de si_contacts (external_id = CPF/doc do cliente) — não depende de si_purchases.si_contact_id
+  SELECT
+    CASE
+      WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
+        AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
+      THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
+      ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
+    END AS normalized_external_id,
+    c.external_id,
+    COALESCE(
+      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.si_contact_id'),
+      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.id'),
+      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
+    ) AS si_contact_id
+  FROM `{project_id}.{dataset}.{contacts_table}` c
+  WHERE c.external_id IS NOT NULL
+),
+filtered_contacts AS (
+  SELECT *
+  FROM matched_contacts
+  WHERE normalized_external_id != ''
+    AND normalized_external_id IN ({key_values})
+),
+purchases_by_contact AS (
+  -- Pedidos e receita no período por contact; LEFT JOIN abaixo garante match mesmo sem compras
   SELECT
     CAST(si_contact_id AS STRING) AS si_contact_id,
     COUNT(DISTINCT order_id) AS pedidos_periodo,
@@ -1023,55 +1049,19 @@ WITH purchase_contacts AS (
   WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     AND si_contact_id IS NOT NULL
   GROUP BY si_contact_id
-),
-contact_external_ids AS (
-  SELECT
-    pc.si_contact_id,
-    c.external_id,
-    CASE
-      WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
-        AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
-      THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
-      ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
-    END AS normalized_external_id,
-    pc.pedidos_periodo,
-    pc.receita_periodo,
-    pc.primeira_compra_periodo,
-    pc.ultima_compra_periodo
-  FROM purchase_contacts pc
-  JOIN `{project_id}.{dataset}.{contacts_table}` c
-    ON pc.si_contact_id = COALESCE(
-      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.si_contact_id'),
-      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.id'),
-      JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
-    )
-  WHERE c.external_id IS NOT NULL
-),
-matched_contact_external_ids AS (
-  SELECT
-    normalized_external_id,
-    si_contact_id,
-    ARRAY_AGG(DISTINCT external_id IGNORE NULLS LIMIT 5) AS contact_external_ids,
-    MAX(pedidos_periodo) AS pedidos_periodo,
-    MAX(receita_periodo) AS receita_periodo,
-    MIN(primeira_compra_periodo) AS primeira_compra_periodo,
-    MAX(ultima_compra_periodo) AS ultima_compra_periodo
-  FROM contact_external_ids
-  WHERE normalized_external_id != ''
-    AND normalized_external_id IN ({key_values})
-  GROUP BY normalized_external_id, si_contact_id
 )
 SELECT
-  normalized_external_id,
-  ARRAY_CONCAT_AGG(contact_external_ids LIMIT 5) AS external_ids,
-  ARRAY_AGG(DISTINCT si_contact_id IGNORE NULLS LIMIT 5) AS si_contact_ids,
-  COUNT(DISTINCT si_contact_id) AS contact_rows,
-  SUM(pedidos_periodo) AS pedidos_periodo,
-  ROUND(SUM(receita_periodo), 2) AS receita_periodo,
-  MIN(primeira_compra_periodo) AS primeira_compra_periodo,
-  MAX(ultima_compra_periodo) AS ultima_compra_periodo
-FROM matched_contact_external_ids
-GROUP BY normalized_external_id
+  fc.normalized_external_id,
+  ARRAY_AGG(DISTINCT fc.external_id IGNORE NULLS LIMIT 5) AS external_ids,
+  ARRAY_AGG(DISTINCT fc.si_contact_id IGNORE NULLS LIMIT 5) AS si_contact_ids,
+  COUNT(DISTINCT fc.si_contact_id) AS contact_rows,
+  COALESCE(SUM(p.pedidos_periodo), 0) AS pedidos_periodo,
+  COALESCE(ROUND(SUM(p.receita_periodo), 2), 0.0) AS receita_periodo,
+  MIN(p.primeira_compra_periodo) AS primeira_compra_periodo,
+  MAX(p.ultima_compra_periodo) AS ultima_compra_periodo
+FROM filtered_contacts fc
+LEFT JOIN purchases_by_contact p USING (si_contact_id)
+GROUP BY fc.normalized_external_id
 """.strip()
 
 
