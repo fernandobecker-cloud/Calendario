@@ -249,6 +249,7 @@ export default function App({ mode = 'campanhas' }) {
   const [unidadeVendaData, setUnidadeVendaData] = useState(null)
   const [unidadeVendaLoading, setUnidadeVendaLoading] = useState(false)
   const [unidadeVendaError, setUnidadeVendaError] = useState('')
+  const [unidadeVendaHasRequested, setUnidadeVendaHasRequested] = useState(false)
   const [unidadeVendaMaxDocuments, setUnidadeVendaMaxDocuments] = useState(5000)
   const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
   const [unidadeVendaStart, setUnidadeVendaStart] = useState(`${now.getFullYear()}-01-01`)
@@ -787,6 +788,7 @@ export default function App({ mode = 'campanhas' }) {
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
 
   const loadUnidadeVenda = useCallback(async () => {
+    setUnidadeVendaHasRequested(true)
     setUnidadeVendaLoading(true)
     setUnidadeVendaError('')
     try {
@@ -797,20 +799,23 @@ export default function App({ mode = 'campanhas' }) {
         end: unidadeVendaEnd
       })
       const res = await fetch(`/api/open-data/unidade-venda/contacts-match?${params}`)
-      const payload = await res.json()
+      const text = await res.text()
+      const payload = text ? JSON.parse(text) : null
       if (!res.ok) throw new Error(payload?.detail || 'Erro ao cruzar Base Vendas com si_contacts.')
+      if (!payload) throw new Error('A API nao retornou dados para o cruzamento.')
       setUnidadeVendaData(payload)
     } catch (err) {
-      setUnidadeVendaError(err instanceof Error ? err.message : 'Erro inesperado.')
+      const isJsonParseError = err instanceof SyntaxError
+      setUnidadeVendaError(
+        isJsonParseError
+          ? 'A API respondeu em formato inesperado. Clique em Atualizar novamente ou verifique o backend.'
+          : err instanceof Error ? err.message : 'Erro inesperado.'
+      )
       setUnidadeVendaData(null)
     } finally {
       setUnidadeVendaLoading(false)
     }
   }, [unidadeVendaEnd, unidadeVendaMaxDocuments, unidadeVendaSampleLimit, unidadeVendaStart])
-
-  useEffect(() => {
-    if (activeView === 'unidade-venda') loadUnidadeVenda()
-  }, [activeView, loadUnidadeVenda])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -2063,6 +2068,10 @@ export default function App({ mode = 'campanhas' }) {
         {unidadeVendaLoading ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
             <p className="text-sm text-slate-500">Cruzando Base Vendas com compras e contatos...</p>
+          </section>
+        ) : !unidadeVendaHasRequested ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Escolha o periodo e clique em Atualizar para carregar o cruzamento.</p>
           </section>
         ) : unidadeVendaData && (
           <>
