@@ -1241,6 +1241,7 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
       if (!res.ok || !payload) throw new Error(payload?.detail || 'Erro ao buscar pedidos do gap.')
       const rows = (payload.items || []).map(item => ({
         order_id: item.order_id,
+        contact_id: item.contact_id,
         external_id: item.external_id,
         data_compra: item.purchase_date || '',
         valor_pedido: String(item.valor_pedido).replace('.', ','),

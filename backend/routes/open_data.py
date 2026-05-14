@@ -2708,6 +2708,7 @@ def emarsys_gap_orders(
         items = [
             {
                 "order_id": str(r.get("order_id") or ""),
+                "contact_id": str(r.get("contact_id") or ""),
                 "external_id": ext_id_map.get(str(r.get("contact_id") or ""), ""),
                 "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
                 "valor_pedido": float(r.get("valor_pedido") or 0),
