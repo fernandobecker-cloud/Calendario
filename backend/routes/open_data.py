@@ -80,6 +80,22 @@ BASE_VENDAS_DATE_COLUMN_CANDIDATES = [
     "Data",
     "purchase_date",
 ]
+BASE_VENDAS_REVENUE_COLUMN_CANDIDATES = [
+    "Receita",
+    "Valor",
+    "Valor Pedido",
+    "Vl Pedido",
+    "Vlr Pedido",
+    "Total",
+    "Receita Bruta",
+    "Valor Bruto",
+    "Vlr Venda",
+    "Vl Venda",
+    "Receita Liquida",
+    "Valor Liquido",
+    "sales_amount",
+    "revenue",
+]
 
 
 def _quote_identifier(value: str) -> str:
@@ -139,6 +155,34 @@ def _find_base_vendas_date_column(columns: list[str]) -> str | None:
         if found:
             return found
     return None
+
+
+def _find_base_vendas_revenue_column(columns: list[str]) -> str | None:
+    for candidate in BASE_VENDAS_REVENUE_COLUMN_CANDIDATES:
+        found = _find_column(columns, candidate)
+        if found:
+            return found
+    return None
+
+
+def _parse_revenue_value(value: Any) -> float:
+    """Parse a revenue value from the sheet, handling Brazilian number format."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace("R$", "").replace(" ", "")
+    if not text or text == "-":
+        return 0.0
+    # Brazilian format: dot as thousands separator, comma as decimal
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
 
 
 def _parse_base_vendas_date(value: Any) -> date | None:
@@ -2472,6 +2516,246 @@ def emarsys_receita_influenciada(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular receita influenciada: {exc}") from exc
+
+
+def _build_gap_orders_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Returns individual gap orders (not in revenue_attribution but with mkt touch) for download."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    elif normalized_start:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+    elif normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    else:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+
+    transactional_regex = r"'^transacional_|^0_token-|^token-|^00000000_pedido_|fraudes|contrato-assinado|^0_at_|^0_cartaopresente|^0_lrautomatica|^0_produto_transito|pesquisanps'"
+
+    return f"""
+WITH
+email_names AS (
+  SELECT CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+orders_period AS (
+  SELECT p.order_id, MAX(p.si_contact_id) AS si_contact_id,
+    DATE(MIN(p.purchase_date)) AS purchase_date,
+    ROUND(SUM(p.sales_amount), 2) AS receita_pedido
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY p.order_id
+  HAVING SUM(p.sales_amount) > 0
+),
+attribution_contacts AS (
+  SELECT order_id, MAX(contact_id) AS contact_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE {attr_partition_filter}
+  GROUP BY order_id
+),
+attributed_order_ids AS (
+  SELECT DISTINCT r.order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0 AND t.attributed_amount > 0
+    AND {attr_event_time_filter} AND {attr_partition_filter}
+),
+unattributed AS (
+  SELECT op.order_id,
+    COALESCE(ac.contact_id, op.si_contact_id) AS contact_id,
+    op.purchase_date,
+    op.receita_pedido
+  FROM orders_period op
+  LEFT JOIN attribution_contacts ac USING (order_id)
+  WHERE op.order_id NOT IN (SELECT order_id FROM attributed_order_ids)
+    AND COALESCE(ac.contact_id, op.si_contact_id) IS NOT NULL
+),
+email_mkt_touch AS (
+  SELECT DISTINCT u.order_id
+  FROM unattributed u
+  JOIN `{project_id}.{dataset}.{email_opens_table}` e
+    ON e.contact_id = u.contact_id
+    AND DATE(e.event_time) BETWEEN DATE_SUB(u.purchase_date, INTERVAL 7 DAY) AND u.purchase_date
+    AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  LEFT JOIN email_names en ON CAST(e.campaign_id AS STRING) = en.campaign_id
+  WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, '')), {transactional_regex})
+),
+sms_mkt_touch AS (
+  SELECT DISTINCT u.order_id
+  FROM unattributed u
+  JOIN `{project_id}.{dataset}.{sms_sends_table}` s
+    ON s.contact_id = u.contact_id
+    AND DATE(s.event_time) BETWEEN DATE_SUB(u.purchase_date, INTERVAL 7 DAY) AND u.purchase_date
+    AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  LEFT JOIN sms_names sn ON CAST(s.campaign_id AS STRING) = sn.campaign_id
+  WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(sn.nome_campanha, '')), {transactional_regex})
+),
+gap_orders AS (
+  SELECT order_id FROM email_mkt_touch
+  UNION DISTINCT
+  SELECT order_id FROM sms_mkt_touch
+)
+SELECT
+  u.order_id,
+  CAST(u.contact_id AS STRING) AS contact_id,
+  u.purchase_date,
+  u.receita_pedido AS valor_pedido
+FROM unattributed u
+INNER JOIN gap_orders g USING (order_id)
+ORDER BY u.receita_pedido DESC
+""".strip()
+
+
+@router.get("/emarsys/gap-orders")
+def emarsys_gap_orders(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_gap_orders_sql(start, end)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+        items = [
+            {
+                "order_id": str(r.get("order_id") or ""),
+                "contact_id": str(r.get("contact_id") or ""),
+                "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
+                "valor_pedido": float(r.get("valor_pedido") or 0),
+            }
+            for r in records
+        ]
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar pedidos do gap: {exc}") from exc
+
+
+@router.get("/base-vendas/canal-breakdown")
+def base_vendas_canal_breakdown(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Canal/filial breakdown from Base Vendas sheet — no BigQuery needed."""
+    try:
+        start_date = _validate_optional_iso_date(start)
+        end_date = _validate_optional_iso_date(end)
+        if not start_date or not end_date:
+            raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+
+        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
+        if df.empty:
+            return {"canal": [], "filial": [], "period_rows": 0, "revenue_column": None,
+                    "start_date": start_date, "end_date": end_date}
+
+        available_columns = [str(c) for c in df.columns]
+        date_column = _find_base_vendas_date_column(available_columns)
+        canal_column = _find_column(available_columns, "Canal")
+        filial_column = _find_column(available_columns, "Codigo Filial")
+        revenue_column = _find_base_vendas_revenue_column(available_columns)
+
+        start_obj = date.fromisoformat(start_date)
+        end_obj = date.fromisoformat(end_date)
+
+        rows: list[dict[str, Any]] = []
+        for _, row in df.iterrows():
+            if date_column:
+                row_date = _parse_base_vendas_date(row.get(date_column))
+                if row_date is None or row_date < start_obj or row_date > end_obj:
+                    continue
+            canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
+            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
+            receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
+            rows.append({"canal": canal or "(sem canal)", "filial": filial or "(sem filial)", "receita": receita})
+
+        # Aggregate by canal
+        canal_groups: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            c = r["canal"]
+            if c not in canal_groups:
+                canal_groups[c] = {"canal": c, "linhas": 0, "receita": 0.0}
+            canal_groups[c]["linhas"] += 1
+            canal_groups[c]["receita"] += r["receita"]
+
+        # Aggregate by canal + filial
+        filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for r in rows:
+            key = (r["canal"], r["filial"])
+            if key not in filial_groups:
+                filial_groups[key] = {"canal": r["canal"], "codigo_filial": r["filial"], "linhas": 0, "receita": 0.0}
+            filial_groups[key]["linhas"] += 1
+            filial_groups[key]["receita"] += r["receita"]
+
+        canal_list = sorted(
+            [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)} for g in canal_groups.values()],
+            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+        )
+        filial_list = sorted(
+            [{"canal": g["canal"], "codigo_filial": g["codigo_filial"], "linhas": g["linhas"], "receita": round(g["receita"], 2)} for g in filial_groups.values()],
+            key=lambda x: (-x["receita"] if x["receita"] else -x["linhas"]),
+        )
+
+        return {
+            "canal": canal_list,
+            "filial": filial_list,
+            "period_rows": len(rows),
+            "revenue_column": revenue_column,
+            "canal_column": canal_column,
+            "filial_column": filial_column,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular breakdown de canal: {exc}") from exc
 
 
 def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | None = None) -> str:

@@ -208,6 +208,7 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [atribuidaData, setAtribuidaData] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
   const [influenciadaData, setInfluenciadaData] = useState(null)
+  const [canalBreakdownData, setCanalBreakdownData] = useState(null)
 
   const handleAtualizar = useCallback(async () => {
     if (!startDate) return
@@ -256,12 +257,16 @@ export default function ResultadoGeralPage({ currentRole }) {
         setDiretaRefreshKey((k) => k + 1)
       } else if (activeView === 'influenciada') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-        const res = await fetchJson(`/api/open-data/emarsys/receita-influenciada?${params}`)
+        const [res, canalRes] = await Promise.all([
+          fetchJson(`/api/open-data/emarsys/receita-influenciada?${params}`),
+          fetchJson(`/api/open-data/base-vendas/canal-breakdown?${params}`).catch(() => ({ ok: false, data: null })),
+        ])
         if (!res.ok) {
           setError('Falha ao carregar dados de receita influenciada.')
           return
         }
         setInfluenciadaData(res.data)
+        setCanalBreakdownData(canalRes.ok ? canalRes.data : null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
@@ -348,7 +353,13 @@ export default function ResultadoGeralPage({ currentRole }) {
             <DiretaDetalhadaView startDate={startDate} endDate={endDate} refreshKey={diretaRefreshKey} />
           )}
           {activeView === 'influenciada' && (
-            <InfluenciadaView data={influenciadaData} loading={loading} />
+            <InfluenciadaView
+              data={influenciadaData}
+              loading={loading}
+              canalBreakdown={canalBreakdownData}
+              startDate={startDate}
+              endDate={endDate}
+            />
           )}
         </main>
       </div>
@@ -1196,7 +1207,52 @@ function DiretaDetalhadaView({ startDate, endDate, refreshKey }) {
   )
 }
 
-function InfluenciadaView({ data, loading }) {
+function downloadCsv(rows, filename) {
+  if (!rows.length) return
+  const headers = Object.keys(rows[0])
+  const lines = [
+    headers.join(';'),
+    ...rows.map(r => headers.map(h => {
+      const v = r[h] ?? ''
+      return String(v).includes(';') || String(v).includes('"') ? `"${String(v).replace(/"/g, '""')}"` : String(v)
+    }).join(';')),
+  ]
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate }) {
+  const [expandedCanal, setExpandedCanal] = useState(null)
+  const [gapDownloading, setGapDownloading] = useState(false)
+  const [gapDownloadError, setGapDownloadError] = useState('')
+
+  const handleDownloadGap = async () => {
+    setGapDownloading(true)
+    setGapDownloadError('')
+    try {
+      const params = new URLSearchParams({ ...(startDate ? { start: startDate } : {}), ...(endDate ? { end: endDate } : {}) })
+      const res = await fetch(`/api/open-data/emarsys/gap-orders?${params}`)
+      const payload = res.ok ? await res.json() : null
+      if (!res.ok || !payload) throw new Error(payload?.detail || 'Erro ao buscar pedidos do gap.')
+      const rows = (payload.items || []).map(item => ({
+        order_id: item.order_id,
+        contact_id: item.contact_id,
+        data_compra: item.purchase_date || '',
+        valor_pedido: String(item.valor_pedido).replace('.', ','),
+      }))
+      downloadCsv(rows, `gap_pedidos_${startDate || 'periodo'}_${endDate || ''}.csv`)
+    } catch (err) {
+      setGapDownloadError(err instanceof Error ? err.message : 'Erro ao baixar.')
+    } finally {
+      setGapDownloading(false)
+    }
+  }
+
   if (loading) return <p className="text-sm text-slate-500">Carregando...</p>
   if (!data) return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
 
@@ -1206,6 +1262,12 @@ function InfluenciadaView({ data, loading }) {
   const influenciadaPct = total > 0 ? (data.influenciada_receita / total) * 100 : 0
   const transacionalPct = total > 0 ? (data.transacional_receita / total) * 100 : 0
   const receitaFinalPct = total > 0 ? (data.receita_final / total) * 100 : 0
+
+  const hasRevenue = canalBreakdown?.revenue_column != null
+  const canalList = canalBreakdown?.canal ?? []
+  const filialList = canalBreakdown?.filial ?? []
+  const totalCanalReceita = canalList.reduce((s, c) => s + (c.receita || 0), 0)
+  const totalCanalLinhas = canalList.reduce((s, c) => s + (c.linhas || 0), 0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -1237,11 +1299,31 @@ function InfluenciadaView({ data, loading }) {
         </div>
 
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Gap de Atribuição CRM</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Gap de Atribuição CRM</p>
+            <button
+              onClick={handleDownloadGap}
+              disabled={gapDownloading}
+              title="Baixar pedidos do Gap (CSV)"
+              className="flex-shrink-0 rounded p-1 text-amber-600 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {gapDownloading ? (
+                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+              )}
+            </button>
+          </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(data.gap_receita)}</p>
           <p className="mt-1 text-xs text-amber-600">
             {gapPct.toFixed(1)}% do total · {(data.gap_pedidos ?? 0).toLocaleString('pt-BR')} pedidos sem atribuição com toque marketing
           </p>
+          {gapDownloadError && <p className="mt-1 text-xs text-rose-600">{gapDownloadError}</p>}
         </div>
       </div>
 
@@ -1262,6 +1344,68 @@ function InfluenciadaView({ data, loading }) {
           </p>
         </div>
       </div>
+
+      {canalList.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Receita por Canal
+              {!hasRevenue && <span className="ml-1 font-normal normal-case text-slate-400">(registros)</span>}
+            </h3>
+            <span className="text-xs text-slate-400">Base Vendas · {(canalBreakdown?.period_rows ?? 0).toLocaleString('pt-BR')} registros no período</span>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {canalList.map(item => {
+              const pct = hasRevenue
+                ? (totalCanalReceita > 0 ? (item.receita / totalCanalReceita) * 100 : 0)
+                : (totalCanalLinhas > 0 ? (item.linhas / totalCanalLinhas) * 100 : 0)
+              const subItems = filialList.filter(f => f.canal === item.canal)
+              const isExpanded = expandedCanal === item.canal
+
+              return (
+                <div key={item.canal}>
+                  <button
+                    className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-slate-50"
+                    onClick={() => setExpandedCanal(isExpanded ? null : item.canal)}
+                  >
+                    <span className="w-4 text-slate-400 text-xs">{subItems.length > 0 ? (isExpanded ? '▾' : '▸') : ' '}</span>
+                    <span className="flex-1 text-sm font-medium text-slate-700">{item.canal}</span>
+                    <span className="text-xs text-slate-500">{item.linhas.toLocaleString('pt-BR')} reg.</span>
+                    <span className="w-28 text-right text-sm font-semibold text-slate-800">
+                      {hasRevenue ? formatCurrency(item.receita) : `${item.linhas.toLocaleString('pt-BR')}`}
+                    </span>
+                    <span className="w-12 text-right text-xs text-slate-400">{pct.toFixed(1)}%</span>
+                  </button>
+
+                  {isExpanded && subItems.length > 0 && (
+                    <div className="mb-1 ml-7 rounded-lg bg-slate-50 px-3 py-1">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-slate-400">
+                            <th className="py-1 text-left font-normal">Filial</th>
+                            <th className="py-1 text-right font-normal">Registros</th>
+                            {hasRevenue && <th className="py-1 text-right font-normal">Receita</th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {subItems.map(f => (
+                            <tr key={f.codigo_filial} className="text-slate-600">
+                              <td className="py-1">{f.codigo_filial || '—'}</td>
+                              <td className="py-1 text-right">{f.linhas.toLocaleString('pt-BR')}</td>
+                              {hasRevenue && <td className="py-1 text-right font-medium">{formatCurrency(f.receita)}</td>}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
         <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
