@@ -468,25 +468,32 @@ function DailyRevenueChart({ items }) {
   )
 }
 
-function CanalAtribuidaCard({ data }) {
+function CanalAtribuidaCard({ data, totalAtribuida }) {
   const [expandedCanal, setExpandedCanal] = useState(null)
-  const totalReceita = (data.canal || []).reduce((s, c) => s + (c.receita || 0), 0)
+  // Proporção por nº de pedidos (linhas) — mais estável do que receita da planilha,
+  // que tem cobertura parcial. Aplicamos sobre o total atribuído do BigQuery.
+  const totalLinhas = (data.canal || []).reduce((s, c) => s + (c.linhas || 0), 0)
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Canal da Receita Atribuída
         </h2>
         <span className="text-xs text-slate-400">
-          via CPF · {(data.total_clientes_crm || 0).toLocaleString('pt-BR')} clientes CRM · {(data.matched_rows || 0).toLocaleString('pt-BR')} linhas Base Vendas
+          via CPF · {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos Base Vendas
         </span>
       </div>
+      <p className="mb-3 text-xs text-slate-400">
+        Estimativa — proporção de pedidos por canal aplicada sobre a receita atribuída total
+      </p>
       <div className="space-y-2">
         {(data.canal || []).map((c) => {
-          const pct = totalReceita > 0 ? (c.receita / totalReceita) * 100 : 0
+          const pct = totalLinhas > 0 ? (c.linhas / totalLinhas) * 100 : 0
+          const receitaEstimada = totalAtribuida * (pct / 100)
           const isExpanded = expandedCanal === c.canal
           const filiais = (data.filial || []).filter(f => f.canal === c.canal)
+          const totalFilialLinhas = filiais.reduce((s, f) => s + (f.linhas || 0), 0)
           return (
             <div key={c.canal}>
               <button
@@ -496,7 +503,7 @@ function CanalAtribuidaCard({ data }) {
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-slate-700">{c.canal}</span>
-                    <span className="text-sm font-bold text-slate-900">{formatCurrency(c.receita)}</span>
+                    <span className="text-sm font-bold text-slate-900">~{formatCurrency(receitaEstimada)}</span>
                   </div>
                   <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
                     <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
@@ -511,12 +518,17 @@ function CanalAtribuidaCard({ data }) {
               </button>
               {isExpanded && filiais.length > 0 && (
                 <div className="ml-4 mt-1 space-y-1">
-                  {filiais.map(f => (
-                    <div key={f.codigo_filial} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-4 py-2 text-sm">
-                      <span className="text-slate-600">{f.codigo_filial}</span>
-                      <span className="font-medium text-slate-800">{formatCurrency(f.receita)}</span>
-                    </div>
-                  ))}
+                  {filiais.map(f => {
+                    const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
+                    const filialReceita = receitaEstimada * (filialPct / 100)
+                    return (
+                      <div key={f.codigo_filial} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-4 py-2 text-sm">
+                        <span className="text-slate-600">{f.codigo_filial}</span>
+                        <span className="text-xs text-slate-400 mr-auto ml-3">{f.linhas} pedidos · {filialPct.toFixed(1)}%</span>
+                        <span className="font-medium text-slate-800">~{formatCurrency(filialReceita)}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -594,7 +606,7 @@ function ExecutivoView({ data, loading, canalAtribuida }) {
 
       {/* Canal da Receita Atribuída */}
       {canalAtribuida?.canal?.length > 0 && (
-        <CanalAtribuidaCard data={canalAtribuida} />
+        <CanalAtribuidaCard data={canalAtribuida} totalAtribuida={atribuida?.total_receita_atribuida ?? 0} />
       )}
 
       {/* Receita Direta */}
