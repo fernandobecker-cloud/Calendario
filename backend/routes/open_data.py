@@ -2601,6 +2601,7 @@ attributed_order_ids AS (
 unattributed AS (
   SELECT op.order_id,
     COALESCE(ac.contact_id, op.si_contact_id) AS contact_id,
+    op.si_contact_id,
     op.purchase_date,
     op.receita_pedido
   FROM orders_period op
@@ -2609,7 +2610,14 @@ unattributed AS (
     AND COALESCE(ac.contact_id, op.si_contact_id) IS NOT NULL
 ),
 email_mkt_touch AS (
-  SELECT DISTINCT u.order_id
+  SELECT u.order_id,
+    ARRAY_AGG(
+      STRUCT(
+        COALESCE(en.nome_campanha, CAST(e.campaign_id AS STRING)) AS nome_campanha,
+        DATE(e.event_time) AS data_toque
+      )
+      ORDER BY e.event_time DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS toque
   FROM unattributed u
   JOIN `{project_id}.{dataset}.{email_opens_table}` e
     ON e.contact_id = u.contact_id
@@ -2617,9 +2625,17 @@ email_mkt_touch AS (
     AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
   LEFT JOIN email_names en ON CAST(e.campaign_id AS STRING) = en.campaign_id
   WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(en.nome_campanha, '')), {transactional_regex})
+  GROUP BY u.order_id
 ),
 sms_mkt_touch AS (
-  SELECT DISTINCT u.order_id
+  SELECT u.order_id,
+    ARRAY_AGG(
+      STRUCT(
+        COALESCE(sn.nome_campanha, CAST(s.campaign_id AS STRING)) AS nome_campanha,
+        DATE(s.event_time) AS data_toque
+      )
+      ORDER BY s.event_time DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS toque
   FROM unattributed u
   JOIN `{project_id}.{dataset}.{sms_sends_table}` s
     ON s.contact_id = u.contact_id
@@ -2627,29 +2643,38 @@ sms_mkt_touch AS (
     AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
   LEFT JOIN sms_names sn ON CAST(s.campaign_id AS STRING) = sn.campaign_id
   WHERE NOT REGEXP_CONTAINS(LOWER(COALESCE(sn.nome_campanha, '')), {transactional_regex})
+  GROUP BY u.order_id
 ),
 gap_orders AS (
-  SELECT order_id FROM email_mkt_touch
-  UNION DISTINCT
-  SELECT order_id FROM sms_mkt_touch
+  SELECT
+    COALESCE(em.order_id, sm.order_id) AS order_id,
+    CASE WHEN em.order_id IS NOT NULL THEN 'email' ELSE 'sms' END AS tipo_toque,
+    COALESCE(em.toque.nome_campanha, sm.toque.nome_campanha) AS nome_campanha,
+    COALESCE(em.toque.data_toque, sm.toque.data_toque) AS data_toque
+  FROM email_mkt_touch em
+  FULL OUTER JOIN sms_mkt_touch sm USING (order_id)
 )
 SELECT
   u.order_id,
   CAST(u.contact_id AS STRING) AS contact_id,
+  CAST(u.si_contact_id AS STRING) AS si_contact_id,
   u.purchase_date,
-  u.receita_pedido AS valor_pedido
+  u.receita_pedido AS valor_pedido,
+  g.nome_campanha,
+  CAST(g.data_toque AS STRING) AS data_toque,
+  g.tipo_toque
 FROM unattributed u
 INNER JOIN gap_orders g USING (order_id)
 ORDER BY u.receita_pedido DESC
 """.strip()
 
 
-def _build_contact_external_id_sql(contact_ids: list[str]) -> str:
-    """UNNEST lookup: contact_id → external_id (CPF) from si_contacts."""
+def _build_contact_external_id_sql(si_contact_ids: list[str]) -> str:
+    """UNNEST lookup: si_contact_id → external_id (CPF) from si_contacts."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
-    key_values = ", ".join(_sql_string_literal(cid) for cid in contact_ids)
+    key_values = ", ".join(_sql_string_literal(cid) for cid in si_contact_ids)
     return f"""
 WITH key_list AS (
   SELECT key FROM UNNEST([{key_values}]) AS key WHERE key IS NOT NULL AND key != ''
@@ -2659,11 +2684,7 @@ SELECT
   CAST(c.external_id AS STRING) AS external_id
 FROM key_list k
 INNER JOIN `{project_id}.{dataset}.{contacts_table}` c
-  ON k.key = COALESCE(
-    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.si_contact_id'),
-    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.id'),
-    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
-  )
+  ON k.key = CAST(c.si_contact_id AS STRING)
 WHERE c.external_id IS NOT NULL
 """.strip()
 
@@ -2688,11 +2709,13 @@ def emarsys_gap_orders(
                     "start_date": _validate_optional_iso_date(start),
                     "end_date": _validate_optional_iso_date(end)}
 
-        # Step 2: resolve external_id (CPF) for the unique contact_ids via UNNEST join
-        unique_contact_ids = list({str(r.get("contact_id") or "") for r in records if r.get("contact_id")})
+        # Step 2: resolve external_id (CPF) using si_contact_id (SI ID, 7 digits)
+        # contact_id is the Emarsys ID (9 digits) used for email/SMS touch matching
+        # si_contact_id is the Smart Insight ID (7 digits) that matches si_contacts.si_contact_id
+        unique_si_contact_ids = list({str(r.get("si_contact_id") or "") for r in records if r.get("si_contact_id")})
         ext_id_map: dict[str, str] = {}
-        if unique_contact_ids:
-            contact_sql = _build_contact_external_id_sql(unique_contact_ids)
+        if unique_si_contact_ids:
+            contact_sql = _build_contact_external_id_sql(unique_si_contact_ids)
             contact_records = run_bigquery_records(
                 contact_sql,
                 EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -2709,9 +2732,12 @@ def emarsys_gap_orders(
             {
                 "order_id": str(r.get("order_id") or ""),
                 "contact_id": str(r.get("contact_id") or ""),
-                "external_id": ext_id_map.get(str(r.get("contact_id") or ""), ""),
+                "external_id": ext_id_map.get(str(r.get("si_contact_id") or ""), ""),
                 "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
                 "valor_pedido": float(r.get("valor_pedido") or 0),
+                "nome_campanha": str(r.get("nome_campanha") or ""),
+                "data_toque": str(r.get("data_toque") or ""),
+                "tipo_toque": str(r.get("tipo_toque") or ""),
             }
             for r in records
         ]

@@ -1245,6 +1245,9 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
         external_id: item.external_id,
         data_compra: item.purchase_date || '',
         valor_pedido: String(item.valor_pedido).replace('.', ','),
+        campanha: item.nome_campanha || '',
+        tipo_toque: item.tipo_toque || '',
+        data_toque: item.data_toque || '',
       }))
       downloadCsv(rows, `gap_pedidos_${startDate || 'periodo'}_${endDate || ''}.csv`)
     } catch (err) {
