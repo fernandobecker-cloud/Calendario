@@ -800,17 +800,17 @@ export default function App({ mode = 'campanhas' }) {
       })
       const res = await fetch(`/api/open-data/unidade-venda/contacts-match?${params}`)
       const text = await res.text()
-      const payload = text ? JSON.parse(text) : null
-      if (!res.ok) throw new Error(payload?.detail || 'Erro ao cruzar Base Vendas com si_contacts.')
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) {
+        const detail = payload?.detail || (text ? `HTTP ${res.status}: ${text.slice(0, 200)}` : `HTTP ${res.status}`)
+        console.error('[Unidade de Venda] erro da API:', res.status, text)
+        throw new Error(detail)
+      }
       if (!payload) throw new Error('A API nao retornou dados para o cruzamento.')
       setUnidadeVendaData(payload)
     } catch (err) {
-      const isJsonParseError = err instanceof SyntaxError
-      setUnidadeVendaError(
-        isJsonParseError
-          ? 'A API respondeu em formato inesperado. Clique em Atualizar novamente ou verifique o backend.'
-          : err instanceof Error ? err.message : 'Erro inesperado.'
-      )
+      setUnidadeVendaError(err instanceof Error ? err.message : 'Erro inesperado.')
       setUnidadeVendaData(null)
     } finally {
       setUnidadeVendaLoading(false)

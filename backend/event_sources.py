@@ -183,12 +183,18 @@ def run_bigquery_query(sql: str, project_id: str, *, location: str | None = None
     return dataframe.fillna("")
 
 
-def run_bigquery_records(sql: str, project_id: str, *, location: str | None = None) -> list[dict[str, Any]]:
+def run_bigquery_records(
+    sql: str,
+    project_id: str,
+    *,
+    location: str | None = None,
+    timeout: int | None = None,
+) -> list[dict[str, Any]]:
     """Executa uma consulta no BigQuery e devolve registros simples."""
     client = build_bigquery_client(project_id)
     try:
         job = client.query(sql, location=location)
-        rows = job.result()
+        rows = job.result(timeout=timeout)
         return [dict(row.items()) for row in rows]
     except Exception as exc:
         raise HTTPException(

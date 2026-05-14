@@ -1015,33 +1015,34 @@ def _build_sales_unit_contacts_sql(document_keys: list[str], start_date: str, en
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     key_values = ", ".join(_sql_string_literal(value) for value in document_keys)
 
+    # Use UNNEST + INNER JOIN so BigQuery can broadcast the small key list and
+    # avoid materialising the full si_contacts scan before filtering.
     return f"""
-WITH matched_contacts AS (
-  -- Parte de si_contacts (external_id = CPF/doc do cliente) — não depende de si_purchases.si_contact_id
+WITH key_list AS (
+  SELECT DISTINCT key
+  FROM UNNEST([{key_values}]) AS key
+  WHERE key IS NOT NULL AND key != ''
+),
+matched_contacts AS (
   SELECT
-    CASE
-      WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
-        AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
-      THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
-      ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
-    END AS normalized_external_id,
+    k.key AS normalized_external_id,
     c.external_id,
     COALESCE(
       JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.si_contact_id'),
       JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.id'),
       JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
     ) AS si_contact_id
-  FROM `{project_id}.{dataset}.{contacts_table}` c
+  FROM key_list k
+  INNER JOIN `{project_id}.{dataset}.{contacts_table}` c
+    ON k.key = CASE
+      WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
+        AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
+      THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
+      ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
+    END
   WHERE c.external_id IS NOT NULL
 ),
-filtered_contacts AS (
-  SELECT *
-  FROM matched_contacts
-  WHERE normalized_external_id != ''
-    AND normalized_external_id IN ({key_values})
-),
 purchases_by_contact AS (
-  -- Pedidos e receita no período por contact; LEFT JOIN abaixo garante match mesmo sem compras
   SELECT
     CAST(si_contact_id AS STRING) AS si_contact_id,
     COUNT(DISTINCT order_id) AS pedidos_periodo,
@@ -1054,17 +1055,17 @@ purchases_by_contact AS (
   GROUP BY si_contact_id
 )
 SELECT
-  fc.normalized_external_id,
-  ARRAY_AGG(DISTINCT fc.external_id IGNORE NULLS LIMIT 5) AS external_ids,
-  ARRAY_AGG(DISTINCT fc.si_contact_id IGNORE NULLS LIMIT 5) AS si_contact_ids,
-  COUNT(DISTINCT fc.si_contact_id) AS contact_rows,
+  mc.normalized_external_id,
+  ARRAY_AGG(DISTINCT mc.external_id IGNORE NULLS LIMIT 5) AS external_ids,
+  ARRAY_AGG(DISTINCT mc.si_contact_id IGNORE NULLS LIMIT 5) AS si_contact_ids,
+  COUNT(DISTINCT mc.si_contact_id) AS contact_rows,
   COALESCE(SUM(p.pedidos_periodo), 0) AS pedidos_periodo,
   COALESCE(ROUND(SUM(p.receita_periodo), 2), 0.0) AS receita_periodo,
   MIN(p.primeira_compra_periodo) AS primeira_compra_periodo,
   MAX(p.ultima_compra_periodo) AS ultima_compra_periodo
-FROM filtered_contacts fc
+FROM matched_contacts mc
 LEFT JOIN purchases_by_contact p USING (si_contact_id)
-GROUP BY fc.normalized_external_id
+GROUP BY mc.normalized_external_id
 """.strip()
 
 
@@ -1178,6 +1179,7 @@ def unidade_venda_contacts_match(
                 sql,
                 EMARSYS_OPEN_DATA_PROJECT_ID,
                 location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=25,
             )
             for record in records:
                 key = str(record.get("normalized_external_id") or "")
