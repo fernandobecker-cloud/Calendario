@@ -82,6 +82,10 @@ BASE_VENDAS_DATE_COLUMN_CANDIDATES = [
     "purchase_date",
 ]
 BASE_VENDAS_REVENUE_COLUMN_CANDIDATES = [
+    "Vlr Faturamento Liquido",
+    "Vlr Faturamento Bruto",
+    "Faturamento Liquido",
+    "Faturamento Bruto",
     "Receita",
     "Valor",
     "Valor Pedido",
@@ -3832,7 +3836,6 @@ def receita_atribuida_canal(
             "total_clientes_crm": len(attributed_cpfs),
             "matched_rows": matched_rows,
             "revenue_column": revenue_column,
-            "available_columns": available_columns,
             "start_date": start_date,
             "end_date": end_date,
         }
