@@ -222,23 +222,93 @@ export default function PerfilClientePage() {
             </div>
           </ChartCard>
 
-          {/* Top Produtos */}
-          {data.top_produtos?.length > 0 && (
-            <ChartCard title="Top Produtos" subtitle="Por receita no período (top 15)">
-              <ResponsiveContainer width="100%" height={Math.max(320, data.top_produtos.length * 28)}>
-                <BarChart data={data.top_produtos} layout="vertical" margin={{ left: 0, right: 90, top: 0, bottom: 0 }}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="produto" width={220} tick={{ fontSize: 11, fill: '#475569' }} />
-                  <Tooltip formatter={(v, name) =>
-                    name === 'receita' ? [formatCurrency(v), 'Receita'] : [formatNum(v), 'Pedidos']
-                  } />
-                  <Bar dataKey="receita" fill="#6366f1" radius={3}>
-                    <LabelList dataKey="receita" position="right" style={{ fontSize: 10, fill: '#64748b' }}
-                      formatter={v => formatCurrency(v)} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+          {/* Top Produtos — receita (chart) + quantidade (tabela) */}
+          {(data.top_produtos?.length > 0 || data.top_produtos_quantidade?.length > 0) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {data.top_produtos?.length > 0 && (
+                <ChartCard title="Top Produtos — Receita" subtitle="Por receita no período (top 15)">
+                  <ResponsiveContainer width="100%" height={Math.max(320, data.top_produtos.length * 28)}>
+                    <BarChart data={data.top_produtos} layout="vertical" margin={{ left: 0, right: 90, top: 0, bottom: 0 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="produto" width={200} tick={{ fontSize: 11, fill: '#475569' }} />
+                      <Tooltip formatter={(v, name) =>
+                        name === 'receita' ? [formatCurrency(v), 'Receita'] : [formatNum(v), 'Pedidos']
+                      } />
+                      <Bar dataKey="receita" fill="#6366f1" radius={3}>
+                        <LabelList dataKey="receita" position="right" style={{ fontSize: 10, fill: '#64748b' }}
+                          formatter={v => formatCurrency(v)} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              )}
+
+              {data.top_produtos_quantidade?.length > 0 && (
+                <ChartCard title="Top Produtos — Quantidade" subtitle="Por nº de pedidos no período (top 15)">
+                  <div className="overflow-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-left text-slate-500">
+                          <th className="pb-2 pr-3 font-medium">#</th>
+                          <th className="pb-2 pr-3 font-medium">Produto</th>
+                          <th className="pb-2 text-right font-medium">Pedidos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.top_produtos_quantidade.map((row, i) => (
+                          <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                            <td className="py-1.5 pr-3 text-slate-400">{i + 1}</td>
+                            <td className="py-1.5 pr-3 text-slate-700">{row.produto}</td>
+                            <td className="py-1.5 text-right font-semibold text-slate-800">{formatNum(row.pedidos)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </ChartCard>
+              )}
+            </div>
+          )}
+
+          {/* Top Categorias */}
+          {data.top_categorias?.length > 0 && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <ChartCard title="Top Categorias — Receita" subtitle="Por receita no período">
+                <ResponsiveContainer width="100%" height={Math.max(240, data.top_categorias.length * 36)}>
+                  <BarChart data={data.top_categorias} layout="vertical" margin={{ left: 0, right: 90, top: 0, bottom: 0 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="categoria" width={160} tick={{ fontSize: 12, fill: '#475569' }} />
+                    <Tooltip formatter={(v, name) =>
+                      name === 'receita' ? [formatCurrency(v), 'Receita'] : [formatNum(v), 'Pedidos']
+                    } />
+                    <Bar dataKey="receita" fill="#8b5cf6" radius={4}>
+                      <LabelList dataKey="receita" position="right" style={{ fontSize: 10, fill: '#64748b' }}
+                        formatter={v => formatCurrency(v)} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Top Categorias — Quantidade" subtitle="Por nº de pedidos no período">
+                <ResponsiveContainer width="100%" height={Math.max(240, data.top_categorias.length * 36)}>
+                  <BarChart
+                    data={[...data.top_categorias].sort((a, b) => b.pedidos - a.pedidos)}
+                    layout="vertical"
+                    margin={{ left: 0, right: 70, top: 0, bottom: 0 }}
+                  >
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="categoria" width={160} tick={{ fontSize: 12, fill: '#475569' }} />
+                    <Tooltip formatter={(v, name) =>
+                      name === 'pedidos' ? [formatNum(v), 'Pedidos'] : [formatCurrency(v), 'Receita']
+                    } />
+                    <Bar dataKey="pedidos" fill="#06b6d4" radius={4}>
+                      <LabelList dataKey="pedidos" position="right" style={{ fontSize: 10, fill: '#64748b' }}
+                        formatter={v => formatNum(v)} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
           )}
         </>
       )}

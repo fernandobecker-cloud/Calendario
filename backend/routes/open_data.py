@@ -3621,7 +3621,41 @@ WHERE sales_amount > 0
   AND DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
 GROUP BY 1
 ORDER BY receita DESC
-LIMIT 15
+LIMIT 30
+""".strip()
+
+
+def _build_perfil_categorias_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    t = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+WITH categorized AS (
+  SELECT
+    CASE
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'IPHONE')                        THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'IPAD')                          THEN 'iPad'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'APPLE WATCH')                   THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'AIRPOD')                        THEN 'AirPods'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'APPLE TV|APPLETV|HOMEPOD')      THEN 'Apple TV / HomePod'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'SAMSUNG')                       THEN 'Samsung'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'XIAOMI|MOTOROLA|LG |SONY|PHILIPS|BOSE|BEATS|JABRA|JBL') THEN 'Outras Marcas'
+      ELSE 'Acessórios / Outros'
+    END AS categoria,
+    order_id,
+    sales_amount
+  FROM `{project_id}.{dataset}.{t}`
+  WHERE sales_amount > 0
+    AND DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+)
+SELECT
+  categoria,
+  COUNT(DISTINCT order_id)  AS pedidos,
+  ROUND(SUM(sales_amount), 2) AS receita
+FROM categorized
+GROUP BY 1
+ORDER BY receita DESC
 """.strip()
 
 
@@ -3636,19 +3670,33 @@ def perfil_cliente(
     try:
         summary_sql = _build_perfil_summary_sql(start_date, end_date)
         produtos_sql = _build_perfil_produtos_sql(start_date, end_date)
+        categorias_sql = _build_perfil_categorias_sql(start_date, end_date)
 
         loc = EMARSYS_OPEN_DATA_LOCATION or None
         proj = EMARSYS_OPEN_DATA_PROJECT_ID
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             f_summary = pool.submit(run_bigquery_records, summary_sql, proj, location=loc, timeout=55)
             f_produtos = pool.submit(run_bigquery_records, produtos_sql, proj, location=loc, timeout=25)
+            f_categorias = pool.submit(run_bigquery_records, categorias_sql, proj, location=loc, timeout=25)
             summary_records = f_summary.result()
             produtos_records = f_produtos.result()
+            categorias_records = f_categorias.result()
 
         s = summary_records[0] if summary_records else {}
         total = int(s.get("total_clientes") or 0)
         novos = int(s.get("novos_clientes") or 0)
+
+        all_produtos = [
+            {
+                "produto": str(r.get("produto") or ""),
+                "pedidos": int(r.get("pedidos") or 0),
+                "receita": float(r.get("receita") or 0),
+            }
+            for r in produtos_records
+        ]
+        top_por_receita = sorted(all_produtos, key=lambda x: x["receita"], reverse=True)[:15]
+        top_por_quantidade = sorted(all_produtos, key=lambda x: x["pedidos"], reverse=True)[:15]
 
         return {
             "start_date": start_date,
@@ -3682,13 +3730,15 @@ def perfil_cliente(
                 {"segmento": "Inativos",          "qtd": int(s.get("rfm_inativos") or 0)},
                 {"segmento": "Regulares",         "qtd": int(s.get("rfm_regulares") or 0)},
             ],
-            "top_produtos": [
+            "top_produtos": top_por_receita,
+            "top_produtos_quantidade": top_por_quantidade,
+            "top_categorias": [
                 {
-                    "produto": str(r.get("produto") or ""),
+                    "categoria": str(r.get("categoria") or ""),
                     "pedidos": int(r.get("pedidos") or 0),
                     "receita": float(r.get("receita") or 0),
                 }
-                for r in produtos_records
+                for r in categorias_records
             ],
         }
     except HTTPException:
