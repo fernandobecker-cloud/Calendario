@@ -3831,6 +3831,8 @@ def receita_atribuida_canal(
             "filial": filial_list,
             "total_clientes_crm": len(attributed_cpfs),
             "matched_rows": matched_rows,
+            "revenue_column": revenue_column,
+            "available_columns": available_columns,
             "start_date": start_date,
             "end_date": end_date,
         }
