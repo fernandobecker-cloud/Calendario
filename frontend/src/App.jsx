@@ -252,7 +252,7 @@ export default function App({ mode = 'campanhas' }) {
   const [unidadeVendaHasRequested, setUnidadeVendaHasRequested] = useState(false)
   const [unidadeVendaMaxDocuments, setUnidadeVendaMaxDocuments] = useState(5000)
   const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
-  const [unidadeVendaStart, setUnidadeVendaStart] = useState(`${now.getFullYear()}-01-01`)
+  const [unidadeVendaStart, setUnidadeVendaStart] = useState(() => getMonthDateRange(now.getFullYear(), now.getMonth() + 1).start)
   const [unidadeVendaEnd, setUnidadeVendaEnd] = useState(getLocalIsoDate(now))
 
   const loadEvents = useCallback(async () => {
