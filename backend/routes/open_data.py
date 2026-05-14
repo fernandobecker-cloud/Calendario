@@ -2644,12 +2644,37 @@ ORDER BY u.receita_pedido DESC
 """.strip()
 
 
+def _build_contact_external_id_sql(contact_ids: list[str]) -> str:
+    """UNNEST lookup: contact_id → external_id (CPF) from si_contacts."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    key_values = ", ".join(_sql_string_literal(cid) for cid in contact_ids)
+    return f"""
+WITH key_list AS (
+  SELECT key FROM UNNEST([{key_values}]) AS key WHERE key IS NOT NULL AND key != ''
+)
+SELECT
+  k.key AS si_contact_id,
+  CAST(c.external_id AS STRING) AS external_id
+FROM key_list k
+INNER JOIN `{project_id}.{dataset}.{contacts_table}` c
+  ON k.key = COALESCE(
+    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.si_contact_id'),
+    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.id'),
+    JSON_EXTRACT_SCALAR(TO_JSON_STRING(c), '$.contact_id')
+  )
+WHERE c.external_id IS NOT NULL
+""".strip()
+
+
 @router.get("/emarsys/gap-orders")
 def emarsys_gap_orders(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
+        # Step 1: gap order rows (order_id, contact_id, purchase_date, valor_pedido)
         sql = _build_gap_orders_sql(start, end)
         records = run_bigquery_records(
             sql,
@@ -2657,10 +2682,33 @@ def emarsys_gap_orders(
             location=EMARSYS_OPEN_DATA_LOCATION or None,
             timeout=55,
         )
+
+        if not records:
+            return {"items": [], "total": 0,
+                    "start_date": _validate_optional_iso_date(start),
+                    "end_date": _validate_optional_iso_date(end)}
+
+        # Step 2: resolve external_id (CPF) for the unique contact_ids via UNNEST join
+        unique_contact_ids = list({str(r.get("contact_id") or "") for r in records if r.get("contact_id")})
+        ext_id_map: dict[str, str] = {}
+        if unique_contact_ids:
+            contact_sql = _build_contact_external_id_sql(unique_contact_ids)
+            contact_records = run_bigquery_records(
+                contact_sql,
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=25,
+            )
+            ext_id_map = {
+                str(r.get("si_contact_id") or ""): str(r.get("external_id") or "")
+                for r in contact_records
+                if r.get("si_contact_id")
+            }
+
         items = [
             {
                 "order_id": str(r.get("order_id") or ""),
-                "contact_id": str(r.get("contact_id") or ""),
+                "external_id": ext_id_map.get(str(r.get("contact_id") or ""), ""),
                 "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
                 "valor_pedido": float(r.get("valor_pedido") or 0),
             }
