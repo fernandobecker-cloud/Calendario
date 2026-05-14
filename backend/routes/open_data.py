@@ -3725,17 +3725,28 @@ attributed_si_contacts AS (
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN attributed_orders ao ON p.order_id = ao.order_id
   WHERE p.si_contact_id IS NOT NULL
+),
+-- Um CPF por si_contact_id (si_contacts pode ter múltiplas linhas por contato)
+one_cpf_per_contact AS (
+  SELECT
+    CAST(c.si_contact_id AS STRING) AS si_contact_id,
+    ARRAY_AGG(
+      CASE
+        WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
+          AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
+        THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
+        ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
+      END
+      IGNORE NULLS ORDER BY c.external_id LIMIT 1
+    )[SAFE_OFFSET(0)] AS cpf_normalized
+  FROM `{project_id}.{dataset}.{contacts_table}` c
+  INNER JOIN attributed_si_contacts a ON CAST(c.si_contact_id AS STRING) = a.si_contact_id
+  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+  GROUP BY c.si_contact_id
 )
-SELECT DISTINCT
-  CASE
-    WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
-      AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
-    THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
-    ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
-  END AS cpf_normalized
-FROM `{project_id}.{dataset}.{contacts_table}` c
-INNER JOIN attributed_si_contacts a ON CAST(c.si_contact_id AS STRING) = a.si_contact_id
-WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+SELECT cpf_normalized
+FROM one_cpf_per_contact
+WHERE cpf_normalized IS NOT NULL AND cpf_normalized != ''
 """.strip()
 
 
