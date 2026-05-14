@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 import re
 from typing import Any
@@ -3514,3 +3515,179 @@ def emarsys_daily_revenue(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao carregar receita diária: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Perfil do Cliente — visão macro da base
+# ---------------------------------------------------------------------------
+
+def _build_perfil_summary_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    t = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+WITH
+orders_period AS (
+  SELECT
+    si_contact_id,
+    order_id,
+    DATE(MIN(purchase_date)) AS purchase_date,
+    SUM(sales_amount) AS order_value
+  FROM `{project_id}.{dataset}.{t}`
+  WHERE sales_amount > 0
+    AND DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+  GROUP BY si_contact_id, order_id
+),
+global_first AS (
+  SELECT si_contact_id, DATE(MIN(purchase_date)) AS first_ever
+  FROM `{project_id}.{dataset}.{t}`
+  WHERE sales_amount > 0
+    AND DATE(purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 5 YEAR)
+  GROUP BY si_contact_id
+),
+customer_metrics AS (
+  SELECT
+    op.si_contact_id,
+    COUNT(DISTINCT op.order_id) AS freq,
+    ROUND(SUM(op.order_value), 2) AS monetary,
+    ROUND(AVG(op.order_value), 2) AS avg_ticket,
+    DATE_DIFF(DATE('{end_date}'), MAX(op.purchase_date), DAY) AS recency_days,
+    MIN(op.purchase_date) AS first_in_period,
+    gf.first_ever,
+    DATE_DIFF(DATE('{end_date}'), gf.first_ever, DAY) AS days_as_customer
+  FROM orders_period op
+  LEFT JOIN global_first gf USING (si_contact_id)
+  GROUP BY op.si_contact_id, gf.first_ever
+),
+rfm_scores AS (
+  SELECT *,
+    NTILE(5) OVER (ORDER BY recency_days DESC) AS r_score,
+    NTILE(5) OVER (ORDER BY freq ASC)           AS f_score,
+    NTILE(5) OVER (ORDER BY monetary ASC)       AS m_score
+  FROM customer_metrics
+),
+rfm_segments AS (
+  SELECT *,
+    CASE
+      WHEN r_score = 5 AND f_score >= 4                        THEN 'Campeoes'
+      WHEN f_score >= 4 AND r_score >= 3                       THEN 'Clientes Fieis'
+      WHEN r_score = 5 AND f_score <= 2                        THEN 'Clientes Recentes'
+      WHEN r_score <= 2 AND f_score >= 3 AND m_score >= 3      THEN 'Em Risco'
+      WHEN r_score = 1                                         THEN 'Inativos'
+      ELSE 'Regulares'
+    END AS segmento
+  FROM rfm_scores
+)
+SELECT
+  COUNT(*)                                                     AS total_clientes,
+  COUNTIF(first_in_period = first_ever)                        AS novos_clientes,
+  ROUND(AVG(avg_ticket), 2)                                    AS ticket_medio,
+  ROUND(AVG(freq), 2)                                          AS freq_media,
+  ROUND(SUM(monetary), 2)                                      AS receita_total,
+  COUNTIF(days_as_customer IS NULL OR days_as_customer < 90)   AS mat_3m,
+  COUNTIF(days_as_customer BETWEEN 90 AND 364)                 AS mat_3m_1a,
+  COUNTIF(days_as_customer BETWEEN 365 AND 1094)               AS mat_1a_3a,
+  COUNTIF(days_as_customer >= 1095)                            AS mat_3a_mais,
+  COUNTIF(recency_days <= 30)                                  AS rec_30d,
+  COUNTIF(recency_days BETWEEN 31 AND 60)                      AS rec_60d,
+  COUNTIF(recency_days BETWEEN 61 AND 90)                      AS rec_90d,
+  COUNTIF(recency_days BETWEEN 91 AND 180)                     AS rec_180d,
+  COUNTIF(recency_days > 180)                                  AS rec_mais180,
+  COUNTIF(segmento = 'Campeoes')                               AS rfm_campeoes,
+  COUNTIF(segmento = 'Clientes Fieis')                         AS rfm_fieis,
+  COUNTIF(segmento = 'Clientes Recentes')                      AS rfm_recentes,
+  COUNTIF(segmento = 'Em Risco')                               AS rfm_em_risco,
+  COUNTIF(segmento = 'Inativos')                               AS rfm_inativos,
+  COUNTIF(segmento = 'Regulares')                              AS rfm_regulares
+FROM rfm_segments
+""".strip()
+
+
+def _build_perfil_produtos_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    t = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+SELECT
+  COALESCE(NULLIF(TRIM(product_name), ''), 'Sem nome') AS produto,
+  COUNT(DISTINCT order_id)                             AS pedidos,
+  ROUND(SUM(sales_amount), 2)                          AS receita
+FROM `{project_id}.{dataset}.{t}`
+WHERE sales_amount > 0
+  AND DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+GROUP BY 1
+ORDER BY receita DESC
+LIMIT 15
+""".strip()
+
+
+@router.get("/perfil-cliente")
+def perfil_cliente(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    end_date = _validate_optional_iso_date(end) or str(date.today())
+    start_date = _validate_optional_iso_date(start) or str(date.today() - timedelta(days=89))
+
+    try:
+        summary_sql = _build_perfil_summary_sql(start_date, end_date)
+        produtos_sql = _build_perfil_produtos_sql(start_date, end_date)
+
+        loc = EMARSYS_OPEN_DATA_LOCATION or None
+        proj = EMARSYS_OPEN_DATA_PROJECT_ID
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_summary = pool.submit(run_bigquery_records, summary_sql, proj, location=loc, timeout=55)
+            f_produtos = pool.submit(run_bigquery_records, produtos_sql, proj, location=loc, timeout=25)
+            summary_records = f_summary.result()
+            produtos_records = f_produtos.result()
+
+        s = summary_records[0] if summary_records else {}
+        total = int(s.get("total_clientes") or 0)
+        novos = int(s.get("novos_clientes") or 0)
+
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "resumo": {
+                "total_clientes": total,
+                "novos_clientes": novos,
+                "recorrentes": total - novos,
+                "ticket_medio": float(s.get("ticket_medio") or 0),
+                "freq_media": float(s.get("freq_media") or 0),
+                "receita_total": float(s.get("receita_total") or 0),
+            },
+            "maturidade": [
+                {"faixa": "< 3 meses",   "qtd": int(s.get("mat_3m") or 0)},
+                {"faixa": "3m - 1 ano",  "qtd": int(s.get("mat_3m_1a") or 0)},
+                {"faixa": "1 - 3 anos",  "qtd": int(s.get("mat_1a_3a") or 0)},
+                {"faixa": "> 3 anos",    "qtd": int(s.get("mat_3a_mais") or 0)},
+            ],
+            "recencia": [
+                {"faixa": "Últimos 30d",  "qtd": int(s.get("rec_30d") or 0)},
+                {"faixa": "31-60 dias",   "qtd": int(s.get("rec_60d") or 0)},
+                {"faixa": "61-90 dias",   "qtd": int(s.get("rec_90d") or 0)},
+                {"faixa": "91-180 dias",  "qtd": int(s.get("rec_180d") or 0)},
+                {"faixa": "> 180 dias",   "qtd": int(s.get("rec_mais180") or 0)},
+            ],
+            "rfm": [
+                {"segmento": "Campeões",          "qtd": int(s.get("rfm_campeoes") or 0)},
+                {"segmento": "Clientes Fiéis",    "qtd": int(s.get("rfm_fieis") or 0)},
+                {"segmento": "Clientes Recentes", "qtd": int(s.get("rfm_recentes") or 0)},
+                {"segmento": "Em Risco",          "qtd": int(s.get("rfm_em_risco") or 0)},
+                {"segmento": "Inativos",          "qtd": int(s.get("rfm_inativos") or 0)},
+                {"segmento": "Regulares",         "qtd": int(s.get("rfm_regulares") or 0)},
+            ],
+            "top_produtos": [
+                {
+                    "produto": str(r.get("produto") or ""),
+                    "pedidos": int(r.get("pedidos") or 0),
+                    "receita": float(r.get("receita") or 0),
+                }
+                for r in produtos_records
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar perfil do cliente: {exc}") from exc

@@ -3,6 +3,7 @@ import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import BriefingsPanel from './components/BriefingsPanel'
+import PerfilClientePage from './components/PerfilClientePage'
 
 const CHANNEL_COLORS = {
   email: '#0071E3',
@@ -25,6 +26,7 @@ const ADM_MENU_ITEMS = [
   { key: 'comparativo-crm', label: 'Comparativo CRM' },
   { key: 'campanha-detalhe', label: 'Apuracao de Campanhas' },
   { key: 'unidade-venda', label: 'Unidade de Venda' },
+  { key: 'perfil-cliente', label: 'Perfil do Cliente' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
 ]
 
@@ -2683,6 +2685,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'comparativo-crm' && renderComparativoCRMView()}
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
           {activeView === 'unidade-venda' && renderUnidadeVendaView()}
+          {activeView === 'perfil-cliente' && <PerfilClientePage />}
         </div>
       </div>
 
