@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import unicodedata
 from datetime import date, datetime, timedelta
 import re
 from typing import Any
@@ -113,7 +114,9 @@ def _records_to_response_items(records: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _normalize_match_key(value: Any) -> str:
-    normalized = re.sub(r"[^0-9A-Za-z]+", "", str(value or "")).lower()
+    text = unicodedata.normalize("NFD", str(value or ""))
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    normalized = re.sub(r"[^0-9A-Za-z]+", "", text).lower()
     if normalized.isdigit() and len(normalized) < 11:
         return normalized.zfill(11)
     return normalized
