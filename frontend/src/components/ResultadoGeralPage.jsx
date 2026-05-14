@@ -222,11 +222,14 @@ export default function ResultadoGeralPage({ currentRole }) {
 
         const dailyParams = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
 
-        const [atribuida, ga4, abandoned, daily] = await Promise.all([
+        const canalParams = new URLSearchParams({ start: startDate, end: endDate || startDate })
+
+        const [atribuida, ga4, abandoned, daily, canalAtribuida] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
           fetchJson(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
           fetchJson(`/api/ga4/abandoned-cart-coupons?start=${startDate}&end=${endDate || startDate}&crm_scope=non_crm`),
           fetchJson(`/api/open-data/emarsys/daily-revenue?${dailyParams}`),
+          fetchJson(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`).catch(() => ({ ok: false, data: null })),
         ])
 
         const purchaseCrm = Number(ga4.data?.current_year?.purchaseRevenue || 0)
@@ -240,6 +243,7 @@ export default function ResultadoGeralPage({ currentRole }) {
             purchaseNonCrm,
           },
           dailyRevenue: daily.ok ? (daily.data?.items ?? []) : [],
+          canalAtribuida: canalAtribuida.ok ? canalAtribuida.data : null,
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
@@ -339,7 +343,7 @@ export default function ResultadoGeralPage({ currentRole }) {
           )}
 
           {activeView === 'executivo' && (
-            <ExecutivoView data={executivoData} loading={loading} />
+            <ExecutivoView data={executivoData} loading={loading} canalAtribuida={executivoData?.canalAtribuida} />
           )}
           {activeView === 'atribuida' && (
             <AtribuidaDetalhadaView
@@ -464,7 +468,66 @@ function DailyRevenueChart({ items }) {
   )
 }
 
-function ExecutivoView({ data, loading }) {
+function CanalAtribuidaCard({ data }) {
+  const [expandedCanal, setExpandedCanal] = useState(null)
+  const totalReceita = (data.canal || []).reduce((s, c) => s + (c.receita || 0), 0)
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Canal da Receita Atribuída
+        </h2>
+        <span className="text-xs text-slate-400">
+          via CPF · {(data.total_clientes_crm || 0).toLocaleString('pt-BR')} clientes CRM · {(data.matched_rows || 0).toLocaleString('pt-BR')} linhas Base Vendas
+        </span>
+      </div>
+      <div className="space-y-2">
+        {(data.canal || []).map((c) => {
+          const pct = totalReceita > 0 ? (c.receita / totalReceita) * 100 : 0
+          const isExpanded = expandedCanal === c.canal
+          const filiais = (data.filial || []).filter(f => f.canal === c.canal)
+          return (
+            <div key={c.canal}>
+              <button
+                onClick={() => setExpandedCanal(isExpanded ? null : c.canal)}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-700">{c.canal}</span>
+                    <span className="text-sm font-bold text-slate-900">{formatCurrency(c.receita)}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">{pct.toFixed(1)}% · {c.linhas.toLocaleString('pt-BR')} pedidos</p>
+                </div>
+                {filiais.length > 0 && (
+                  <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+              {isExpanded && filiais.length > 0 && (
+                <div className="ml-4 mt-1 space-y-1">
+                  {filiais.map(f => (
+                    <div key={f.codigo_filial} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-4 py-2 text-sm">
+                      <span className="text-slate-600">{f.codigo_filial}</span>
+                      <span className="font-medium text-slate-800">{formatCurrency(f.receita)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function ExecutivoView({ data, loading, canalAtribuida }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -528,6 +591,11 @@ function ExecutivoView({ data, loading }) {
           <p className="text-sm text-slate-500">Dados não disponíveis.</p>
         )}
       </section>
+
+      {/* Canal da Receita Atribuída */}
+      {canalAtribuida?.canal?.length > 0 && (
+        <CanalAtribuidaCard data={canalAtribuida} />
+      )}
 
       {/* Receita Direta */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">

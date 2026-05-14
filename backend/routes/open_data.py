@@ -3691,3 +3691,150 @@ def perfil_cliente(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao carregar perfil do cliente: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Receita Atribuída × Canal (Base Vendas via CPF)
+# ---------------------------------------------------------------------------
+
+def _build_attributed_cpfs_sql(start_date: str, end_date: str) -> str:
+    """Retorna CPFs normalizados dos clientes com pedidos atribuídos no período."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    tz = EMARSYS_TZ
+    return f"""
+WITH
+attributed_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+),
+attributed_si_contacts AS (
+  SELECT DISTINCT CAST(p.si_contact_id AS STRING) AS si_contact_id
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN attributed_orders ao ON p.order_id = ao.order_id
+  WHERE p.si_contact_id IS NOT NULL
+)
+SELECT DISTINCT
+  CASE
+    WHEN REGEXP_CONTAINS(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), r'^[0-9]+$')
+      AND LENGTH(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')) < 11
+    THEN LPAD(REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', ''), 11, '0')
+    ELSE REGEXP_REPLACE(LOWER(CAST(c.external_id AS STRING)), r'[^0-9a-z]', '')
+  END AS cpf_normalized
+FROM `{project_id}.{dataset}.{contacts_table}` c
+INNER JOIN attributed_si_contacts a ON CAST(c.si_contact_id AS STRING) = a.si_contact_id
+WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+""".strip()
+
+
+@router.get("/emarsys/receita-atribuida-canal")
+def receita_atribuida_canal(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Canal/filial breakdown da receita atribuída — cruzamento BigQuery CPFs × Base Vendas."""
+    start_date = _validate_optional_iso_date(start)
+    end_date = _validate_optional_iso_date(end)
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+
+    try:
+        # Step 1: get attributed CPFs from BigQuery
+        sql = _build_attributed_cpfs_sql(start_date, end_date)
+        cpf_records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=40,
+        )
+        attributed_cpfs: set[str] = {
+            str(r.get("cpf_normalized") or "")
+            for r in cpf_records
+            if r.get("cpf_normalized")
+        }
+
+        if not attributed_cpfs:
+            return {"canal": [], "filial": [], "total_clientes_crm": 0,
+                    "matched_rows": 0, "start_date": start_date, "end_date": end_date}
+
+        # Step 2: load Base Vendas and cross-reference by CPF
+        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
+        if df.empty:
+            return {"canal": [], "filial": [], "total_clientes_crm": len(attributed_cpfs),
+                    "matched_rows": 0, "start_date": start_date, "end_date": end_date}
+
+        available_columns = [str(c) for c in df.columns]
+        date_column = _find_base_vendas_date_column(available_columns)
+        document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
+        canal_column = _find_column(available_columns, "Canal")
+        filial_column = _find_column(available_columns, "Codigo Filial")
+        revenue_column = _find_base_vendas_revenue_column(available_columns)
+
+        start_obj = date.fromisoformat(start_date)
+        end_obj = date.fromisoformat(end_date)
+
+        canal_groups: dict[str, dict[str, Any]] = {}
+        filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
+        matched_rows = 0
+
+        for _, row in df.iterrows():
+            if date_column:
+                row_date = _parse_base_vendas_date(row.get(date_column))
+                if row_date is None or row_date < start_obj or row_date > end_obj:
+                    continue
+
+            doc_raw = str(row.get(document_column) or "") if document_column else ""
+            doc_normalized = _normalize_match_key(doc_raw)
+            if not doc_normalized or doc_normalized not in attributed_cpfs:
+                continue
+
+            canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
+            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
+            receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
+            canal = canal or "(sem canal)"
+            filial = filial or "(sem filial)"
+            matched_rows += 1
+
+            if canal not in canal_groups:
+                canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
+            canal_groups[canal]["linhas"] += 1
+            canal_groups[canal]["receita"] += receita
+
+            key = (canal, filial)
+            if key not in filial_groups:
+                filial_groups[key] = {"canal": canal, "codigo_filial": filial, "linhas": 0, "receita": 0.0}
+            filial_groups[key]["linhas"] += 1
+            filial_groups[key]["receita"] += receita
+
+        canal_list = sorted(
+            [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+             for g in canal_groups.values()],
+            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+        )
+        filial_list = sorted(
+            [{"canal": g["canal"], "codigo_filial": g["codigo_filial"],
+              "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+             for g in filial_groups.values()],
+            key=lambda x: (-x["receita"] if x["receita"] else -x["linhas"]),
+        )
+
+        return {
+            "canal": canal_list,
+            "filial": filial_list,
+            "total_clientes_crm": len(attributed_cpfs),
+            "matched_rows": matched_rows,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular canal da receita atribuida: {exc}") from exc
