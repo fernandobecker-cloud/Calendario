@@ -539,7 +539,9 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
               {lojas.map((f, idx) => (
                 <div key={f.codigo_filial} className="flex items-center gap-3 rounded-lg border border-slate-100 px-4 py-2.5">
                   <span className="w-6 text-right text-xs text-slate-400">{idx + 1}</span>
-                  <span className="w-14 text-sm font-semibold text-slate-700">Loja {f.codigo_filial}</span>
+                  <span className="w-16 shrink-0 text-sm font-semibold text-slate-700">
+                    LJ{String(f.codigo_filial).padStart(3, '0')}
+                  </span>
                   <div className="flex-1">
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                       <div
