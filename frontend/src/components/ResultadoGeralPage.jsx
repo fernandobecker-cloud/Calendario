@@ -469,10 +469,28 @@ function DailyRevenueChart({ items }) {
 }
 
 function CanalAtribuidaCard({ data, totalAtribuida }) {
-  const [expandedCanal, setExpandedCanal] = useState(null)
-  // Proporção por nº de pedidos (linhas) — mais estável do que receita da planilha,
-  // que tem cobertura parcial. Aplicamos sobre o total atribuído do BigQuery.
+  const [showLojas, setShowLojas] = useState(false)
   const totalLinhas = (data.canal || []).reduce((s, c) => s + (c.linhas || 0), 0)
+
+  // Pré-calcula receita estimada por canal
+  const canaisComReceita = (data.canal || []).map(c => {
+    const pct = totalLinhas > 0 ? (c.linhas / totalLinhas) * 100 : 0
+    return { ...c, pct, receitaEstimada: totalAtribuida * (pct / 100) }
+  })
+
+  // Todas as filiais com receita estimada, ordenadas por receita desc
+  const todasFiliais = (data.filial || []).map(f => {
+    const canal = canaisComReceita.find(c => c.canal === f.canal)
+    const totalFilialLinhas = (data.filial || [])
+      .filter(x => x.canal === f.canal)
+      .reduce((s, x) => s + (x.linhas || 0), 0)
+    const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
+    const receitaEstimada = canal ? canal.receitaEstimada * (filialPct / 100) : 0
+    return { ...f, filialPct, receitaEstimada }
+  }).sort((a, b) => b.receitaEstimada - a.receitaEstimada)
+
+  const lojas = todasFiliais.filter(f => f.canal === 'VAREJO')
+  const maxReceita = lojas[0]?.receitaEstimada || 1
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -481,60 +499,63 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
           Canal da Receita Atribuída
         </h2>
         <span className="text-xs text-slate-400">
-          via CPF · {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos Base Vendas
+          estimativa via CPF · {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos Base Vendas
         </span>
       </div>
-      <p className="mb-3 text-xs text-slate-400">
-        Estimativa — proporção de pedidos por canal aplicada sobre a receita atribuída total
+      <p className="mb-4 text-xs text-slate-400">
+        Proporção de pedidos por canal aplicada sobre a receita atribuída total
       </p>
-      <div className="space-y-2">
-        {(data.canal || []).map((c) => {
-          const pct = totalLinhas > 0 ? (c.linhas / totalLinhas) * 100 : 0
-          const receitaEstimada = totalAtribuida * (pct / 100)
-          const isExpanded = expandedCanal === c.canal
-          const filiais = (data.filial || []).filter(f => f.canal === c.canal)
-          const totalFilialLinhas = filiais.reduce((s, f) => s + (f.linhas || 0), 0)
-          return (
-            <div key={c.canal}>
-              <button
-                onClick={() => setExpandedCanal(isExpanded ? null : c.canal)}
-                className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-700">{c.canal}</span>
-                    <span className="text-sm font-bold text-slate-900">~{formatCurrency(receitaEstimada)}</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-                    <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">{pct.toFixed(1)}% · {c.linhas.toLocaleString('pt-BR')} pedidos</p>
-                </div>
-                {filiais.length > 0 && (
-                  <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-              {isExpanded && filiais.length > 0 && (
-                <div className="ml-4 mt-1 space-y-1">
-                  {filiais.map(f => {
-                    const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
-                    const filialReceita = receitaEstimada * (filialPct / 100)
-                    return (
-                      <div key={f.codigo_filial} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-4 py-2 text-sm">
-                        <span className="text-slate-600">{f.codigo_filial}</span>
-                        <span className="text-xs text-slate-400 mr-auto ml-3">{f.linhas} pedidos · {filialPct.toFixed(1)}%</span>
-                        <span className="font-medium text-slate-800">~{formatCurrency(filialReceita)}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+
+      {/* Canal summary */}
+      <div className="grid gap-3 sm:grid-cols-2 mb-4">
+        {canaisComReceita.map(c => (
+          <div key={c.canal} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-700">{c.canal}</span>
+              <span className="text-sm font-bold text-slate-900">~{formatCurrency(c.receitaEstimada)}</span>
             </div>
-          )
-        })}
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${c.pct}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{c.pct.toFixed(1)}% · {c.linhas.toLocaleString('pt-BR')} pedidos</p>
+          </div>
+        ))}
       </div>
+
+      {/* Abertura por loja */}
+      {lojas.length > 0 && (
+        <>
+          <button
+            onClick={() => setShowLojas(v => !v)}
+            className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800 mb-3"
+          >
+            <svg className={`h-4 w-4 transition-transform ${showLojas ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06z" clipRule="evenodd" />
+            </svg>
+            {showLojas ? 'Ocultar' : 'Ver'} abertura por loja ({lojas.length} filiais)
+          </button>
+          {showLojas && (
+            <div className="space-y-1.5">
+              {lojas.map((f, idx) => (
+                <div key={f.codigo_filial} className="flex items-center gap-3 rounded-lg border border-slate-100 px-4 py-2.5">
+                  <span className="w-6 text-right text-xs text-slate-400">{idx + 1}</span>
+                  <span className="w-14 text-sm font-semibold text-slate-700">Loja {f.codigo_filial}</span>
+                  <div className="flex-1">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-indigo-400"
+                        style={{ width: `${(f.receitaEstimada / maxReceita) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="w-10 text-right text-xs text-slate-400">{f.linhas}p</span>
+                  <span className="w-32 text-right text-sm font-medium text-slate-800">~{formatCurrency(f.receitaEstimada)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </section>
   )
 }
