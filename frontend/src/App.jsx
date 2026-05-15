@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -110,6 +110,50 @@ function formatCurrency(value) {
     currency: 'BRL',
     minimumFractionDigits: 2
   }).format(Number(value || 0))
+}
+
+function RegionalPanel({ data }) {
+  const [expandedRegionals, setExpandedRegionals] = useState(new Set())
+  const toggle = r => setExpandedRegionals(prev => {
+    const next = new Set(prev); next.has(r) ? next.delete(r) : next.add(r); return next
+  })
+  if (!data?.regionais?.length) return (
+    <div className="px-4 py-3 text-xs text-slate-400">Nenhum dado regional encontrado.</div>
+  )
+  return (
+    <div className="p-4 bg-slate-50 space-y-2">
+      {data.regionais.map(r => (
+        <div key={r.regional} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <button onClick={() => toggle(r.regional)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-slate-50 text-left">
+            <span className="font-semibold text-slate-700">{r.regional}</span>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-400">{r.linhas} pedidos</span>
+              <span className="font-semibold text-emerald-700">{formatCurrency(r.receita)}</span>
+              <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expandedRegionals.has(r.regional) ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+            </div>
+          </button>
+          {expandedRegionals.has(r.regional) && (
+            <div className="border-t border-slate-100 divide-y divide-slate-50">
+              {r.lojas.map(loja => (
+                <div key={loja.codigo_filial} className="flex items-center justify-between px-6 py-2 text-xs">
+                  <span className="font-medium text-slate-600">{loja.centro_sap} — {loja.nome}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-slate-400">{loja.linhas}p</span>
+                    <span className="font-semibold text-slate-700 w-28 text-right">{formatCurrency(loja.receita)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      <p className="text-xs text-slate-400 pt-1">
+        {data.total_cruzado} pedidos cruzados · {data.total_cpfs} CPFs influenciados
+      </p>
+    </div>
+  )
 }
 
 function formatOpenDataValue(value) {
@@ -248,6 +292,8 @@ export default function App({ mode = 'campanhas' }) {
   const [emailApuracaoData, setEmailApuracaoData] = useState(null)
   const [emailApuracaoLoading, setEmailApuracaoLoading] = useState(false)
   const [emailApuracaoError, setEmailApuracaoError] = useState('')
+  const [smsRegional, setSmsRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
+  const [emailRegional, setEmailRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [unidadeVendaData, setUnidadeVendaData] = useState(null)
   const [unidadeVendaLoading, setUnidadeVendaLoading] = useState(false)
   const [unidadeVendaError, setUnidadeVendaError] = useState('')
@@ -788,6 +834,48 @@ export default function App({ mode = 'campanhas' }) {
       setEmailApuracaoLoading(false)
     }
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
+
+  const toggleSmsRegional = useCallback(async (campaignId, dispatchDate) => {
+    setSmsRegional(prev => {
+      const cur = prev[campaignId] || {}
+      if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
+      return { ...prev, [campaignId]: { loading: true, error: '', data: null, expanded: true } }
+    })
+    setSmsRegional(prev => {
+      if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
+      const params = new URLSearchParams({ campaign_id: campaignId, date: dispatchDate })
+      fetch(`/api/open-data/sms-apuracao-regional?${params}`)
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          setSmsRegional(p => ({ ...p, [campaignId]: { loading: false, error: ok ? '' : (d?.detail || 'Erro'), data: ok ? d : null, expanded: true } }))
+        })
+        .catch(err => {
+          setSmsRegional(p => ({ ...p, [campaignId]: { loading: false, error: err.message || 'Erro', data: null, expanded: true } }))
+        })
+      return prev
+    })
+  }, [])
+
+  const toggleEmailRegional = useCallback(async (campaignId, startDate, endDate) => {
+    setEmailRegional(prev => {
+      const cur = prev[campaignId] || {}
+      if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
+      return { ...prev, [campaignId]: { loading: true, error: '', data: null, expanded: true } }
+    })
+    setEmailRegional(prev => {
+      if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
+      const params = new URLSearchParams({ campaign_id: campaignId, start: startDate, end: endDate })
+      fetch(`/api/open-data/email-apuracao-regional?${params}`)
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          setEmailRegional(p => ({ ...p, [campaignId]: { loading: false, error: ok ? '' : (d?.detail || 'Erro'), data: ok ? d : null, expanded: true } }))
+        })
+        .catch(err => {
+          setEmailRegional(p => ({ ...p, [campaignId]: { loading: false, error: err.message || 'Erro', data: null, expanded: true } }))
+        })
+      return prev
+    })
+  }, [])
 
   const loadUnidadeVenda = useCallback(async () => {
     setUnidadeVendaHasRequested(true)
@@ -2285,18 +2373,43 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Receita Atribuida</th>
                       <th className="px-4 py-3 text-right">Receita Influenciada</th>
+                      <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {smsApuracaoData.items.map((item) => (
-                      <tr key={item.campaign_id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
-                      </tr>
-                    ))}
+                    {smsApuracaoData.items.map((item) => {
+                      const reg = smsRegional[item.campaign_id] || {}
+                      return (
+                        <Fragment key={item.campaign_id}>
+                          <tr className="hover:bg-slate-50">
+                            <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date)}
+                                disabled={reg.loading}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                                {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
+                              </button>
+                            </td>
+                          </tr>
+                          {reg.expanded && (
+                            <tr>
+                              <td colSpan={6} className="p-0 border-b border-slate-200">
+                                {reg.error
+                                  ? <div className="px-4 py-2 text-xs text-rose-600">{reg.error}</div>
+                                  : reg.data
+                                    ? <RegionalPanel data={reg.data} />
+                                    : <div className="px-4 py-2 text-xs text-slate-400">Carregando...</div>
+                                }
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2392,22 +2505,47 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Receita Atribuida</th>
                       <th className="px-4 py-3 text-right">Receita Influenciada</th>
+                      <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {emailApuracaoData.items.map((item) => (
-                      <tr key={item.campaign_id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.aberturas.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">
-                          {item.taxa_abertura !== null ? `${item.taxa_abertura.toLocaleString('pt-BR')}%` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
-                      </tr>
-                    ))}
+                    {emailApuracaoData.items.map((item) => {
+                      const reg = emailRegional[item.campaign_id] || {}
+                      return (
+                        <Fragment key={item.campaign_id}>
+                          <tr className="hover:bg-slate-50">
+                            <td className="px-4 py-3 text-slate-900">{item.nome_campanha}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.aberturas.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">
+                              {item.taxa_abertura !== null ? `${item.taxa_abertura.toLocaleString('pt-BR')}%` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date)}
+                                disabled={reg.loading}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                                {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
+                              </button>
+                            </td>
+                          </tr>
+                          {reg.expanded && (
+                            <tr>
+                              <td colSpan={8} className="p-0 border-b border-slate-200">
+                                {reg.error
+                                  ? <div className="px-4 py-2 text-xs text-rose-600">{reg.error}</div>
+                                  : reg.data
+                                    ? <RegionalPanel data={reg.data} />
+                                    : <div className="px-4 py-2 text-xs text-slate-400">Carregando...</div>
+                                }
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -4091,3 +4091,281 @@ def receita_atribuida_canal(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular canal da receita atribuida: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Filial → Regional mapping (from Filiais e numero sap iPlace lojas.csv)
+# Key = codigo_filial as stored in Base Vendas (LJ number without leading zeros)
+# ---------------------------------------------------------------------------
+_FILIAL_CSV = [
+    ("LJ084","IGUATEMI CAXIAS - RS","R1"),("LJ085","IGUATEMI POA - RS","R1"),
+    ("LJ090","VILLA ROMANA - SC","R1"),("LJ093","PARK SHOPP BRASILIA - DF","R6"),
+    ("LJ096","BH SHOPPING - MG","R2"),("LJ094","BARRA SUL POA - RS","R1"),
+    ("LJ102","BOURBON - SP","R5"),("LJ106","SAO CAETANO - SP","R4"),
+    ("LJ107","CAMPO GRANDE - MS","R6"),("LJ109","SP MOOCA - SP","R5"),
+    ("LJ158","SP VILLA LOBOS - SP","R5"),("LJ157","SP IBIRAPUERA - SP","R5"),
+    ("LJ155","IGUATEMI CAMPINAS - SP","R2"),("LJ156","SP ELDORADO - SP","R5"),
+    ("LJ163","SP ANALIA FRANCO - SP","R5"),("LJ161","IGUATEMI ALPHAVILLE - SP","R4"),
+    ("LJ110","SP IGUATEMI JK - SP","R5"),("LJ111","BRASILIA SHOPPING - DF","R6"),
+    ("LJ117","BELEM - PA","R6"),("LJ119","JOAO PESSOA - PB","R3"),
+    ("LJ118","SP CENTER NORTE - SP","R5"),("LJ120","MANAUS - AM","R6"),
+    ("LJ124","NATAL - RN","R3"),("LJ121","FORTALEZA - CE","R3"),
+    ("LJ126","NITEROI - RJ","R7"),("LJ165","R JANEIRO BOTAFOGO - RJ","R7"),
+    ("LJ198","BH PATIO SAVASSI - MG","R2"),("LJ185","RJ SHOPP TIJUCA - RJ","R7"),
+    ("LJ209","CURITIBA - PR","R1"),("LJ219","FORTALEZA - CE","R3"),
+    ("LJ231","SANTOS - SP","R4"),("LJ233","RIO DE JANEIRO - RJ","R7"),
+    ("LJ234","SHOPP CIDADE SAO PAULO - SP","R5"),("LJ235","SHOPP BARRA SALVADOR - BA","R3"),
+    ("LJ245","BELEM - PA","R6"),("LJ242","MANAUS - AM","R6"),
+    ("LJ244","CUIABA - MT","R6"),("LJ248","RIO DE JANEIRO - RJ","R7"),
+    ("LJ249","FLORIANOPOLIS - SC","R1"),("LJ254","JOINVILLE - SC","R1"),
+    ("LJ262","ARACAJU - SE","R3"),("LJ239","PARK SHOPPING CANOAS - RS","R1"),
+    ("LJ258","OSASCO - SP","R4"),("LJ266","ANANINDEUA - PA","R6"),
+    ("LJ285","SHOPPING DA BAHIA - BA","R3"),("LJ284","FLAMBOYANT - GO","R6"),
+    ("LJ291","SALVADOR SHOPPING - BA","R3"),("LJ288","SHOPPING RECIFE - PE","R3"),
+    ("LJ286","SHOPPING VITORIA - ES","R7"),("LJ283","RIOMAR - PE","R3"),
+    ("LJ287","BARRA SHOPPING - RJ","R7"),("LJ293","PONTA NEGRA - AM","R6"),
+    ("LJ127","MYSTORE S.J. RIO PRETO - SP","R4"),("LJ141","MYSTORE S.J. CAMPOS - SP","R2"),
+    ("LJ146","MYSTORE RIBEIRAO SHOPPING - SP","R2"),("LJ143","MYSTORE VOTORANTIM - SP","R4"),
+    ("LJ145","MYSTORE SAO PAULO TIETE - SP","R5"),("LJ151","MYSTORE SP PLAZA SUL - SP","R5"),
+    ("LJ153","MYSTORE SHOPPING ABC - SP","R4"),("LJ152","MYSTORE PRAIA DE BELAS POA - RS","R1"),
+    ("LJ160","MYSTORE DOM PEDRO CAMPINAS - SP","R2"),("LJ168","MYSTORE SP BARUERI - SP","R5"),
+    ("LJ172","MYSTORE SAO LUIS SHOPP ILHA - MA","R6"),("LJ171","MYSTORE BALNEARIO CAMBORIU - SC","R1"),
+    ("LJ213","MYSTORE CONTAGEM - MG","R2"),("LJ187","MYSTORE SP METRO TATUAPE - SP","R5"),
+    ("LJ228","MYSTORE MACEIO - AL","R3"),("LJ186","MYSTORE CARUARU - PE","R3"),
+    ("LJ188","MYSTORE S.J.DE MERITI - RJ","R7"),("LJ194","MYSTORE RECIFE TACARUNA - PE","R3"),
+    ("LJ191","MYSTORE RECIFE CASA FORTE - PE","R3"),("LJ211","MYSTORE CURITIBA - PR","R1"),
+    ("LJ192","MYSTORE J GUARARAPES - PE","R3"),("LJ184","MYSTORE RJ WEST SHOPPING - RJ","R7"),
+    ("LJ189","MYSTORE RJ NORTE SHOPPING - RJ","R7"),("LJ207","MYSTORE SP INTERLAGOS - SP","R4"),
+    ("LJ202","MYSTORE PELOTAS - RS","R1"),("LJ215","MYSTORE SAO PAULO - SP","R5"),
+    ("LJ212","MYSTORE NOVO HAMBURGO - RS","R1"),("LJ216","MYSTORE GUARULHOS - SP","R2"),
+    ("LJ229","MYSTORE M. DAS CRUZES - SP","R2"),("LJ246","RIO DE JANEIRO - RJ","R7"),
+    ("LJ238","IPLACE MOBILE SANTA MARIA - RS","R1"),("LJ255","SANTA BARBARA D OESTE - SP","R4"),
+    ("LJ273","OLINDA - PE","R3"),("LJ269","PASSO FUNDO - RS","R1"),
+    ("LJ274","GUARULHOS - SP","R2"),("LJ282","IPLACE MOBILE JOC PLAZA - PR","R1"),
+    ("LJ319","ESTACAO CUIABA - MT","R6"),
+]
+FILIAL_REGIONAL_MAP: dict[str, dict[str, str]] = {
+    str(int(lj[2:])): {"centro_sap": lj, "nome": nome, "regional": regional}
+    for lj, nome, regional in _FILIAL_CSV
+}
+
+
+def _sanitize_campaign_id(value: str) -> str:
+    """Validate that campaign_id is purely numeric (Emarsys IDs are numeric)."""
+    cleaned = re.sub(r"[^0-9]", "", value)
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="campaign_id deve ser numerico.")
+    return cleaned
+
+
+def _build_influenced_cpfs_sms_sql(campaign_id: str, dispatch_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    si_contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    d = dispatch_date
+    cid = _sanitize_campaign_id(campaign_id)
+    return f"""
+WITH
+sms_sends_camp AS (
+  SELECT DISTINCT ss.contact_id, DATE(ss.event_time) AS send_date
+  FROM `{project_id}.{dataset}.{sms_sends_table}` ss
+  WHERE CAST(ss.campaign_id AS STRING) = '{cid}'
+    AND DATE(ss.event_time) = DATE('{d}')
+    AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
+                                   AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
+),
+influenced_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM sms_sends_camp ssc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+    ON r.contact_id = ssc.contact_id
+    AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
+    AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+),
+order_si_contact AS (
+  SELECT p.order_id, MAX(p.si_contact_id) AS si_contact_id
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN influenced_orders io USING (order_id)
+  WHERE DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+  GROUP BY p.order_id
+),
+cpfs AS (
+  SELECT
+    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
+  FROM order_si_contact osc
+  INNER JOIN `{project_id}.{dataset}.{si_contacts_table}` c
+    ON CAST(c.si_contact_id AS STRING) = CAST(osc.si_contact_id AS STRING)
+  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+  GROUP BY osc.order_id
+)
+SELECT DISTINCT cpf FROM cpfs WHERE cpf IS NOT NULL AND cpf != ''
+""".strip()
+
+
+def _build_influenced_cpfs_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    si_contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    s, e = start_date, end_date
+    cid = _sanitize_campaign_id(campaign_id)
+    return f"""
+WITH
+email_opens_camp AS (
+  SELECT DISTINCT eo.contact_id, DATE(eo.event_time) AS open_date
+  FROM `{project_id}.{dataset}.{email_opens_table}` eo
+  WHERE CAST(eo.campaign_id AS STRING) = '{cid}'
+    AND DATE(eo.partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND DATE(eo.event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND eo.contact_id IS NOT NULL
+),
+influenced_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM email_opens_camp eoc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+    ON r.contact_id = eoc.contact_id
+    AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
+  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+),
+order_si_contact AS (
+  SELECT p.order_id, MAX(p.si_contact_id) AS si_contact_id
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN influenced_orders io USING (order_id)
+  WHERE DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  GROUP BY p.order_id
+),
+cpfs AS (
+  SELECT
+    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
+  FROM order_si_contact osc
+  INNER JOIN `{project_id}.{dataset}.{si_contacts_table}` c
+    ON CAST(c.si_contact_id AS STRING) = CAST(osc.si_contact_id AS STRING)
+  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+  GROUP BY osc.order_id
+)
+SELECT DISTINCT cpf FROM cpfs WHERE cpf IS NOT NULL AND cpf != ''
+""".strip()
+
+
+def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict[str, Any]:
+    """Load Base Vendas, cross CPFs, return regional + filial breakdown."""
+    df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
+    if df.empty or not cpfs:
+        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+
+    available_columns = [str(c) for c in df.columns]
+    date_column = _find_base_vendas_date_column(available_columns)
+    document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
+    filial_column = _find_column(available_columns, "Codigo Filial")
+    revenue_column = _find_base_vendas_revenue_column(available_columns)
+
+    if not document_column:
+        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+
+    start_obj = date.fromisoformat(start_date)
+    end_obj = date.fromisoformat(end_date)
+
+    filial_data: dict[str, dict[str, Any]] = {}
+    matched = 0
+
+    for _, row in df.iterrows():
+        if date_column:
+            row_date = _parse_base_vendas_date(row.get(date_column))
+            if row_date is None or row_date < start_obj or row_date > end_obj:
+                continue
+
+        doc_normalized = _normalize_match_key(str(row.get(document_column) or "") if document_column else "")
+        if not doc_normalized or doc_normalized not in cpfs:
+            continue
+
+        filial = str(row.get(filial_column) or "").strip() if filial_column else ""
+        receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
+        filial = filial or "(sem filial)"
+        matched += 1
+
+        if filial not in filial_data:
+            filial_data[filial] = {"linhas": 0, "receita": 0.0}
+        filial_data[filial]["linhas"] += 1
+        filial_data[filial]["receita"] += receita
+
+    regional_data: dict[str, dict[str, Any]] = {}
+    for filial, fdata in filial_data.items():
+        store_info = FILIAL_REGIONAL_MAP.get(filial)
+        regional = store_info["regional"] if store_info else "Outros"
+        nome_loja = store_info["nome"] if store_info else f"LJ{str(filial).zfill(3)}"
+        centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
+
+        if regional not in regional_data:
+            regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
+        regional_data[regional]["linhas"] += fdata["linhas"]
+        regional_data[regional]["receita"] += fdata["receita"]
+        regional_data[regional]["lojas"].append({
+            "codigo_filial": filial,
+            "centro_sap": centro_sap,
+            "nome": nome_loja,
+            "linhas": fdata["linhas"],
+            "receita": round(fdata["receita"], 2),
+        })
+
+    for rdata in regional_data.values():
+        rdata["lojas"].sort(key=lambda x: -x["receita"])
+        rdata["receita"] = round(rdata["receita"], 2)
+
+    return {
+        "regionais": sorted(regional_data.values(), key=lambda x: -x["receita"]),
+        "total_cruzado": matched,
+        "total_cpfs": len(cpfs),
+    }
+
+
+@router.get("/sms-apuracao-regional")
+def sms_apuracao_regional(
+    campaign_id: str = Query(..., min_length=1, max_length=30),
+    date_param: str = Query(alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    cid = _sanitize_campaign_id(campaign_id)
+    d = _validate_optional_iso_date(date_param) or date_param
+    end_d = str(date.fromisoformat(d) + timedelta(days=7))
+    try:
+        sql = _build_influenced_cpfs_sms_sql(cid, d)
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
+        )
+        cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
+        result = _cross_cpfs_regional(cpfs, d, end_d)
+        return {**result, "campaign_id": cid, "dispatch_date": d}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar regional SMS: {exc}") from exc
+
+
+@router.get("/email-apuracao-regional")
+def email_apuracao_regional(
+    campaign_id: str = Query(..., min_length=1, max_length=30),
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    cid = _sanitize_campaign_id(campaign_id)
+    s = _validate_optional_iso_date(start) or start
+    e = _validate_optional_iso_date(end) or end
+    end_extended = str(date.fromisoformat(e) + timedelta(days=7))
+    try:
+        sql = _build_influenced_cpfs_email_sql(cid, s, e)
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
+        )
+        cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
+        result = _cross_cpfs_regional(cpfs, s, end_extended)
+        return {**result, "campaign_id": cid, "start_date": s, "end_date": e}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar regional e-mail: {exc}") from exc
