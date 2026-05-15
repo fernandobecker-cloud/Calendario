@@ -4252,8 +4252,18 @@ SELECT DISTINCT cpf FROM cpfs WHERE cpf IS NOT NULL AND cpf != ''
 """.strip()
 
 
-def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict[str, Any]:
-    """Load Base Vendas, cross CPFs, return regional + filial breakdown."""
+def _cross_cpfs_regional(
+    cpfs: set[str],
+    start_date: str,
+    end_date: str,
+    total_influenciada: float = 0.0,
+) -> dict[str, Any]:
+    """Load Base Vendas, cross CPFs, return regional + filial breakdown.
+
+    Uses order count proportions from Base Vendas applied to total_influenciada
+    (same proportional approach as canal breakdown), so values sum to the real
+    Receita Influenciada total rather than Base Vendas revenue.
+    """
     df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
     if df.empty or not cpfs:
         return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
@@ -4262,7 +4272,6 @@ def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict
     date_column = _find_base_vendas_date_column(available_columns)
     document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
     filial_column = _find_column(available_columns, "Codigo Filial")
-    revenue_column = _find_base_vendas_revenue_column(available_columns)
 
     if not document_column:
         return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
@@ -4270,7 +4279,7 @@ def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict
     start_obj = date.fromisoformat(start_date)
     end_obj = date.fromisoformat(end_date)
 
-    filial_data: dict[str, dict[str, Any]] = {}
+    filial_linhas: dict[str, int] = {}
     matched = 0
 
     for _, row in df.iterrows():
@@ -4284,32 +4293,31 @@ def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict
             continue
 
         filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-        receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
         filial = filial or "(sem filial)"
         matched += 1
+        filial_linhas[filial] = filial_linhas.get(filial, 0) + 1
 
-        if filial not in filial_data:
-            filial_data[filial] = {"linhas": 0, "receita": 0.0}
-        filial_data[filial]["linhas"] += 1
-        filial_data[filial]["receita"] += receita
+    total_matched = sum(filial_linhas.values()) or 1
 
     regional_data: dict[str, dict[str, Any]] = {}
-    for filial, fdata in filial_data.items():
+    for filial, linhas in filial_linhas.items():
         store_info = FILIAL_REGIONAL_MAP.get(filial)
         regional = store_info["regional"] if store_info else "Outros"
         nome_loja = store_info["nome"] if store_info else f"LJ{str(filial).zfill(3)}"
         centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
+        pct = linhas / total_matched
+        receita_est = round(total_influenciada * pct, 2)
 
         if regional not in regional_data:
             regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
-        regional_data[regional]["linhas"] += fdata["linhas"]
-        regional_data[regional]["receita"] += fdata["receita"]
+        regional_data[regional]["linhas"] += linhas
+        regional_data[regional]["receita"] += receita_est
         regional_data[regional]["lojas"].append({
             "codigo_filial": filial,
             "centro_sap": centro_sap,
             "nome": nome_loja,
-            "linhas": fdata["linhas"],
-            "receita": round(fdata["receita"], 2),
+            "linhas": linhas,
+            "receita": receita_est,
         })
 
     for rdata in regional_data.values():
@@ -4327,6 +4335,7 @@ def _cross_cpfs_regional(cpfs: set[str], start_date: str, end_date: str) -> dict
 def sms_apuracao_regional(
     campaign_id: str = Query(..., min_length=1, max_length=30),
     date_param: str = Query(alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    receita_influenciada: float = Query(default=0.0),
 ) -> dict[str, Any]:
     cid = _sanitize_campaign_id(campaign_id)
     d = _validate_optional_iso_date(date_param) or date_param
@@ -4338,7 +4347,7 @@ def sms_apuracao_regional(
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
         )
         cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-        result = _cross_cpfs_regional(cpfs, d, end_d)
+        result = _cross_cpfs_regional(cpfs, d, end_d, total_influenciada=receita_influenciada)
         return {**result, "campaign_id": cid, "dispatch_date": d}
     except HTTPException:
         raise
@@ -4351,6 +4360,7 @@ def email_apuracao_regional(
     campaign_id: str = Query(..., min_length=1, max_length=30),
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    receita_influenciada: float = Query(default=0.0),
 ) -> dict[str, Any]:
     cid = _sanitize_campaign_id(campaign_id)
     s = _validate_optional_iso_date(start) or start
@@ -4363,7 +4373,7 @@ def email_apuracao_regional(
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
         )
         cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-        result = _cross_cpfs_regional(cpfs, s, end_extended)
+        result = _cross_cpfs_regional(cpfs, s, end_extended, total_influenciada=receita_influenciada)
         return {**result, "campaign_id": cid, "start_date": s, "end_date": e}
     except HTTPException:
         raise

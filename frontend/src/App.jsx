@@ -835,7 +835,7 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
 
-  const toggleSmsRegional = useCallback(async (campaignId, dispatchDate) => {
+  const toggleSmsRegional = useCallback(async (campaignId, dispatchDate, receitaInfluenciada) => {
     setSmsRegional(prev => {
       const cur = prev[campaignId] || {}
       if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
@@ -843,7 +843,7 @@ export default function App({ mode = 'campanhas' }) {
     })
     setSmsRegional(prev => {
       if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
-      const params = new URLSearchParams({ campaign_id: campaignId, date: dispatchDate })
+      const params = new URLSearchParams({ campaign_id: campaignId, date: dispatchDate, receita_influenciada: String(receitaInfluenciada || 0) })
       fetch(`/api/open-data/sms-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -856,7 +856,7 @@ export default function App({ mode = 'campanhas' }) {
     })
   }, [])
 
-  const toggleEmailRegional = useCallback(async (campaignId, startDate, endDate) => {
+  const toggleEmailRegional = useCallback(async (campaignId, startDate, endDate, receitaInfluenciada) => {
     setEmailRegional(prev => {
       const cur = prev[campaignId] || {}
       if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
@@ -864,7 +864,7 @@ export default function App({ mode = 'campanhas' }) {
     })
     setEmailRegional(prev => {
       if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
-      const params = new URLSearchParams({ campaign_id: campaignId, start: startDate, end: endDate })
+      const params = new URLSearchParams({ campaign_id: campaignId, start: startDate, end: endDate, receita_influenciada: String(receitaInfluenciada || 0) })
       fetch(`/api/open-data/email-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -2388,7 +2388,7 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
                             <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date)}
+                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date, item.receita_influenciada)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
@@ -2524,7 +2524,7 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
                             <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date)}
+                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date, item.receita_influenciada)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
