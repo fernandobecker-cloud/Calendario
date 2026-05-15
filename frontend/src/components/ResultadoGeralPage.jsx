@@ -1333,6 +1333,35 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
   const [expandedCanal, setExpandedCanal] = useState(null)
   const [gapDownloading, setGapDownloading] = useState(false)
   const [gapDownloadError, setGapDownloadError] = useState('')
+  const [atribuidaDownloading, setAtribuidaDownloading] = useState(false)
+  const [atribuidaDownloadError, setAtribuidaDownloadError] = useState('')
+
+  const handleDownloadAtribuida = async () => {
+    setAtribuidaDownloading(true)
+    setAtribuidaDownloadError('')
+    try {
+      const params = new URLSearchParams({ ...(startDate ? { start: startDate } : {}), ...(endDate ? { end: endDate } : {}) })
+      const res = await fetch(`/api/open-data/emarsys/atribuida-orders?${params}`)
+      const payload = res.ok ? await res.json() : null
+      if (!res.ok || !payload) throw new Error(payload?.detail || 'Erro ao buscar pedidos atribuídos.')
+      const rows = (payload.items || []).map(item => ({
+        order_id: item.order_id,
+        contact_id: item.contact_id,
+        external_id: item.external_id,
+        data_compra: item.purchase_date || '',
+        valor_pedido: String(item.valor_pedido).replace('.', ','),
+        valor_atribuido: String(item.valor_atribuido).replace('.', ','),
+        campanha: item.nome_campanha || '',
+        tipo_toque: item.tipo_toque || '',
+        data_toque: item.data_toque || '',
+      }))
+      downloadCsv(rows, `atribuida_pedidos_${startDate || 'periodo'}_${endDate || ''}.csv`)
+    } catch (err) {
+      setAtribuidaDownloadError(err instanceof Error ? err.message : 'Erro ao baixar.')
+    } finally {
+      setAtribuidaDownloading(false)
+    }
+  }
 
   const handleDownloadGap = async () => {
     setGapDownloading(true)
@@ -1388,11 +1417,32 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
         </div>
 
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Atribuída pelo Emarsys</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Atribuída pelo Emarsys</p>
+            <button
+              onClick={handleDownloadAtribuida}
+              disabled={atribuidaDownloading}
+              title="Baixar pedidos atribuídos (CSV)"
+              className="flex-shrink-0 flex items-center gap-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+            >
+              {atribuidaDownloading ? (
+                <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+              ) : (
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+              )}
+              <span>{atribuidaDownloading ? 'Baixando…' : 'Baixar'}</span>
+            </button>
+          </div>
           <p className="mt-2 text-3xl font-bold text-slate-900">{formatCurrency(data.atribuida_receita)}</p>
           <p className="mt-1 text-xs text-blue-600">
             {atribuidaFullPct.toFixed(1)}% do total · {(data.atribuida_pedidos ?? 0).toLocaleString('pt-BR')} pedidos
           </p>
+          {atribuidaDownloadError && <p className="mt-1 text-xs text-rose-600">{atribuidaDownloadError}</p>}
         </div>
       </div>
 

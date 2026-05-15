@@ -2758,6 +2758,202 @@ def emarsys_gap_orders(
         raise HTTPException(status_code=502, detail=f"Falha ao buscar pedidos do gap: {exc}") from exc
 
 
+def _build_atribuida_orders_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+    """Returns individual attributed orders (attributed_amount > 0) for download."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    normalized_start = _validate_optional_iso_date(start_date)
+    normalized_end = _validate_optional_iso_date(end_date)
+
+    if normalized_start and normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    elif normalized_start:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
+        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+    elif normalized_end:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
+        attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
+        purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = f"DATE('{normalized_end}')"
+    else:
+        attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
+        attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
+        touch_partition_end = "CURRENT_DATE()"
+
+    return f"""
+WITH
+email_names AS (
+  SELECT CAST(id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{email_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{sms_campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY) AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+attributed_treatments AS (
+  SELECT
+    r.order_id,
+    MAX(r.contact_id) AS contact_id,
+    ARRAY_AGG(
+      STRUCT(CAST(t.campaign_id AS STRING) AS campaign_id, t.attributed_amount)
+      ORDER BY t.attributed_amount DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS top_treatment,
+    ROUND(SUM(t.attributed_amount), 2) AS valor_atribuido
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE t.attributed_amount > 0
+    AND {attr_event_time_filter}
+    AND {attr_partition_filter}
+  GROUP BY r.order_id
+),
+orders_period AS (
+  SELECT
+    p.order_id,
+    MAX(p.si_contact_id) AS si_contact_id,
+    DATE(MIN(p.purchase_date)) AS purchase_date,
+    ROUND(SUM(p.sales_amount), 2) AS valor_pedido
+  FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  WHERE {purchase_date_filter}
+  GROUP BY p.order_id
+  HAVING SUM(p.sales_amount) > 0
+),
+email_touch AS (
+  SELECT at.order_id,
+    ARRAY_AGG(
+      STRUCT(DATE(e.event_time) AS data_toque, 'email' AS tipo)
+      ORDER BY e.event_time DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS toque
+  FROM attributed_treatments at
+  JOIN orders_period op USING (order_id)
+  JOIN `{project_id}.{dataset}.{email_opens_table}` e
+    ON e.contact_id = at.contact_id
+    AND DATE(e.event_time) BETWEEN DATE_SUB(op.purchase_date, INTERVAL 7 DAY) AND op.purchase_date
+    AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  GROUP BY at.order_id
+),
+sms_touch AS (
+  SELECT at.order_id,
+    ARRAY_AGG(
+      STRUCT(DATE(s.event_time) AS data_toque, 'sms' AS tipo)
+      ORDER BY s.event_time DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS toque
+  FROM attributed_treatments at
+  JOIN orders_period op USING (order_id)
+  JOIN `{project_id}.{dataset}.{sms_sends_table}` s
+    ON s.contact_id = at.contact_id
+    AND DATE(s.event_time) BETWEEN DATE_SUB(op.purchase_date, INTERVAL 7 DAY) AND op.purchase_date
+    AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
+  GROUP BY at.order_id
+)
+SELECT
+  at.order_id,
+  CAST(at.contact_id AS STRING)     AS contact_id,
+  CAST(op.si_contact_id AS STRING)  AS si_contact_id,
+  op.purchase_date,
+  op.valor_pedido,
+  at.valor_atribuido,
+  COALESCE(en.nome_campanha, sn.nome_campanha, at.top_treatment.campaign_id) AS nome_campanha,
+  CAST(COALESCE(et.toque.data_toque, st.toque.data_toque) AS STRING)         AS data_toque,
+  CASE
+    WHEN et.order_id IS NOT NULL THEN 'email'
+    WHEN st.order_id IS NOT NULL THEN 'sms'
+    ELSE ''
+  END AS tipo_toque
+FROM attributed_treatments at
+INNER JOIN orders_period op USING (order_id)
+LEFT JOIN email_names en ON en.campaign_id = at.top_treatment.campaign_id
+LEFT JOIN sms_names sn ON sn.campaign_id = at.top_treatment.campaign_id
+LEFT JOIN email_touch et USING (order_id)
+LEFT JOIN sms_touch st USING (order_id)
+ORDER BY op.valor_pedido DESC
+""".strip()
+
+
+@router.get("/emarsys/atribuida-orders")
+def emarsys_atribuida_orders(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        sql = _build_atribuida_orders_sql(start, end)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+
+        if not records:
+            return {"items": [], "total": 0,
+                    "start_date": _validate_optional_iso_date(start),
+                    "end_date": _validate_optional_iso_date(end)}
+
+        unique_si_contact_ids = list({str(r.get("si_contact_id") or "") for r in records if r.get("si_contact_id")})
+        ext_id_map: dict[str, str] = {}
+        if unique_si_contact_ids:
+            contact_sql = _build_contact_external_id_sql(unique_si_contact_ids)
+            contact_records = run_bigquery_records(
+                contact_sql,
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=25,
+            )
+            ext_id_map = {
+                str(r.get("si_contact_id") or ""): str(r.get("external_id") or "")
+                for r in contact_records
+                if r.get("si_contact_id")
+            }
+
+        items = [
+            {
+                "order_id": str(r.get("order_id") or ""),
+                "contact_id": str(r.get("contact_id") or ""),
+                "external_id": ext_id_map.get(str(r.get("si_contact_id") or ""), ""),
+                "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
+                "valor_pedido": float(r.get("valor_pedido") or 0),
+                "valor_atribuido": float(r.get("valor_atribuido") or 0),
+                "nome_campanha": str(r.get("nome_campanha") or ""),
+                "data_toque": str(r.get("data_toque") or ""),
+                "tipo_toque": str(r.get("tipo_toque") or ""),
+            }
+            for r in records
+        ]
+        return {
+            "items": items,
+            "total": len(items),
+            "start_date": _validate_optional_iso_date(start),
+            "end_date": _validate_optional_iso_date(end),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar pedidos atribuídos: {exc}") from exc
+
+
 @router.get("/base-vendas/canal-breakdown")
 def base_vendas_canal_breakdown(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
