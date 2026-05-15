@@ -2759,7 +2759,9 @@ def emarsys_gap_orders(
 
 
 def _build_atribuida_orders_sql(start_date: str | None = None, end_date: str | None = None) -> str:
-    """Returns individual attributed orders (attributed_amount > 0) for download."""
+    """Returns individual attributed orders (attributed_amount > 0) for download.
+    Includes external_id (CPF) via si_contacts join — no second BigQuery call needed.
+    """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
@@ -2767,6 +2769,7 @@ def _build_atribuida_orders_sql(start_date: str | None = None, end_date: str | N
     email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    si_contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
 
@@ -2841,12 +2844,18 @@ orders_period AS (
   GROUP BY p.order_id
   HAVING SUM(p.sales_amount) > 0
 ),
+si_contact_cpf AS (
+  SELECT
+    CAST(c.si_contact_id AS STRING) AS si_contact_id,
+    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS external_id
+  FROM `{project_id}.{dataset}.{si_contacts_table}` c
+  INNER JOIN orders_period op ON CAST(c.si_contact_id AS STRING) = CAST(op.si_contact_id AS STRING)
+  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+  GROUP BY c.si_contact_id
+),
 email_touch AS (
   SELECT at.order_id,
-    ARRAY_AGG(
-      STRUCT(DATE(e.event_time) AS data_toque, 'email' AS tipo)
-      ORDER BY e.event_time DESC LIMIT 1
-    )[SAFE_OFFSET(0)] AS toque
+    ARRAY_AGG(DATE(e.event_time) ORDER BY e.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS data_toque
   FROM attributed_treatments at
   JOIN orders_period op USING (order_id)
   JOIN `{project_id}.{dataset}.{email_opens_table}` e
@@ -2857,10 +2866,7 @@ email_touch AS (
 ),
 sms_touch AS (
   SELECT at.order_id,
-    ARRAY_AGG(
-      STRUCT(DATE(s.event_time) AS data_toque, 'sms' AS tipo)
-      ORDER BY s.event_time DESC LIMIT 1
-    )[SAFE_OFFSET(0)] AS toque
+    ARRAY_AGG(DATE(s.event_time) ORDER BY s.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS data_toque
   FROM attributed_treatments at
   JOIN orders_period op USING (order_id)
   JOIN `{project_id}.{dataset}.{sms_sends_table}` s
@@ -2871,13 +2877,13 @@ sms_touch AS (
 )
 SELECT
   at.order_id,
-  CAST(at.contact_id AS STRING)     AS contact_id,
-  CAST(op.si_contact_id AS STRING)  AS si_contact_id,
+  CAST(at.contact_id AS STRING)                                               AS contact_id,
+  COALESCE(sc.external_id, '')                                                AS external_id,
   op.purchase_date,
   op.valor_pedido,
   at.valor_atribuido,
-  COALESCE(en.nome_campanha, sn.nome_campanha, at.top_treatment.campaign_id) AS nome_campanha,
-  CAST(COALESCE(et.toque.data_toque, st.toque.data_toque) AS STRING)         AS data_toque,
+  COALESCE(en.nome_campanha, sn.nome_campanha, at.top_treatment.campaign_id)  AS nome_campanha,
+  CAST(COALESCE(et.data_toque, st.data_toque) AS STRING)                      AS data_toque,
   CASE
     WHEN et.order_id IS NOT NULL THEN 'email'
     WHEN st.order_id IS NOT NULL THEN 'sms'
@@ -2885,6 +2891,7 @@ SELECT
   END AS tipo_toque
 FROM attributed_treatments at
 INNER JOIN orders_period op USING (order_id)
+LEFT JOIN si_contact_cpf sc ON sc.si_contact_id = CAST(op.si_contact_id AS STRING)
 LEFT JOIN email_names en ON en.campaign_id = at.top_treatment.campaign_id
 LEFT JOIN sms_names sn ON sn.campaign_id = at.top_treatment.campaign_id
 LEFT JOIN email_touch et USING (order_id)
@@ -2912,27 +2919,11 @@ def emarsys_atribuida_orders(
                     "start_date": _validate_optional_iso_date(start),
                     "end_date": _validate_optional_iso_date(end)}
 
-        unique_si_contact_ids = list({str(r.get("si_contact_id") or "") for r in records if r.get("si_contact_id")})
-        ext_id_map: dict[str, str] = {}
-        if unique_si_contact_ids:
-            contact_sql = _build_contact_external_id_sql(unique_si_contact_ids)
-            contact_records = run_bigquery_records(
-                contact_sql,
-                EMARSYS_OPEN_DATA_PROJECT_ID,
-                location=EMARSYS_OPEN_DATA_LOCATION or None,
-                timeout=25,
-            )
-            ext_id_map = {
-                str(r.get("si_contact_id") or ""): str(r.get("external_id") or "")
-                for r in contact_records
-                if r.get("si_contact_id")
-            }
-
         items = [
             {
                 "order_id": str(r.get("order_id") or ""),
                 "contact_id": str(r.get("contact_id") or ""),
-                "external_id": ext_id_map.get(str(r.get("si_contact_id") or ""), ""),
+                "external_id": str(r.get("external_id") or ""),
                 "purchase_date": _normalize_open_data_value(r.get("purchase_date")),
                 "valor_pedido": float(r.get("valor_pedido") or 0),
                 "valor_atribuido": float(r.get("valor_atribuido") or 0),
