@@ -128,7 +128,7 @@ function RegionalPanel({ data }) {
             className="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-slate-50 text-left">
             <span className="font-semibold text-slate-700">{r.regional}</span>
             <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-400">{r.linhas} pedidos</span>
+              <span className="text-xs text-slate-400">{r.pedidos} pedidos</span>
               <span className="font-semibold text-emerald-700">{formatCurrency(r.receita)}</span>
               <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expandedRegionals.has(r.regional) ? 'rotate-180' : ''}`}
                 viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
@@ -140,7 +140,7 @@ function RegionalPanel({ data }) {
                 <div key={loja.codigo_filial} className="flex items-center justify-between px-6 py-2 text-xs">
                   <span className="font-medium text-slate-600">{loja.centro_sap} — {loja.nome}</span>
                   <div className="flex items-center gap-4">
-                    <span className="text-slate-400">{loja.linhas}p</span>
+                    <span className="text-slate-400">{loja.pedidos}p</span>
                     <span className="font-semibold text-slate-700 w-28 text-right">{formatCurrency(loja.receita)}</span>
                   </div>
                 </div>
@@ -150,7 +150,7 @@ function RegionalPanel({ data }) {
         </div>
       ))}
       <p className="text-xs text-slate-400 pt-1">
-        {data.total_cruzado} pedidos cruzados · {data.total_cpfs} CPFs influenciados
+        {data.total_cruzado} pedidos cruzados · {data.total_orders} pedidos influenciados
       </p>
     </div>
   )

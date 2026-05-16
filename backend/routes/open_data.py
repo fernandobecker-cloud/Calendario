@@ -4158,7 +4158,8 @@ def _sanitize_campaign_id(value: str) -> str:
     return cleaned
 
 
-def _build_influenced_cpfs_sms_sql(campaign_id: str, dispatch_date: str) -> str:
+def _build_influenced_orders_sms_sql(campaign_id: str, dispatch_date: str) -> str:
+    """Returns (order_id, cpf, purchase_date, sales_amount) for SMS-attributed orders."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
@@ -4178,34 +4179,46 @@ sms_sends_camp AS (
                                    AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
 ),
 influenced_orders AS (
-  SELECT DISTINCT r.order_id
+  SELECT r.order_id, r.contact_id, DATE(r.event_time) AS purchase_date
   FROM sms_sends_camp ssc
   INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
     ON r.contact_id = ssc.contact_id
     AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
     AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.order_id ORDER BY r.event_time ASC) = 1
 ),
-order_si_contact AS (
-  SELECT p.order_id, MAX(p.si_contact_id) AS si_contact_id
-  FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  INNER JOIN influenced_orders io USING (order_id)
-  WHERE DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
-  GROUP BY p.order_id
-),
-cpfs AS (
+order_with_amount AS (
   SELECT
-    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
-  FROM order_si_contact osc
+    io.order_id,
+    io.purchase_date,
+    ANY_VALUE(p.sales_amount) AS sales_amount,
+    ANY_VALUE(p.si_contact_id) AS si_contact_id
+  FROM influenced_orders io
+  INNER JOIN `{project_id}.{dataset}.{si_purchases_table}` p
+    ON p.order_id = io.order_id
+    AND DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+  GROUP BY io.order_id, io.purchase_date
+),
+order_with_cpf AS (
+  SELECT
+    owa.order_id,
+    owa.purchase_date,
+    CAST(owa.sales_amount AS FLOAT64) AS sales_amount,
+    ANY_VALUE(CAST(c.external_id AS STRING)) AS cpf
+  FROM order_with_amount owa
   INNER JOIN `{project_id}.{dataset}.{si_contacts_table}` c
-    ON CAST(c.si_contact_id AS STRING) = CAST(osc.si_contact_id AS STRING)
+    ON CAST(c.si_contact_id AS STRING) = CAST(owa.si_contact_id AS STRING)
   WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
-  GROUP BY osc.order_id
+  GROUP BY owa.order_id, owa.purchase_date, owa.sales_amount
 )
-SELECT DISTINCT cpf FROM cpfs WHERE cpf IS NOT NULL AND cpf != ''
+SELECT order_id, cpf, purchase_date, sales_amount
+FROM order_with_cpf
+WHERE cpf IS NOT NULL AND cpf != ''
 """.strip()
 
 
-def _build_influenced_cpfs_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
+def _build_influenced_orders_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
+    """Returns (order_id, cpf, purchase_date, sales_amount) for email-attributed orders."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
@@ -4225,48 +4238,63 @@ email_opens_camp AS (
     AND eo.contact_id IS NOT NULL
 ),
 influenced_orders AS (
-  SELECT DISTINCT r.order_id
+  SELECT r.order_id, r.contact_id, DATE(r.event_time) AS purchase_date
   FROM email_opens_camp eoc
   INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
     ON r.contact_id = eoc.contact_id
     AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
   WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.order_id ORDER BY r.event_time ASC) = 1
 ),
-order_si_contact AS (
-  SELECT p.order_id, MAX(p.si_contact_id) AS si_contact_id
-  FROM `{project_id}.{dataset}.{si_purchases_table}` p
-  INNER JOIN influenced_orders io USING (order_id)
-  WHERE DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
-  GROUP BY p.order_id
-),
-cpfs AS (
+order_with_amount AS (
   SELECT
-    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
-  FROM order_si_contact osc
+    io.order_id,
+    io.purchase_date,
+    ANY_VALUE(p.sales_amount) AS sales_amount,
+    ANY_VALUE(p.si_contact_id) AS si_contact_id
+  FROM influenced_orders io
+  INNER JOIN `{project_id}.{dataset}.{si_purchases_table}` p
+    ON p.order_id = io.order_id
+    AND DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  GROUP BY io.order_id, io.purchase_date
+),
+order_with_cpf AS (
+  SELECT
+    owa.order_id,
+    owa.purchase_date,
+    CAST(owa.sales_amount AS FLOAT64) AS sales_amount,
+    ANY_VALUE(CAST(c.external_id AS STRING)) AS cpf
+  FROM order_with_amount owa
   INNER JOIN `{project_id}.{dataset}.{si_contacts_table}` c
-    ON CAST(c.si_contact_id AS STRING) = CAST(osc.si_contact_id AS STRING)
+    ON CAST(c.si_contact_id AS STRING) = CAST(owa.si_contact_id AS STRING)
   WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
-  GROUP BY osc.order_id
+  GROUP BY owa.order_id, owa.purchase_date, owa.sales_amount
 )
-SELECT DISTINCT cpf FROM cpfs WHERE cpf IS NOT NULL AND cpf != ''
+SELECT order_id, cpf, purchase_date, sales_amount
+FROM order_with_cpf
+WHERE cpf IS NOT NULL AND cpf != ''
 """.strip()
 
 
-def _cross_cpfs_regional(
-    cpfs: set[str],
+def _cross_orders_regional(
+    orders: list[dict[str, Any]],
     start_date: str,
     end_date: str,
     total_influenciada: float = 0.0,
 ) -> dict[str, Any]:
-    """Load Base Vendas, cross CPFs, return regional + filial breakdown.
+    """Cross orders (with CPF + purchase_date + sales_amount) against Base Vendas.
 
-    Uses order count proportions from Base Vendas applied to total_influenciada
-    (same proportional approach as canal breakdown), so values sum to the real
-    Receita Influenciada total rather than Base Vendas revenue.
+    Direct attribution: for each order, match by normalized CPF + date proximity
+    (±3 days) to find filial; use si_purchases sales_amount as revenue.
+    Proportional fallback: unmatched orders are distributed by the matched
+    filial distribution.
     """
+    if not orders:
+        return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
+
     df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-    if df.empty or not cpfs:
-        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+    if df.empty:
+        return {"regionais": [], "total_cruzado": 0, "total_orders": len(orders)}
 
     available_columns = [str(c) for c in df.columns]
     date_column = _find_base_vendas_date_column(available_columns)
@@ -4274,50 +4302,104 @@ def _cross_cpfs_regional(
     filial_column = _find_column(available_columns, "Codigo Filial")
 
     if not document_column:
-        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+        return {"regionais": [], "total_cruzado": 0, "total_orders": len(orders)}
 
     start_obj = date.fromisoformat(start_date)
     end_obj = date.fromisoformat(end_date)
 
-    filial_linhas: dict[str, int] = {}
-    matched = 0
-
+    # Build lookup: normalized_cpf -> list of (row_date, filial)
+    cpf_rows: dict[str, list[tuple[date | None, str]]] = {}
     for _, row in df.iterrows():
         if date_column:
             row_date = _parse_base_vendas_date(row.get(date_column))
             if row_date is None or row_date < start_obj or row_date > end_obj:
                 continue
+        else:
+            row_date = None
 
-        doc_normalized = _normalize_match_key(str(row.get(document_column) or "") if document_column else "")
-        if not doc_normalized or doc_normalized not in cpfs:
+        doc_normalized = _normalize_match_key(str(row.get(document_column) or ""))
+        if not doc_normalized:
             continue
 
         filial = str(row.get(filial_column) or "").strip() if filial_column else ""
         filial = filial or "(sem filial)"
-        matched += 1
-        filial_linhas[filial] = filial_linhas.get(filial, 0) + 1
 
-    total_matched = sum(filial_linhas.values()) or 1
+        if doc_normalized not in cpf_rows:
+            cpf_rows[doc_normalized] = []
+        cpf_rows[doc_normalized].append((row_date, filial))
+
+    DATE_TOLERANCE = 3  # days
+
+    filial_revenue: dict[str, float] = {}
+    filial_orders: dict[str, int] = {}
+    matched = 0
+    unmatched_revenue = 0.0
+
+    for order in orders:
+        cpf_norm = _normalize_match_key(str(order.get("cpf") or ""))
+        sales_amount = float(order.get("sales_amount") or 0.0)
+
+        raw_date = order.get("purchase_date")
+        if isinstance(raw_date, str):
+            try:
+                purchase_date_obj: date | None = date.fromisoformat(str(raw_date)[:10])
+            except ValueError:
+                purchase_date_obj = None
+        elif isinstance(raw_date, datetime):
+            purchase_date_obj = raw_date.date()
+        elif isinstance(raw_date, date):
+            purchase_date_obj = raw_date
+        else:
+            purchase_date_obj = None
+
+        filial_found: str | None = None
+
+        if cpf_norm and cpf_norm in cpf_rows:
+            candidates = cpf_rows[cpf_norm]
+            if purchase_date_obj:
+                exact = [fil for rd, fil in candidates if rd == purchase_date_obj]
+                if exact:
+                    filial_found = exact[0]
+                else:
+                    near = [(abs((rd - purchase_date_obj).days), fil) for rd, fil in candidates if rd]
+                    near = [(d_, f) for d_, f in near if d_ <= DATE_TOLERANCE]
+                    if near:
+                        filial_found = min(near, key=lambda x: x[0])[1]
+            else:
+                filial_found = candidates[0][1]
+
+        if filial_found:
+            matched += 1
+            filial_revenue[filial_found] = filial_revenue.get(filial_found, 0.0) + sales_amount
+            filial_orders[filial_found] = filial_orders.get(filial_found, 0) + 1
+        else:
+            unmatched_revenue += sales_amount
+
+    # Proportional fallback for unmatched orders
+    total_matched_orders = sum(filial_orders.values()) or 0
+    if total_matched_orders > 0 and unmatched_revenue > 0:
+        for filial, cnt in list(filial_orders.items()):
+            pct = cnt / total_matched_orders
+            filial_revenue[filial] = filial_revenue.get(filial, 0.0) + round(unmatched_revenue * pct, 2)
 
     regional_data: dict[str, dict[str, Any]] = {}
-    for filial, linhas in filial_linhas.items():
+    for filial, revenue in filial_revenue.items():
         store_info = FILIAL_REGIONAL_MAP.get(filial)
         regional = store_info["regional"] if store_info else "Outros"
         nome_loja = store_info["nome"] if store_info else f"LJ{str(filial).zfill(3)}"
         centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
-        pct = linhas / total_matched
-        receita_est = round(total_influenciada * pct, 2)
+        orders_count = filial_orders.get(filial, 0)
 
         if regional not in regional_data:
-            regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
-        regional_data[regional]["linhas"] += linhas
-        regional_data[regional]["receita"] += receita_est
+            regional_data[regional] = {"regional": regional, "pedidos": 0, "receita": 0.0, "lojas": []}
+        regional_data[regional]["pedidos"] += orders_count
+        regional_data[regional]["receita"] += revenue
         regional_data[regional]["lojas"].append({
             "codigo_filial": filial,
             "centro_sap": centro_sap,
             "nome": nome_loja,
-            "linhas": linhas,
-            "receita": receita_est,
+            "pedidos": orders_count,
+            "receita": round(revenue, 2),
         })
 
     for rdata in regional_data.values():
@@ -4327,7 +4409,7 @@ def _cross_cpfs_regional(
     return {
         "regionais": sorted(regional_data.values(), key=lambda x: -x["receita"]),
         "total_cruzado": matched,
-        "total_cpfs": len(cpfs),
+        "total_orders": len(orders),
     }
 
 
@@ -4341,13 +4423,12 @@ def sms_apuracao_regional(
     d = _validate_optional_iso_date(date_param) or date_param
     end_d = str(date.fromisoformat(d) + timedelta(days=7))
     try:
-        sql = _build_influenced_cpfs_sms_sql(cid, d)
+        sql = _build_influenced_orders_sms_sql(cid, d)
         records = run_bigquery_records(
             sql, EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
         )
-        cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-        result = _cross_cpfs_regional(cpfs, d, end_d, total_influenciada=receita_influenciada)
+        result = _cross_orders_regional(records, d, end_d, total_influenciada=receita_influenciada)
         return {**result, "campaign_id": cid, "dispatch_date": d}
     except HTTPException:
         raise
@@ -4367,13 +4448,12 @@ def email_apuracao_regional(
     e = _validate_optional_iso_date(end) or end
     end_extended = str(date.fromisoformat(e) + timedelta(days=7))
     try:
-        sql = _build_influenced_cpfs_email_sql(cid, s, e)
+        sql = _build_influenced_orders_email_sql(cid, s, e)
         records = run_bigquery_records(
             sql, EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
         )
-        cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-        result = _cross_cpfs_regional(cpfs, s, end_extended, total_influenciada=receita_influenciada)
+        result = _cross_orders_regional(records, s, end_extended, total_influenciada=receita_influenciada)
         return {**result, "campaign_id": cid, "start_date": s, "end_date": e}
     except HTTPException:
         raise
