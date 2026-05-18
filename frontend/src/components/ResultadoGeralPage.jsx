@@ -1402,8 +1402,10 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
     try {
       const params = new URLSearchParams({ ...(startDate ? { start: startDate } : {}), ...(endDate ? { end: endDate } : {}) })
       const res = await fetch(`/api/open-data/emarsys/atribuida-orders?${params}`)
-      const payload = res.ok ? await res.json() : null
-      if (!res.ok || !payload) throw new Error(payload?.detail || 'Erro ao buscar pedidos atribuídos.')
+      let payload = null
+      try { payload = await res.json() } catch (_) {}
+      if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status} ao buscar pedidos atribuídos.`)
+      if (!payload) throw new Error('Resposta vazia do servidor.')
       const rows = (payload.items || []).map(item => ({
         order_id: item.order_id,
         contact_id: item.contact_id,
@@ -1429,8 +1431,10 @@ function InfluenciadaView({ data, loading, canalBreakdown, startDate, endDate })
     try {
       const params = new URLSearchParams({ ...(startDate ? { start: startDate } : {}), ...(endDate ? { end: endDate } : {}) })
       const res = await fetch(`/api/open-data/emarsys/gap-orders?${params}`)
-      const payload = res.ok ? await res.json() : null
-      if (!res.ok || !payload) throw new Error(payload?.detail || 'Erro ao buscar pedidos do gap.')
+      let payload = null
+      try { payload = await res.json() } catch (_) {}
+      if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status} ao buscar pedidos do gap.`)
+      if (!payload) throw new Error('Resposta vazia do servidor.')
       const rows = (payload.items || []).map(item => ({
         order_id: item.order_id,
         contact_id: item.contact_id,

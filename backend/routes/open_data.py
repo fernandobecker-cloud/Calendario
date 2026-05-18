@@ -2738,6 +2738,7 @@ orders_period AS (
     DATE(MIN(p.purchase_date)) AS purchase_date,
     ROUND(SUM(p.sales_amount), 2) AS valor_pedido
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
+  INNER JOIN (SELECT DISTINCT order_id FROM attributed_treatments) at USING (order_id)
   WHERE {purchase_date_filter}
   GROUP BY p.order_id
   HAVING SUM(p.sales_amount) > 0
