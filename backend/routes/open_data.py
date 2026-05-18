@@ -3326,6 +3326,21 @@ attr_agg AS (
   FROM attr_base
   GROUP BY 1
 ),
+items_agg AS (
+  SELECT
+    ab.campaign_id,
+    SUM(i.quantity)                                                                                         AS total_itens,
+    SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) = 'apple' THEN i.quantity              ELSE 0 END)          AS itens_apple,
+    SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) != 'apple' THEN i.quantity             ELSE 0 END)          AS itens_nao_apple,
+    ROUND(SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) = 'apple' THEN i.price * i.quantity  ELSE 0 END), 2) AS receita_apple,
+    ROUND(SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) != 'apple' THEN i.price * i.quantity ELSE 0 END), 2) AS receita_nao_apple
+  FROM (SELECT DISTINCT campaign_id, order_id FROM attr_base) ab
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.order_id = ab.order_id
+  CROSS JOIN UNNEST(r.items) AS i
+  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+    AND ARRAY_LENGTH(r.items) > 0
+  GROUP BY 1
+),
 opens_contacts AS (
   SELECT DISTINCT
     CAST(campaign_id AS STRING) AS campaign_id,
@@ -3364,12 +3379,18 @@ SELECT
   END AS taxa_abertura,
   COALESCE(aa.pedidos_atribuidos, 0)   AS pedidos_atribuidos,
   COALESCE(aa.receita_atribuida, 0)    AS receita_atribuida,
-  COALESCE(ia.receita_influenciada, 0) AS receita_influenciada
+  COALESCE(ia.receita_influenciada, 0) AS receita_influenciada,
+  COALESCE(itm.total_itens, 0)         AS total_itens,
+  COALESCE(itm.itens_apple, 0)         AS itens_apple,
+  COALESCE(itm.itens_nao_apple, 0)     AS itens_nao_apple,
+  COALESCE(itm.receita_apple, 0)       AS receita_apple,
+  COALESCE(itm.receita_nao_apple, 0)   AS receita_nao_apple
 FROM email_camp ec
-LEFT JOIN email_sends_agg es ON ec.campaign_id = es.campaign_id
-LEFT JOIN email_opens_agg eo ON ec.campaign_id = eo.campaign_id
-LEFT JOIN attr_agg        aa ON ec.campaign_id = aa.campaign_id
-LEFT JOIN influencia_agg  ia ON ec.campaign_id = ia.campaign_id
+LEFT JOIN email_sends_agg es  ON ec.campaign_id = es.campaign_id
+LEFT JOIN email_opens_agg eo  ON ec.campaign_id = eo.campaign_id
+LEFT JOIN attr_agg        aa  ON ec.campaign_id = aa.campaign_id
+LEFT JOIN influencia_agg  ia  ON ec.campaign_id = ia.campaign_id
+LEFT JOIN items_agg       itm ON ec.campaign_id = itm.campaign_id
 WHERE ec.nome_campanha IS NOT NULL
 ORDER BY aa.receita_atribuida DESC NULLS LAST, ec.nome_campanha
 """.strip()
@@ -3442,6 +3463,11 @@ def email_apuracao(
                 "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
                 "receita_atribuida": float(row.get("receita_atribuida") or 0),
                 "receita_influenciada": float(row.get("receita_influenciada") or 0),
+                "total_itens": int(row.get("total_itens") or 0),
+                "itens_apple": int(row.get("itens_apple") or 0),
+                "itens_nao_apple": int(row.get("itens_nao_apple") or 0),
+                "receita_apple": float(row.get("receita_apple") or 0),
+                "receita_nao_apple": float(row.get("receita_nao_apple") or 0),
             }
             for row in records
         ]

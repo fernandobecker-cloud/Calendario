@@ -2505,6 +2505,11 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Receita Atribuida</th>
                       <th className="px-4 py-3 text-right">Receita Influenciada</th>
+                      <th className="px-4 py-3 text-right">Itens</th>
+                      <th className="px-4 py-3 text-right">Itens Apple</th>
+                      <th className="px-4 py-3 text-right">Itens Não-Apple</th>
+                      <th className="px-4 py-3 text-right">Receita Apple</th>
+                      <th className="px-4 py-3 text-right">Receita Não-Apple</th>
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
@@ -2523,6 +2528,17 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
                             <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">{(item.total_itens || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">
+                              <div>{(item.itens_apple || 0).toLocaleString('pt-BR')}</div>
+                              <div className="text-xs text-slate-400">{item.total_itens > 0 ? `${Math.round((item.itens_apple / item.total_itens) * 100)}%` : '—'}</div>
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">
+                              <div>{(item.itens_nao_apple || 0).toLocaleString('pt-BR')}</div>
+                              <div className="text-xs text-slate-400">{item.total_itens > 0 ? `${Math.round((item.itens_nao_apple / item.total_itens) * 100)}%` : '—'}</div>
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_apple || 0)}</td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_nao_apple || 0)}</td>
                             <td className="px-4 py-3 text-right">
                               <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date, item.receita_influenciada)}
                                 disabled={reg.loading}
@@ -2533,7 +2549,7 @@ export default function App({ mode = 'campanhas' }) {
                           </tr>
                           {reg.expanded && (
                             <tr>
-                              <td colSpan={8} className="p-0 border-b border-slate-200">
+                              <td colSpan={13} className="p-0 border-b border-slate-200">
                                 {reg.error
                                   ? <div className="px-4 py-2 text-xs text-rose-600">{reg.error}</div>
                                   : reg.data
