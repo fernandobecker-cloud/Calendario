@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
 
-from backend.event_sources import load_google_sheet_by_name, run_bigquery_records
+from backend.event_sources import run_bigquery_records
 
 # ---------------------------------------------------------------------------
 # CPF prefetch cache — evita re-executar a query Emarsys EU quando o usuário
@@ -103,46 +103,6 @@ BASE_VENDAS_BQ_LOCATION = os.getenv("BASE_VENDAS_BQ_LOCATION", "southamerica-eas
 # Campos da view vw_performance_vendas (já tipados e sanitizados)
 # data_completa DATE | canal STRING | codigo_filial INTEGER | documento_cliente STRING | valor_faturamento_liquido FLOAT
 
-BASE_VENDAS_SPREADSHEET_NAME = os.getenv("BASE_VENDAS_SPREADSHEET_NAME", "Base Vendas").strip()
-BASE_VENDAS_WORKSHEET_NAME = os.getenv("BASE_VENDAS_WORKSHEET_NAME", "").strip()
-BASE_VENDAS_DOCUMENT_COLUMN = os.getenv("BASE_VENDAS_DOCUMENT_COLUMN", "Documento Cliente").strip()
-BASE_VENDAS_DATE_COLUMN = os.getenv("BASE_VENDAS_DATE_COLUMN", "").strip()
-BASE_VENDAS_DATE_COLUMN_CANDIDATES = [
-    "Data Completa",
-    "Data Venda",
-    "Data da Venda",
-    "Data Pedido",
-    "Data do Pedido",
-    "Data Compra",
-    "Data da Compra",
-    "Data Emissao",
-    "Data de Emissao",
-    "Data Faturamento",
-    "Dt Venda",
-    "Dt. Venda",
-    "Data",
-    "purchase_date",
-]
-BASE_VENDAS_REVENUE_COLUMN_CANDIDATES = [
-    "Vlr Faturamento Liquido",
-    "Vlr Faturamento Bruto",
-    "Faturamento Liquido",
-    "Faturamento Bruto",
-    "Receita",
-    "Valor",
-    "Valor Pedido",
-    "Vl Pedido",
-    "Vlr Pedido",
-    "Total",
-    "Receita Bruta",
-    "Valor Bruto",
-    "Vlr Venda",
-    "Vl Venda",
-    "Receita Liquida",
-    "Valor Liquido",
-    "sales_amount",
-    "revenue",
-]
 
 
 def _quote_identifier(value: str) -> str:
@@ -192,76 +152,6 @@ def _find_column(columns: list[str], expected: str) -> str | None:
             return column
     return None
 
-
-def _find_base_vendas_date_column(columns: list[str]) -> str | None:
-    if BASE_VENDAS_DATE_COLUMN:
-        return _find_column(columns, BASE_VENDAS_DATE_COLUMN)
-
-    for candidate in BASE_VENDAS_DATE_COLUMN_CANDIDATES:
-        found = _find_column(columns, candidate)
-        if found:
-            return found
-    return None
-
-
-def _find_base_vendas_revenue_column(columns: list[str]) -> str | None:
-    for candidate in BASE_VENDAS_REVENUE_COLUMN_CANDIDATES:
-        found = _find_column(columns, candidate)
-        if found:
-            return found
-    return None
-
-
-def _parse_revenue_value(value: Any) -> float:
-    """Parse a revenue value from the sheet, handling Brazilian number format."""
-    if value is None:
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip().replace("R$", "").replace(" ", "")
-    if not text or text == "-":
-        return 0.0
-    # Brazilian format: dot as thousands separator, comma as decimal
-    if "," in text and "." in text:
-        text = text.replace(".", "").replace(",", ".")
-    elif "," in text:
-        text = text.replace(",", ".")
-    try:
-        return float(text)
-    except ValueError:
-        return 0.0
-
-
-def _parse_base_vendas_date(value: Any) -> date | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-
-    text = str(value).strip()
-    if not text or text == "-":
-        return None
-
-    numeric_text = text.replace(".", "").replace(",", ".")
-    try:
-        serial = float(numeric_text)
-        if serial > 20000:
-            return date(1899, 12, 30) + timedelta(days=int(serial))
-    except ValueError:
-        pass
-
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(text[:10], fmt).date()
-        except ValueError:
-            continue
-
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 
 
 def _sql_string_literal(value: str) -> str:
@@ -1175,158 +1065,69 @@ def unidade_venda_contacts_match(
         if start_date > end_date:
             raise HTTPException(status_code=400, detail="A data de inicio deve ser menor ou igual a data de fim.")
 
-        use_bq = bool(BASE_VENDAS_BQ_PROJECT)
-        source_label = "bigquery_base_vendas_x_bigquery_si_contacts" if use_bq else "google_sheets_base_vendas_x_bigquery_si_contacts"
+        if not BASE_VENDAS_BQ_PROJECT:
+            raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
 
-        if use_bq:
-            bv_sql = _build_bv_rows_sql(start_date, end_date, limit=max_documents * 10)
-            bv_records = run_bigquery_records(
-                bv_sql,
-                BASE_VENDAS_BQ_PROJECT,
-                location=BASE_VENDAS_BQ_LOCATION or None,
-                timeout=30,
-            )
-            if not bv_records:
-                return {
-                    "items": [],
-                    "summary": {
-                        "sheet_rows": 0,
-                        "documents_with_value": 0,
-                        "unique_documents": 0,
-                        "documents_checked": 0,
-                        "matched_documents": 0,
-                        "unmatched_documents": 0,
-                        "not_checked_documents": 0,
-                        "match_rate": 0,
-                        "ignored_documents": 0,
-                        "source_sheet_rows": 0,
-                        "sheet_rows_in_period": len(bv_records),
-                        "invalid_date_rows": 0,
-                        "matched_orders_period": 0,
-                        "matched_revenue_period": 0,
-                    },
-                    "source": source_label,
-                    "start_date": start_date,
-                    "end_date": end_date,
+        bv_sql = _build_bv_rows_sql(start_date, end_date, limit=max_documents * 10)
+        bv_records = run_bigquery_records(
+            bv_sql,
+            BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None,
+            timeout=30,
+        )
+        if not bv_records:
+            return {
+                "items": [],
+                "summary": {
+                    "sheet_rows": 0,
+                    "documents_with_value": 0,
+                    "unique_documents": 0,
+                    "documents_checked": 0,
+                    "matched_documents": 0,
+                    "unmatched_documents": 0,
+                    "not_checked_documents": 0,
+                    "match_rate": 0,
+                    "ignored_documents": 0,
+                    "source_sheet_rows": 0,
+                    "sheet_rows_in_period": 0,
+                    "invalid_date_rows": 0,
+                    "matched_orders_period": 0,
+                    "matched_revenue_period": 0,
+                },
+                "source": "bigquery_base_vendas_x_bigquery_si_contacts",
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+
+        sheet_rows: list[dict[str, Any]] = []
+        unique_document_keys: list[str] = []
+        seen_keys: set[str] = set()
+        source_sheet_rows = len(bv_records)
+
+        for i, rec in enumerate(bv_records):
+            normalized_document = str(rec.get("normalized_documento") or "").strip()
+            if not normalized_document:
+                continue
+            if normalized_document not in seen_keys:
+                seen_keys.add(normalized_document)
+                unique_document_keys.append(normalized_document)
+            sheet_rows.append(
+                {
+                    "row_index": i + 2,
+                    "documento_cliente": str(rec.get("documento_cliente") or "").strip(),
+                    "normalized_documento": normalized_document,
+                    "canal": str(rec.get("canal") or "").strip() or None,
+                    "unidade_negocio": str(rec.get("unidade_negocio") or "").strip() or None,
+                    "codigo_filial": str(rec.get("codigo_filial") or "").strip() or None,
                 }
-
-            sheet_rows: list[dict[str, Any]] = []
-            unique_document_keys: list[str] = []
-            seen_keys: set[str] = set()
-            source_sheet_rows = len(bv_records)
-
-            for i, rec in enumerate(bv_records):
-                normalized_document = str(rec.get("normalized_documento") or "").strip()
-                if not normalized_document:
-                    continue
-                if normalized_document not in seen_keys:
-                    seen_keys.add(normalized_document)
-                    unique_document_keys.append(normalized_document)
-                sheet_rows.append(
-                    {
-                        "row_index": i + 2,
-                        "documento_cliente": str(rec.get("documento_cliente") or "").strip(),
-                        "normalized_documento": normalized_document,
-                        "canal": str(rec.get("canal") or "").strip() or None,
-                        "unidade_negocio": str(rec.get("unidade_negocio") or "").strip() or None,
-                        "codigo_filial": str(rec.get("codigo_filial") or "").strip() or None,
-                    }
-                )
-
-            invalid_date_rows = 0
-            date_column = "data_completa"
-            canal_column = "canal"
-            unidade_negocio_column = "unidade_negocio"
-            codigo_filial_column = "codigo_filial"
-            document_column = "documento_cliente"
-
-        else:
-            df = load_google_sheet_by_name(
-                BASE_VENDAS_SPREADSHEET_NAME,
-                BASE_VENDAS_WORKSHEET_NAME or None,
             )
-            if df.empty:
-                return {
-                    "items": [],
-                    "summary": {
-                        "sheet_rows": 0,
-                        "documents_with_value": 0,
-                        "unique_documents": 0,
-                        "documents_checked": 0,
-                        "matched_documents": 0,
-                        "unmatched_documents": 0,
-                        "not_checked_documents": 0,
-                        "match_rate": 0,
-                        "ignored_documents": 0,
-                        "source_sheet_rows": 0,
-                        "sheet_rows_in_period": 0,
-                        "invalid_date_rows": 0,
-                        "matched_orders_period": 0,
-                        "matched_revenue_period": 0,
-                    },
-                    "sheet_name": BASE_VENDAS_SPREADSHEET_NAME,
-                    "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None,
-                    "document_column": BASE_VENDAS_DOCUMENT_COLUMN,
-                    "date_column": None,
-                    "date_filter_applied": False,
-                    "warning": None,
-                    "contacts_table": EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE,
-                    "purchases_table": EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "source": source_label,
-                }
 
-            available_columns = [str(column) for column in df.columns]
-            document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
-            if not document_column:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Coluna '{BASE_VENDAS_DOCUMENT_COLUMN}' nao encontrada na planilha. Colunas disponiveis: {', '.join(available_columns)}",
-                )
-
-            date_column = _find_base_vendas_date_column(available_columns)
-            canal_column = _find_column(available_columns, "Canal")
-            unidade_negocio_column = _find_column(available_columns, "Unidade de Negocio")
-            codigo_filial_column = _find_column(available_columns, "Codigo Filial")
-            start_obj = date.fromisoformat(start_date)
-            end_obj = date.fromisoformat(end_date)
-            source_sheet_rows = len(df.index)
-            rows_iterable = []
-            invalid_date_rows = 0
-
-            for idx, row in df.iterrows():
-                if date_column:
-                    row_date = _parse_base_vendas_date(row.get(date_column))
-                    if row_date is None:
-                        invalid_date_rows += 1
-                        continue
-                    if row_date < start_obj or row_date > end_obj:
-                        continue
-                rows_iterable.append((idx, row))
-
-            sheet_rows = []
-            unique_document_keys = []
-            seen_keys: set[str] = set()
-
-            for idx, row in rows_iterable:
-                raw_document = str(row.get(document_column) or "").strip()
-                normalized_document = _normalize_match_key(raw_document)
-                if not normalized_document:
-                    continue
-                if normalized_document not in seen_keys:
-                    seen_keys.add(normalized_document)
-                    unique_document_keys.append(normalized_document)
-                sheet_rows.append(
-                    {
-                        "row_index": int(idx) + 2,
-                        "documento_cliente": raw_document,
-                        "normalized_documento": normalized_document,
-                        "canal": str(row.get(canal_column) or "").strip() if canal_column else None,
-                        "unidade_negocio": str(row.get(unidade_negocio_column) or "").strip() if unidade_negocio_column else None,
-                        "codigo_filial": str(row.get(codigo_filial_column) or "").strip() if codigo_filial_column else None,
-                    }
-                )
+        invalid_date_rows = 0
+        date_column = "data_completa"
+        canal_column = "canal"
+        unidade_negocio_column = "unidade_negocio"
+        codigo_filial_column = "codigo_filial"
+        document_column = "documento_cliente"
 
         documents_to_check = unique_document_keys[:max_documents]
         matches_by_key: dict[str, dict[str, Any]] = {}
@@ -1382,8 +1183,8 @@ def unidade_venda_contacts_match(
             )
 
         documents_with_value = sum(1 for row in sheet_rows if row["normalized_documento"])
-        rows_in_period = len(sheet_rows) if use_bq else len(rows_iterable)
-        ignored_documents = 0 if use_bq else (len(rows_iterable) - len(sheet_rows))
+        rows_in_period = len(sheet_rows)
+        ignored_documents = 0
         match_rate = (len(matched_keys) / len(checked_keys) * 100) if checked_keys else 0
         matched_orders = sum(match["pedidos_periodo"] for match in matches_by_key.values())
         matched_revenue = sum(match["receita_periodo"] for match in matches_by_key.values())
@@ -1425,7 +1226,6 @@ def unidade_venda_contacts_match(
                 "matched_orders_period": matched_orders,
                 "matched_revenue_period": round(matched_revenue, 2),
             },
-            **({"sheet_name": BASE_VENDAS_SPREADSHEET_NAME, "worksheet_name": BASE_VENDAS_WORKSHEET_NAME or None} if not use_bq else {}),
             "document_column": document_column,
             "date_column": date_column,
             "canal_column": canal_column,
@@ -1446,7 +1246,7 @@ def unidade_venda_contacts_match(
             "max_documents": max_documents,
             "sample_limit": sample_limit,
             "total_items_returned": min(len(items), sample_limit),
-            "source": source_label,
+            "source": "bigquery_base_vendas_x_bigquery_si_contacts",
         }
     except HTTPException:
         raise
@@ -3058,98 +2858,48 @@ def base_vendas_canal_breakdown(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
-    """Canal/filial breakdown da Base Vendas — usa BigQuery quando disponível."""
+    """Canal/filial breakdown da Base Vendas via BigQuery."""
     try:
         start_date = _validate_optional_iso_date(start)
         end_date = _validate_optional_iso_date(end)
         if not start_date or not end_date:
             raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+        if not BASE_VENDAS_BQ_PROJECT:
+            raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
 
-        if BASE_VENDAS_BQ_PROJECT:
-            sql = _build_bv_canal_filial_sql(start_date, end_date)
-            records = run_bigquery_records(
-                sql, BASE_VENDAS_BQ_PROJECT,
-                location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
-            )
-            canal_groups: dict[str, dict[str, Any]] = {}
-            filial_list = []
-            period_rows = 0
-            for r in records:
-                canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
-                filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
-                linhas = int(r.get("linhas") or 0)
-                receita = float(r.get("receita") or 0)
-                period_rows += linhas
-                if canal not in canal_groups:
-                    canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
-                canal_groups[canal]["linhas"] += linhas
-                canal_groups[canal]["receita"] += receita
-                filial_list.append({"canal": canal, "codigo_filial": filial, "linhas": linhas, "receita": receita})
-            canal_list = sorted(
-                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-                 for g in canal_groups.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            )
-            filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
-            return {
-                "canal": canal_list,
-                "filial": filial_list,
-                "period_rows": period_rows,
-                "revenue_column": "valor_faturamento_liquido",
-                "start_date": start_date,
-                "end_date": end_date,
-                "source": "bigquery_base_vendas",
-            }
-
-        # Fallback: Google Sheets
-        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-        if df.empty:
-            return {"canal": [], "filial": [], "period_rows": 0, "revenue_column": None,
-                    "start_date": start_date, "end_date": end_date}
-        available_columns = [str(c) for c in df.columns]
-        date_column = _find_base_vendas_date_column(available_columns)
-        canal_column = _find_column(available_columns, "Canal")
-        filial_column = _find_column(available_columns, "Codigo Filial")
-        revenue_column = _find_base_vendas_revenue_column(available_columns)
-        start_obj = date.fromisoformat(start_date)
-        end_obj = date.fromisoformat(end_date)
-        rows: list[dict[str, Any]] = []
-        for _, row in df.iterrows():
-            if date_column:
-                row_date = _parse_base_vendas_date(row.get(date_column))
-                if row_date is None or row_date < start_obj or row_date > end_obj:
-                    continue
-            canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
-            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-            receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
-            rows.append({"canal": canal or "(sem canal)", "filial": filial or "(sem filial)", "receita": receita})
-        canal_groups_sh: dict[str, dict[str, Any]] = {}
-        filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
-        for r in rows:
-            c = r["canal"]
-            if c not in canal_groups_sh:
-                canal_groups_sh[c] = {"canal": c, "linhas": 0, "receita": 0.0}
-            canal_groups_sh[c]["linhas"] += 1
-            canal_groups_sh[c]["receita"] += r["receita"]
-            key = (r["canal"], r["filial"])
-            if key not in filial_groups:
-                filial_groups[key] = {"canal": r["canal"], "codigo_filial": r["filial"], "linhas": 0, "receita": 0.0}
-            filial_groups[key]["linhas"] += 1
-            filial_groups[key]["receita"] += r["receita"]
+        sql = _build_bv_canal_filial_sql(start_date, end_date)
+        records = run_bigquery_records(
+            sql, BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+        )
+        canal_groups: dict[str, dict[str, Any]] = {}
+        filial_list = []
+        period_rows = 0
+        for r in records:
+            canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
+            filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+            linhas = int(r.get("linhas") or 0)
+            receita = float(r.get("receita") or 0)
+            period_rows += linhas
+            if canal not in canal_groups:
+                canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
+            canal_groups[canal]["linhas"] += linhas
+            canal_groups[canal]["receita"] += receita
+            filial_list.append({"canal": canal, "codigo_filial": filial, "linhas": linhas, "receita": receita})
+        canal_list = sorted(
+            [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+             for g in canal_groups.values()],
+            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+        )
+        filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
         return {
-            "canal": sorted(
-                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)} for g in canal_groups_sh.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            ),
-            "filial": sorted(
-                [{"canal": g["canal"], "codigo_filial": g["codigo_filial"], "linhas": g["linhas"], "receita": round(g["receita"], 2)} for g in filial_groups.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            ),
-            "period_rows": len(rows),
-            "revenue_column": revenue_column,
+            "canal": canal_list,
+            "filial": filial_list,
+            "period_rows": period_rows,
+            "revenue_column": "valor_faturamento_liquido",
             "start_date": start_date,
             "end_date": end_date,
-            "source": "google_sheets",
+            "source": "bigquery_base_vendas",
         }
     except HTTPException:
         raise
@@ -4177,98 +3927,45 @@ def receita_atribuida_canal(
             return {"canal": [], "filial": [], "total_clientes_crm": 0,
                     "matched_rows": 0, "start_date": start_date, "end_date": end_date}
 
-        # Step 2: cross with Base Vendas (BigQuery or Sheets fallback)
-        if BASE_VENDAS_BQ_PROJECT:
-            bv_sql = _build_bv_breakdown_sql(attributed_cpfs, start_date, end_date)
-            bv_records = run_bigquery_records(
-                bv_sql, BASE_VENDAS_BQ_PROJECT,
-                location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
-            )
-            canal_groups: dict[str, dict[str, Any]] = {}
-            filial_list = []
-            matched_rows = 0
-            for r in bv_records:
-                canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
-                filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
-                linhas = int(r.get("linhas") or 0)
-                receita = float(r.get("receita") or 0)
-                matched_rows += linhas
-                if canal not in canal_groups:
-                    canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
-                canal_groups[canal]["linhas"] += linhas
-                canal_groups[canal]["receita"] += receita
-                store_info = FILIAL_REGIONAL_MAP.get(filial)
-                filial_list.append({
-                    "canal": canal,
-                    "codigo_filial": filial,
-                    "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial.zfill(3)}",
-                    "nome": store_info["nome"] if store_info else "",
-                    "regional": store_info["regional"] if store_info else "Outros",
-                    "linhas": linhas,
-                    "receita": receita,
-                })
-            canal_list = sorted(
-                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-                 for g in canal_groups.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            )
-            filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
-            revenue_column = "valor_faturamento_liquido"
-        else:
-            df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-            if df.empty:
-                return {"canal": [], "filial": [], "total_clientes_crm": len(attributed_cpfs),
-                        "matched_rows": 0, "start_date": start_date, "end_date": end_date}
-            available_columns = [str(c) for c in df.columns]
-            date_column = _find_base_vendas_date_column(available_columns)
-            document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
-            canal_column = _find_column(available_columns, "Canal")
-            filial_column = _find_column(available_columns, "Codigo Filial")
-            revenue_column = _find_base_vendas_revenue_column(available_columns)
-            start_obj = date.fromisoformat(start_date)
-            end_obj = date.fromisoformat(end_date)
-            canal_groups_sh: dict[str, dict[str, Any]] = {}
-            filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
-            matched_rows = 0
-            for _, row in df.iterrows():
-                if date_column:
-                    row_date = _parse_base_vendas_date(row.get(date_column))
-                    if row_date is None or row_date < start_obj or row_date > end_obj:
-                        continue
-                doc_normalized = _normalize_match_key(str(row.get(document_column) or "") if document_column else "")
-                if not doc_normalized or doc_normalized not in attributed_cpfs:
-                    continue
-                canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
-                filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-                receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
-                canal = canal or "(sem canal)"
-                filial = filial or "(sem filial)"
-                matched_rows += 1
-                if canal not in canal_groups_sh:
-                    canal_groups_sh[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
-                canal_groups_sh[canal]["linhas"] += 1
-                canal_groups_sh[canal]["receita"] += receita
-                key = (canal, filial)
-                if key not in filial_groups:
-                    filial_groups[key] = {"canal": canal, "codigo_filial": filial, "linhas": 0, "receita": 0.0}
-                filial_groups[key]["linhas"] += 1
-                filial_groups[key]["receita"] += receita
-            canal_list = sorted(
-                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-                 for g in canal_groups_sh.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            )
-            def _enrich_filial(g: dict[str, Any]) -> dict[str, Any]:
-                fk = str(g["codigo_filial"])
-                si = FILIAL_REGIONAL_MAP.get(fk)
-                return {"canal": g["canal"], "codigo_filial": fk,
-                        "centro_sap": si["centro_sap"] if si else f"LJ{fk.zfill(3)}",
-                        "nome": si["nome"] if si else "", "regional": si["regional"] if si else "Outros",
-                        "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-            filial_list = sorted(
-                [_enrich_filial(g) for g in filial_groups.values()],
-                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-            )
+        # Step 2: cross with Base Vendas via BigQuery
+        if not BASE_VENDAS_BQ_PROJECT:
+            raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
+        bv_sql = _build_bv_breakdown_sql(attributed_cpfs, start_date, end_date)
+        bv_records = run_bigquery_records(
+            bv_sql, BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+        )
+        canal_groups: dict[str, dict[str, Any]] = {}
+        filial_list = []
+        matched_rows = 0
+        for r in bv_records:
+            canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
+            filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+            linhas = int(r.get("linhas") or 0)
+            receita = float(r.get("receita") or 0)
+            matched_rows += linhas
+            if canal not in canal_groups:
+                canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
+            canal_groups[canal]["linhas"] += linhas
+            canal_groups[canal]["receita"] += receita
+            store_info = FILIAL_REGIONAL_MAP.get(filial)
+            filial_list.append({
+                "canal": canal,
+                "codigo_filial": filial,
+                "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial.zfill(3)}",
+                "nome": store_info["nome"] if store_info else "",
+                "regional": store_info["regional"] if store_info else "Outros",
+                "linhas": linhas,
+                "receita": receita,
+            })
+        canal_list = sorted(
+            [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+             for g in canal_groups.values()],
+            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+        )
+        filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
+        revenue_column = "valor_faturamento_liquido"
 
         return {
             "canal": canal_list,
@@ -4539,47 +4236,22 @@ def _cross_cpfs_regional(
     end_date: str,
     total_influenciada: float = 0.0,
 ) -> dict[str, Any]:
-    """Cruza CPFs contra Base Vendas e distribui receita proporcionalmente por linhas.
-
-    Usa BigQuery quando BASE_VENDAS_BQ_PROJECT está configurado; senão cai para Google Sheets.
-    """
+    """Cruza CPFs contra Base Vendas (BigQuery) e distribui receita proporcionalmente por linhas."""
     if not cpfs:
         return {"regionais": [], "total_cruzado": 0, "total_cpfs": 0}
 
-    if BASE_VENDAS_BQ_PROJECT:
-        bv_sql = _build_bv_breakdown_sql(cpfs, start_date, end_date)
-        records = run_bigquery_records(
-            bv_sql, BASE_VENDAS_BQ_PROJECT,
-            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
-        )
-        filial_linhas = {
-            str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)": int(r.get("linhas") or 0)
-            for r in records
-        }
-    else:
-        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-        if df.empty:
-            return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
-        available_columns = [str(c) for c in df.columns]
-        date_column = _find_base_vendas_date_column(available_columns)
-        document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
-        filial_column = _find_column(available_columns, "Codigo Filial")
-        if not document_column:
-            return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
-        start_obj = date.fromisoformat(start_date)
-        end_obj = date.fromisoformat(end_date)
-        filial_linhas = {}
-        for _, row in df.iterrows():
-            if date_column:
-                row_date = _parse_base_vendas_date(row.get(date_column))
-                if row_date is None or row_date < start_obj or row_date > end_obj:
-                    continue
-            doc_normalized = _normalize_match_key(str(row.get(document_column) or ""))
-            if not doc_normalized or doc_normalized not in cpfs:
-                continue
-            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-            filial = filial or "(sem filial)"
-            filial_linhas[filial] = filial_linhas.get(filial, 0) + 1
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
+    bv_sql = _build_bv_breakdown_sql(cpfs, start_date, end_date)
+    records = run_bigquery_records(
+        bv_sql, BASE_VENDAS_BQ_PROJECT,
+        location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+    )
+    filial_linhas = {
+        str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)": int(r.get("linhas") or 0)
+        for r in records
+    }
 
     total_matched = sum(filial_linhas.values()) or 1
     matched = sum(filial_linhas.values())
