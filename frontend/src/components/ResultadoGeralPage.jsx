@@ -469,28 +469,54 @@ function DailyRevenueChart({ items }) {
 }
 
 function CanalAtribuidaCard({ data, totalAtribuida }) {
-  const [showLojas, setShowLojas] = useState(false)
+  const [expandedRegionals, setExpandedRegionals] = useState(new Set())
+  const [showRegional, setShowRegional] = useState(false)
+
+  const toggleRegional = r => setExpandedRegionals(prev => {
+    const next = new Set(prev)
+    next.has(r) ? next.delete(r) : next.add(r)
+    return next
+  })
+
   const totalLinhas = (data.canal || []).reduce((s, c) => s + (c.linhas || 0), 0)
 
-  // Pré-calcula receita estimada por canal
   const canaisComReceita = (data.canal || []).map(c => {
     const pct = totalLinhas > 0 ? (c.linhas / totalLinhas) * 100 : 0
     return { ...c, pct, receitaEstimada: totalAtribuida * (pct / 100) }
   })
 
-  // Todas as filiais com receita estimada, ordenadas por receita desc
-  const todasFiliais = (data.filial || []).map(f => {
-    const canal = canaisComReceita.find(c => c.canal === f.canal)
-    const totalFilialLinhas = (data.filial || [])
-      .filter(x => x.canal === f.canal)
-      .reduce((s, x) => s + (x.linhas || 0), 0)
-    const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
-    const receitaEstimada = canal ? canal.receitaEstimada * (filialPct / 100) : 0
-    return { ...f, filialPct, receitaEstimada }
-  }).sort((a, b) => b.receitaEstimada - a.receitaEstimada)
+  // Filiais VAREJO com receita estimada
+  const lojas = (data.filial || [])
+    .filter(f => f.canal === 'VAREJO')
+    .map(f => {
+      const canal = canaisComReceita.find(c => c.canal === f.canal)
+      const totalFilialLinhas = (data.filial || [])
+        .filter(x => x.canal === f.canal)
+        .reduce((s, x) => s + (x.linhas || 0), 0)
+      const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
+      const receitaEstimada = canal ? canal.receitaEstimada * (filialPct / 100) : 0
+      return { ...f, filialPct, receitaEstimada }
+    })
+    .sort((a, b) => b.receitaEstimada - a.receitaEstimada)
 
-  const lojas = todasFiliais.filter(f => f.canal === 'VAREJO')
-  const maxReceita = lojas[0]?.receitaEstimada || 1
+  // Agrupa lojas por regional
+  const regionaisMap = {}
+  for (const loja of lojas) {
+    const reg = loja.regional || 'Outros'
+    if (!regionaisMap[reg]) regionaisMap[reg] = { regional: reg, linhas: 0, receitaEstimada: 0, lojas: [] }
+    regionaisMap[reg].linhas += loja.linhas || 0
+    regionaisMap[reg].receitaEstimada += loja.receitaEstimada
+    regionaisMap[reg].lojas.push(loja)
+  }
+  const regionais = Object.values(regionaisMap).sort((a, b) => b.receitaEstimada - a.receitaEstimada)
+  const maxRegReceita = regionais[0]?.receitaEstimada || 1
+
+  const ChevronIcon = ({ open }) => (
+    <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+      viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+    </svg>
+  )
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -522,36 +548,70 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
         ))}
       </div>
 
-      {/* Abertura por loja */}
-      {lojas.length > 0 && (
+      {/* Abertura por regional / loja */}
+      {regionais.length > 0 && (
         <>
           <button
-            onClick={() => setShowLojas(v => !v)}
+            onClick={() => setShowRegional(v => !v)}
             className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800 mb-3"
           >
-            <svg className={`h-4 w-4 transition-transform ${showLojas ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+            <svg className={`h-4 w-4 transition-transform ${showRegional ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06z" clipRule="evenodd" />
             </svg>
-            {showLojas ? 'Ocultar' : 'Ver'} abertura por loja ({lojas.length} filiais)
+            {showRegional ? 'Ocultar' : 'Ver'} abertura por regional ({regionais.length} regionais · {lojas.length} filiais)
           </button>
-          {showLojas && (
-            <div className="space-y-1.5">
-              {lojas.map((f, idx) => (
-                <div key={f.codigo_filial} className="flex items-center gap-3 rounded-lg border border-slate-100 px-4 py-2.5">
-                  <span className="w-6 text-right text-xs text-slate-400">{idx + 1}</span>
-                  <span className="w-16 shrink-0 text-sm font-semibold text-slate-700">
-                    LJ{String(f.codigo_filial).padStart(3, '0')}
-                  </span>
-                  <div className="flex-1">
-                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-indigo-400"
-                        style={{ width: `${(f.receitaEstimada / maxReceita) * 100}%` }}
-                      />
+          {showRegional && (
+            <div className="space-y-2">
+              {regionais.map(reg => (
+                <div key={reg.regional} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                  {/* Regional header */}
+                  <button
+                    onClick={() => toggleRegional(reg.regional)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-semibold text-slate-700">{reg.regional}</span>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs text-slate-400">{reg.linhas.toLocaleString('pt-BR')} pedidos</span>
+                          <span className="text-sm font-bold text-slate-900">~{formatCurrency(reg.receitaEstimada)}</span>
+                          <ChevronIcon open={expandedRegionals.has(reg.regional)} />
+                        </div>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-indigo-400"
+                          style={{ width: `${(reg.receitaEstimada / maxRegReceita) * 100}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <span className="w-10 text-right text-xs text-slate-400">{f.linhas}p</span>
-                  <span className="w-32 text-right text-sm font-medium text-slate-800">~{formatCurrency(f.receitaEstimada)}</span>
+                  </button>
+                  {/* Lojas expandidas */}
+                  {expandedRegionals.has(reg.regional) && (
+                    <div className="border-t border-slate-100 divide-y divide-slate-50 bg-slate-50">
+                      {reg.lojas.map(f => {
+                        const maxLojaReceita = reg.lojas[0]?.receitaEstimada || 1
+                        return (
+                          <div key={f.codigo_filial} className="flex items-center gap-3 px-6 py-2 text-xs">
+                            <span className="w-16 shrink-0 font-semibold text-slate-600">
+                              LJ{String(f.codigo_filial).padStart(3, '0')}
+                            </span>
+                            <span className="flex-1 truncate text-slate-500">{f.nome}</span>
+                            <div className="w-24 flex-shrink-0">
+                              <div className="h-1 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className="h-full rounded-full bg-indigo-300"
+                                  style={{ width: `${(f.receitaEstimada / maxLojaReceita) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className="w-10 text-right text-slate-400">{f.linhas}p</span>
+                            <span className="w-28 text-right font-semibold text-slate-700">~{formatCurrency(f.receitaEstimada)}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

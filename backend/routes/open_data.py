@@ -4071,10 +4071,21 @@ def receita_atribuida_canal(
              for g in canal_groups.values()],
             key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
         )
+        def _enrich_filial(g: dict[str, Any]) -> dict[str, Any]:
+            filial_key = str(g["codigo_filial"])
+            store_info = FILIAL_REGIONAL_MAP.get(filial_key)
+            return {
+                "canal": g["canal"],
+                "codigo_filial": filial_key,
+                "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial_key.zfill(3)}",
+                "nome": store_info["nome"] if store_info else "",
+                "regional": store_info["regional"] if store_info else "Outros",
+                "linhas": g["linhas"],
+                "receita": round(g["receita"], 2),
+            }
+
         filial_list = sorted(
-            [{"canal": g["canal"], "codigo_filial": g["codigo_filial"],
-              "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-             for g in filial_groups.values()],
+            [_enrich_filial(g) for g in filial_groups.values()],
             key=lambda x: (-x["receita"] if x["receita"] else -x["linhas"]),
         )
 
