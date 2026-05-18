@@ -2674,8 +2674,6 @@ def _build_atribuida_orders_sql(start_date: str | None = None, end_date: str | N
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
-    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
-    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     si_contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
@@ -2688,26 +2686,18 @@ def _build_atribuida_orders_sql(start_date: str | None = None, end_date: str | N
         attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) BETWEEN DATE('{normalized_start}') AND CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) BETWEEN DATE('{normalized_start}') AND DATE('{normalized_end}')"
-        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
-        touch_partition_end = f"DATE('{normalized_end}')"
     elif normalized_start:
         attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE('{normalized_start}')"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE('{normalized_start}')"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE('{normalized_start}')"
-        touch_partition_start = f"DATE_SUB(DATE('{normalized_start}'), INTERVAL 7 DAY)"
-        touch_partition_end = "CURRENT_DATE()"
     elif normalized_end:
         attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') <= DATE('{normalized_end}')"
         attr_partition_filter = f"DATE(r.partitiontime) <= CURRENT_DATE()"
         purchase_date_filter = f"DATE(p.purchase_date) <= DATE('{normalized_end}')"
-        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_end = f"DATE('{normalized_end}')"
     else:
         attr_event_time_filter = f"DATE(r.event_time, '{EMARSYS_TZ}') >= DATE_SUB(CURRENT_DATE('{EMARSYS_TZ}'), INTERVAL {lookback} DAY)"
         attr_partition_filter = f"DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
         purchase_date_filter = f"DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
-        touch_partition_start = f"DATE_SUB(CURRENT_DATE(), INTERVAL {lookback + 7} DAY)"
-        touch_partition_end = "CURRENT_DATE()"
 
     return f"""
 WITH
@@ -2760,28 +2750,6 @@ si_contact_cpf AS (
   INNER JOIN orders_period op ON CAST(c.si_contact_id AS STRING) = CAST(op.si_contact_id AS STRING)
   WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
   GROUP BY c.si_contact_id
-),
-email_touch AS (
-  SELECT at.order_id,
-    ARRAY_AGG(DATE(e.event_time) ORDER BY e.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS data_toque
-  FROM attributed_treatments at
-  JOIN orders_period op USING (order_id)
-  JOIN `{project_id}.{dataset}.{email_opens_table}` e
-    ON e.contact_id = at.contact_id
-    AND DATE(e.event_time) BETWEEN DATE_SUB(op.purchase_date, INTERVAL 7 DAY) AND op.purchase_date
-    AND DATE(e.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
-  GROUP BY at.order_id
-),
-sms_touch AS (
-  SELECT at.order_id,
-    ARRAY_AGG(DATE(s.event_time) ORDER BY s.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS data_toque
-  FROM attributed_treatments at
-  JOIN orders_period op USING (order_id)
-  JOIN `{project_id}.{dataset}.{sms_sends_table}` s
-    ON s.contact_id = at.contact_id
-    AND DATE(s.event_time) BETWEEN DATE_SUB(op.purchase_date, INTERVAL 7 DAY) AND op.purchase_date
-    AND DATE(s.partitiontime) BETWEEN {touch_partition_start} AND {touch_partition_end}
-  GROUP BY at.order_id
 )
 SELECT
   at.order_id,
@@ -2791,10 +2759,10 @@ SELECT
   op.valor_pedido,
   at.valor_atribuido,
   COALESCE(en.nome_campanha, sn.nome_campanha, at.top_treatment.campaign_id)  AS nome_campanha,
-  CAST(COALESCE(et.data_toque, st.data_toque) AS STRING)                      AS data_toque,
+  '' AS data_toque,
   CASE
-    WHEN et.order_id IS NOT NULL THEN 'email'
-    WHEN st.order_id IS NOT NULL THEN 'sms'
+    WHEN en.campaign_id IS NOT NULL THEN 'email'
+    WHEN sn.campaign_id IS NOT NULL THEN 'sms'
     ELSE ''
   END AS tipo_toque
 FROM attributed_treatments at
@@ -2802,8 +2770,6 @@ INNER JOIN orders_period op USING (order_id)
 LEFT JOIN si_contact_cpf sc ON sc.si_contact_id = CAST(op.si_contact_id AS STRING)
 LEFT JOIN email_names en ON en.campaign_id = at.top_treatment.campaign_id
 LEFT JOIN sms_names sn ON sn.campaign_id = at.top_treatment.campaign_id
-LEFT JOIN email_touch et USING (order_id)
-LEFT JOIN sms_touch st USING (order_id)
 ORDER BY op.valor_pedido DESC
 """.strip()
 
@@ -2819,7 +2785,7 @@ def emarsys_atribuida_orders(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None,
-            timeout=55,
+            timeout=25,
         )
 
         if not records:
