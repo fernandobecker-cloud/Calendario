@@ -3329,16 +3329,15 @@ attr_agg AS (
 items_agg AS (
   SELECT
     ab.campaign_id,
-    SUM(i.quantity)                         AS total_itens,
-    0                                        AS itens_apple,
-    SUM(i.quantity)                         AS itens_nao_apple,
-    ROUND(SUM(i.price * i.quantity), 2)     AS receita_apple,
-    0.0                                      AS receita_nao_apple
+    COUNT(*)                                                                                                        AS total_itens,
+    COUNTIF(LOWER(COALESCE(p.product_name, '')) LIKE '%apple%')                                                    AS itens_apple,
+    COUNTIF(LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%')                                               AS itens_nao_apple,
+    ROUND(SUM(CASE WHEN LOWER(COALESCE(p.product_name, '')) LIKE '%apple%' THEN p.sales_amount ELSE 0 END), 2)    AS receita_apple,
+    ROUND(SUM(CASE WHEN LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%' THEN p.sales_amount ELSE 0 END), 2) AS receita_nao_apple
   FROM (SELECT DISTINCT campaign_id, order_id FROM attr_base) ab
-  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.order_id = ab.order_id
-  CROSS JOIN UNNEST(r.items) AS i
-  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
-    AND ARRAY_LENGTH(r.items) > 0
+  INNER JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = ab.order_id
+  WHERE DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+    AND p.sales_amount > 0
   GROUP BY 1
 ),
 opens_contacts AS (
