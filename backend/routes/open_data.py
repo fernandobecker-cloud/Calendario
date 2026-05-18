@@ -3329,11 +3329,11 @@ attr_agg AS (
 items_agg AS (
   SELECT
     ab.campaign_id,
-    SUM(i.quantity)                                                                                         AS total_itens,
-    SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) = 'apple' THEN i.quantity              ELSE 0 END)          AS itens_apple,
-    SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) != 'apple' THEN i.quantity             ELSE 0 END)          AS itens_nao_apple,
-    ROUND(SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) = 'apple' THEN i.price * i.quantity  ELSE 0 END), 2) AS receita_apple,
-    ROUND(SUM(CASE WHEN LOWER(COALESCE(i.brand, '')) != 'apple' THEN i.price * i.quantity ELSE 0 END), 2) AS receita_nao_apple
+    SUM(i.quantity)                         AS total_itens,
+    0                                        AS itens_apple,
+    SUM(i.quantity)                         AS itens_nao_apple,
+    ROUND(SUM(i.price * i.quantity), 2)     AS receita_apple,
+    0.0                                      AS receita_nao_apple
   FROM (SELECT DISTINCT campaign_id, order_id FROM attr_base) ab
   INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.order_id = ab.order_id
   CROSS JOIN UNNEST(r.items) AS i
