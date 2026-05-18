@@ -61,6 +61,13 @@ TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 # Fuso horário do Emarsys/iPlace. event_time é UTC no BigQuery;
 # usar este TZ garante que as datas de corte de cada dia coincidam com o painel Emarsys.
 EMARSYS_TZ = "America/Sao_Paulo"
+BASE_VENDAS_BQ_PROJECT = os.getenv("BASE_VENDAS_BQ_PROJECT", "").strip()
+BASE_VENDAS_BQ_DATASET = os.getenv("BASE_VENDAS_BQ_DATASET", "dados_vendas").strip()
+BASE_VENDAS_BQ_TABLE = os.getenv("BASE_VENDAS_BQ_TABLE", "vw_performance_vendas").strip()
+BASE_VENDAS_BQ_LOCATION = os.getenv("BASE_VENDAS_BQ_LOCATION", "southamerica-east1").strip()
+# Campos da view vw_performance_vendas (já tipados e sanitizados)
+# data_completa DATE | canal STRING | codigo_filial INTEGER | documento_cliente STRING | valor_faturamento_liquido FLOAT
+
 BASE_VENDAS_SPREADSHEET_NAME = os.getenv("BASE_VENDAS_SPREADSHEET_NAME", "Base Vendas").strip()
 BASE_VENDAS_WORKSHEET_NAME = os.getenv("BASE_VENDAS_WORKSHEET_NAME", "").strip()
 BASE_VENDAS_DOCUMENT_COLUMN = os.getenv("BASE_VENDAS_DOCUMENT_COLUMN", "Documento Cliente").strip()
@@ -4017,77 +4024,98 @@ def receita_atribuida_canal(
             return {"canal": [], "filial": [], "total_clientes_crm": 0,
                     "matched_rows": 0, "start_date": start_date, "end_date": end_date}
 
-        # Step 2: load Base Vendas and cross-reference by CPF
-        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-        if df.empty:
-            return {"canal": [], "filial": [], "total_clientes_crm": len(attributed_cpfs),
-                    "matched_rows": 0, "start_date": start_date, "end_date": end_date}
-
-        available_columns = [str(c) for c in df.columns]
-        date_column = _find_base_vendas_date_column(available_columns)
-        document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
-        canal_column = _find_column(available_columns, "Canal")
-        filial_column = _find_column(available_columns, "Codigo Filial")
-        revenue_column = _find_base_vendas_revenue_column(available_columns)
-
-        start_obj = date.fromisoformat(start_date)
-        end_obj = date.fromisoformat(end_date)
-
-        canal_groups: dict[str, dict[str, Any]] = {}
-        filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
-        matched_rows = 0
-
-        for _, row in df.iterrows():
-            if date_column:
-                row_date = _parse_base_vendas_date(row.get(date_column))
-                if row_date is None or row_date < start_obj or row_date > end_obj:
+        # Step 2: cross with Base Vendas (BigQuery or Sheets fallback)
+        if BASE_VENDAS_BQ_PROJECT:
+            bv_sql = _build_bv_breakdown_sql(attributed_cpfs, start_date, end_date)
+            bv_records = run_bigquery_records(
+                bv_sql, BASE_VENDAS_BQ_PROJECT,
+                location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+            )
+            canal_groups: dict[str, dict[str, Any]] = {}
+            filial_list = []
+            matched_rows = 0
+            for r in bv_records:
+                canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
+                filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+                linhas = int(r.get("linhas") or 0)
+                receita = float(r.get("receita") or 0)
+                matched_rows += linhas
+                if canal not in canal_groups:
+                    canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
+                canal_groups[canal]["linhas"] += linhas
+                canal_groups[canal]["receita"] += receita
+                store_info = FILIAL_REGIONAL_MAP.get(filial)
+                filial_list.append({
+                    "canal": canal,
+                    "codigo_filial": filial,
+                    "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial.zfill(3)}",
+                    "nome": store_info["nome"] if store_info else "",
+                    "regional": store_info["regional"] if store_info else "Outros",
+                    "linhas": linhas,
+                    "receita": receita,
+                })
+            canal_list = sorted(
+                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+                 for g in canal_groups.values()],
+                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+            )
+            filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
+            revenue_column = "valor_faturamento_liquido"
+        else:
+            df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
+            if df.empty:
+                return {"canal": [], "filial": [], "total_clientes_crm": len(attributed_cpfs),
+                        "matched_rows": 0, "start_date": start_date, "end_date": end_date}
+            available_columns = [str(c) for c in df.columns]
+            date_column = _find_base_vendas_date_column(available_columns)
+            document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
+            canal_column = _find_column(available_columns, "Canal")
+            filial_column = _find_column(available_columns, "Codigo Filial")
+            revenue_column = _find_base_vendas_revenue_column(available_columns)
+            start_obj = date.fromisoformat(start_date)
+            end_obj = date.fromisoformat(end_date)
+            canal_groups_sh: dict[str, dict[str, Any]] = {}
+            filial_groups: dict[tuple[str, str], dict[str, Any]] = {}
+            matched_rows = 0
+            for _, row in df.iterrows():
+                if date_column:
+                    row_date = _parse_base_vendas_date(row.get(date_column))
+                    if row_date is None or row_date < start_obj or row_date > end_obj:
+                        continue
+                doc_normalized = _normalize_match_key(str(row.get(document_column) or "") if document_column else "")
+                if not doc_normalized or doc_normalized not in attributed_cpfs:
                     continue
-
-            doc_raw = str(row.get(document_column) or "") if document_column else ""
-            doc_normalized = _normalize_match_key(doc_raw)
-            if not doc_normalized or doc_normalized not in attributed_cpfs:
-                continue
-
-            canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
-            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-            receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
-            canal = canal or "(sem canal)"
-            filial = filial or "(sem filial)"
-            matched_rows += 1
-
-            if canal not in canal_groups:
-                canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
-            canal_groups[canal]["linhas"] += 1
-            canal_groups[canal]["receita"] += receita
-
-            key = (canal, filial)
-            if key not in filial_groups:
-                filial_groups[key] = {"canal": canal, "codigo_filial": filial, "linhas": 0, "receita": 0.0}
-            filial_groups[key]["linhas"] += 1
-            filial_groups[key]["receita"] += receita
-
-        canal_list = sorted(
-            [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
-             for g in canal_groups.values()],
-            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
-        )
-        def _enrich_filial(g: dict[str, Any]) -> dict[str, Any]:
-            filial_key = str(g["codigo_filial"])
-            store_info = FILIAL_REGIONAL_MAP.get(filial_key)
-            return {
-                "canal": g["canal"],
-                "codigo_filial": filial_key,
-                "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial_key.zfill(3)}",
-                "nome": store_info["nome"] if store_info else "",
-                "regional": store_info["regional"] if store_info else "Outros",
-                "linhas": g["linhas"],
-                "receita": round(g["receita"], 2),
-            }
-
-        filial_list = sorted(
-            [_enrich_filial(g) for g in filial_groups.values()],
-            key=lambda x: (-x["receita"] if x["receita"] else -x["linhas"]),
-        )
+                canal = str(row.get(canal_column) or "").strip() if canal_column else "(sem canal)"
+                filial = str(row.get(filial_column) or "").strip() if filial_column else ""
+                receita = _parse_revenue_value(row.get(revenue_column)) if revenue_column else 0.0
+                canal = canal or "(sem canal)"
+                filial = filial or "(sem filial)"
+                matched_rows += 1
+                if canal not in canal_groups_sh:
+                    canal_groups_sh[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
+                canal_groups_sh[canal]["linhas"] += 1
+                canal_groups_sh[canal]["receita"] += receita
+                key = (canal, filial)
+                if key not in filial_groups:
+                    filial_groups[key] = {"canal": canal, "codigo_filial": filial, "linhas": 0, "receita": 0.0}
+                filial_groups[key]["linhas"] += 1
+                filial_groups[key]["receita"] += receita
+            canal_list = sorted(
+                [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+                 for g in canal_groups_sh.values()],
+                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+            )
+            def _enrich_filial(g: dict[str, Any]) -> dict[str, Any]:
+                fk = str(g["codigo_filial"])
+                si = FILIAL_REGIONAL_MAP.get(fk)
+                return {"canal": g["canal"], "codigo_filial": fk,
+                        "centro_sap": si["centro_sap"] if si else f"LJ{fk.zfill(3)}",
+                        "nome": si["nome"] if si else "", "regional": si["regional"] if si else "Outros",
+                        "linhas": g["linhas"], "receita": round(g["receita"], 2)}
+            filial_list = sorted(
+                [_enrich_filial(g) for g in filial_groups.values()],
+                key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+            )
 
         return {
             "canal": canal_list,
@@ -4159,6 +4187,53 @@ FILIAL_REGIONAL_MAP: dict[str, dict[str, str]] = {
     str(int(lj[2:])): {"centro_sap": lj, "nome": nome, "regional": regional}
     for lj, nome, regional in _FILIAL_CSV
 }
+
+
+def _bv_normalize_cpf_sql(field: str) -> str:
+    """Expressão SQL que replica _normalize_match_key para documento_cliente da view."""
+    cleaned = f"REGEXP_REPLACE(LOWER({field}), r'[^0-9A-Za-z]', '')"
+    return (
+        f"CASE WHEN REGEXP_CONTAINS({cleaned}, r'^[0-9]+$') "
+        f"AND LENGTH({cleaned}) BETWEEN 1 AND 10 "
+        f"THEN LPAD({cleaned}, 11, '0') "
+        f"ELSE {cleaned} END"
+    )
+
+
+def _build_bv_breakdown_sql(cpfs: set[str], start_date: str, end_date: str) -> str:
+    """Cruza CPFs com a view vw_performance_vendas; retorna canal/filial/linhas/receita."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(BASE_VENDAS_BQ_DATASET)
+    view = _quote_identifier(BASE_VENDAS_BQ_TABLE)
+    norm_cpf = _bv_normalize_cpf_sql("documento_cliente")
+    safe_cpfs = sorted({c.replace("'", "''") for c in cpfs if c})
+    cpf_values = ", ".join(f"'{c}'" for c in safe_cpfs) if safe_cpfs else "'__no_match__'"
+    return f"""
+WITH
+cpf_set AS (SELECT cpf FROM UNNEST([{cpf_values}]) AS cpf),
+bv AS (
+  SELECT
+    {norm_cpf} AS cpf_norm,
+    canal,
+    CAST(codigo_filial AS STRING) AS codigo_filial,
+    valor_faturamento_liquido AS receita
+  FROM `{project}.{dataset}.{view}`
+  WHERE data_completa BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND documento_cliente IS NOT NULL
+)
+SELECT
+  bv.canal,
+  bv.codigo_filial,
+  COUNT(*) AS linhas,
+  ROUND(SUM(COALESCE(bv.receita, 0)), 2) AS receita
+FROM bv
+INNER JOIN cpf_set ON bv.cpf_norm = cpf_set.cpf
+WHERE bv.cpf_norm IS NOT NULL AND bv.cpf_norm != ''
+GROUP BY bv.canal, bv.codigo_filial
+ORDER BY receita DESC
+""".strip()
 
 
 def _sanitize_campaign_id(value: str) -> str:
@@ -4269,41 +4344,50 @@ def _cross_cpfs_regional(
     end_date: str,
     total_influenciada: float = 0.0,
 ) -> dict[str, Any]:
-    """Cruza CPFs contra Base Vendas e distribui receita proporcionalmente por linhas."""
-    df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
-    if df.empty or not cpfs:
-        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+    """Cruza CPFs contra Base Vendas e distribui receita proporcionalmente por linhas.
 
-    available_columns = [str(c) for c in df.columns]
-    date_column = _find_base_vendas_date_column(available_columns)
-    document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
-    filial_column = _find_column(available_columns, "Codigo Filial")
+    Usa BigQuery quando BASE_VENDAS_BQ_PROJECT está configurado; senão cai para Google Sheets.
+    """
+    if not cpfs:
+        return {"regionais": [], "total_cruzado": 0, "total_cpfs": 0}
 
-    if not document_column:
-        return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
-
-    start_obj = date.fromisoformat(start_date)
-    end_obj = date.fromisoformat(end_date)
-
-    filial_linhas: dict[str, int] = {}
-    matched = 0
-
-    for _, row in df.iterrows():
-        if date_column:
-            row_date = _parse_base_vendas_date(row.get(date_column))
-            if row_date is None or row_date < start_obj or row_date > end_obj:
+    if BASE_VENDAS_BQ_PROJECT:
+        bv_sql = _build_bv_breakdown_sql(cpfs, start_date, end_date)
+        records = run_bigquery_records(
+            bv_sql, BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+        )
+        filial_linhas = {
+            str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)": int(r.get("linhas") or 0)
+            for r in records
+        }
+    else:
+        df = load_google_sheet_by_name(BASE_VENDAS_SPREADSHEET_NAME, BASE_VENDAS_WORKSHEET_NAME or None)
+        if df.empty:
+            return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+        available_columns = [str(c) for c in df.columns]
+        date_column = _find_base_vendas_date_column(available_columns)
+        document_column = _find_column(available_columns, BASE_VENDAS_DOCUMENT_COLUMN)
+        filial_column = _find_column(available_columns, "Codigo Filial")
+        if not document_column:
+            return {"regionais": [], "total_cruzado": 0, "total_cpfs": len(cpfs)}
+        start_obj = date.fromisoformat(start_date)
+        end_obj = date.fromisoformat(end_date)
+        filial_linhas = {}
+        for _, row in df.iterrows():
+            if date_column:
+                row_date = _parse_base_vendas_date(row.get(date_column))
+                if row_date is None or row_date < start_obj or row_date > end_obj:
+                    continue
+            doc_normalized = _normalize_match_key(str(row.get(document_column) or ""))
+            if not doc_normalized or doc_normalized not in cpfs:
                 continue
-
-        doc_normalized = _normalize_match_key(str(row.get(document_column) or ""))
-        if not doc_normalized or doc_normalized not in cpfs:
-            continue
-
-        filial = str(row.get(filial_column) or "").strip() if filial_column else ""
-        filial = filial or "(sem filial)"
-        matched += 1
-        filial_linhas[filial] = filial_linhas.get(filial, 0) + 1
+            filial = str(row.get(filial_column) or "").strip() if filial_column else ""
+            filial = filial or "(sem filial)"
+            filial_linhas[filial] = filial_linhas.get(filial, 0) + 1
 
     total_matched = sum(filial_linhas.values()) or 1
+    matched = sum(filial_linhas.values())
 
     regional_data: dict[str, dict[str, Any]] = {}
     for filial, linhas in filial_linhas.items():
