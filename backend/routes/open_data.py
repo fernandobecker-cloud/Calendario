@@ -3329,12 +3329,24 @@ attr_agg AS (
 items_agg AS (
   SELECT
     ab.campaign_id,
-    COUNT(*)                                                                                                        AS total_itens,
-    COUNTIF(LOWER(COALESCE(p.product_name, '')) LIKE '%apple%')                                                    AS itens_apple,
-    COUNTIF(LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%')                                               AS itens_nao_apple,
-    ROUND(SUM(CASE WHEN LOWER(COALESCE(p.product_name, '')) LIKE '%apple%' THEN p.sales_amount ELSE 0 END), 2)    AS receita_apple,
-    ROUND(SUM(CASE WHEN LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%' THEN p.sales_amount ELSE 0 END), 2) AS receita_nao_apple
-  FROM (SELECT DISTINCT campaign_id, order_id FROM attr_base) ab
+    COUNT(*)                                                            AS total_itens,
+    COUNTIF(LOWER(COALESCE(p.product_name, '')) LIKE '%apple%')        AS itens_apple,
+    COUNTIF(LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%')    AS itens_nao_apple,
+    ROUND(SUM(
+      ab.attributed_amount *
+      SAFE_DIVIDE(
+        CASE WHEN LOWER(COALESCE(p.product_name, '')) LIKE '%apple%' THEN p.sales_amount ELSE 0 END,
+        SUM(p.sales_amount) OVER (PARTITION BY ab.campaign_id, p.order_id)
+      )
+    ), 2) AS receita_apple,
+    ROUND(SUM(
+      ab.attributed_amount *
+      SAFE_DIVIDE(
+        CASE WHEN LOWER(COALESCE(p.product_name, '')) NOT LIKE '%apple%' THEN p.sales_amount ELSE 0 END,
+        SUM(p.sales_amount) OVER (PARTITION BY ab.campaign_id, p.order_id)
+      )
+    ), 2) AS receita_nao_apple
+  FROM attr_base ab
   INNER JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = ab.order_id
   WHERE DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
     AND p.sales_amount > 0
