@@ -154,7 +154,10 @@ def delete_calendar_row(row_index: int) -> None:
 
 def build_bigquery_client(project_id: str) -> bigquery.Client:
     service_account_info = _load_service_account_info()
-    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+    scopes = [
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
 
     try:
         credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
