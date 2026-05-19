@@ -3885,6 +3885,8 @@ attributed_si_contacts AS (
   FROM `{project_id}.{dataset}.{si_purchases_table}` p
   INNER JOIN attributed_orders ao ON p.order_id = ao.order_id
   WHERE p.si_contact_id IS NOT NULL
+    AND DATE(p.purchase_date) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 7 DAY)
+                                  AND DATE_ADD(DATE('{end_date}'), INTERVAL 7 DAY)
 ),
 -- Um CPF por si_contact_id (si_contacts pode ter múltiplas linhas por contato)
 one_cpf_per_contact AS (
@@ -3922,19 +3924,24 @@ def receita_atribuida_canal(
         raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
 
     try:
-        # Step 1: get attributed CPFs from BigQuery
-        sql = _build_attributed_cpfs_sql(start_date, end_date)
-        cpf_records = run_bigquery_records(
-            sql,
-            EMARSYS_OPEN_DATA_PROJECT_ID,
-            location=EMARSYS_OPEN_DATA_LOCATION or None,
-            timeout=40,
-        )
-        attributed_cpfs: set[str] = {
-            str(r.get("cpf_normalized") or "")
-            for r in cpf_records
-            if r.get("cpf_normalized")
-        }
+        # Step 1: get attributed CPFs (cache evita re-query no mesmo período)
+        cache_key = f"canal_cpfs:{start_date}:{end_date}"
+        attributed_cpfs = _cpf_cache_get(cache_key)
+        if attributed_cpfs is None:
+            sql = _build_attributed_cpfs_sql(start_date, end_date)
+            cpf_records = run_bigquery_records(
+                sql,
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=25,
+            )
+            attributed_cpfs = {
+                str(r.get("cpf_normalized") or "")
+                for r in cpf_records
+                if r.get("cpf_normalized")
+            }
+            attributed_cpfs.discard("")
+            _cpf_cache_set(cache_key, attributed_cpfs)
 
         if not attributed_cpfs:
             return {"canal": [], "filial": [], "total_clientes_crm": 0,
@@ -3947,7 +3954,7 @@ def receita_atribuida_canal(
         bv_sql = _build_bv_breakdown_sql(attributed_cpfs, start_date, end_date)
         bv_records = run_bigquery_records(
             bv_sql, BASE_VENDAS_BQ_PROJECT,
-            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=25,
         )
         canal_groups: dict[str, dict[str, Any]] = {}
         filial_list = []
