@@ -225,13 +225,16 @@ export default function ResultadoGeralPage({ currentRole }) {
 
         // Canal carrega em paralelo com estado próprio (pode ser lento — não bloqueia o restante)
         setCanalAtribuidaState({ data: null, loading: true, error: null })
-        fetchJson(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`)
-          .catch(() => ({ ok: false, data: null }))
-          .then(res => setCanalAtribuidaState({
-            data: res.ok ? res.data : null,
-            loading: false,
-            error: res.ok ? null : 'Falha ao carregar canal de receita atribuída.',
-          }))
+        fetch(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`)
+          .then(async res => {
+            const json = await res.json().catch(() => null)
+            if (!res.ok) {
+              setCanalAtribuidaState({ data: null, loading: false, error: json?.detail || `Erro ${res.status}` })
+            } else {
+              setCanalAtribuidaState({ data: json, loading: false, error: null })
+            }
+          })
+          .catch(err => setCanalAtribuidaState({ data: null, loading: false, error: String(err) }))
 
         const [atribuida, ga4, abandoned, daily] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
