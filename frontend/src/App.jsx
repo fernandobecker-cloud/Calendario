@@ -580,11 +580,6 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [activeView, loadUsers])
 
-  useEffect(() => {
-    if (activeView === 'open-data' || activeView === 'automation-results') {
-      loadOpenData()
-    }
-  }, [activeView, loadOpenData])
 
   useEffect(() => {
     if (activeView === 'open-data-explorer') {
@@ -739,11 +734,6 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [openDataAutomationEndDate, openDataAutomationStartDate])
 
-  useEffect(() => {
-    if (activeView === 'automation-results') {
-      loadAnniversaryAutomationCouponStats()
-    }
-  }, [activeView, loadAnniversaryAutomationCouponStats])
 
   useEffect(() => {
     if (activeView !== 'permissoes') return
@@ -773,9 +763,6 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [receitaTesteStart, receitaTesteEnd])
 
-  useEffect(() => {
-    if (activeView === 'receita-teste') loadReceitaTeste()
-  }, [activeView, loadReceitaTeste])
 
   const loadComparativoCRM = useCallback(async () => {
     if (!comparativoCRMStart || !comparativoCRMEnd) return
@@ -795,9 +782,6 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [comparativoCRMStart, comparativoCRMEnd])
 
-  useEffect(() => {
-    if (activeView === 'comparativo-crm') loadComparativoCRM()
-  }, [activeView, loadComparativoCRM])
 
   const loadSmsApuracao = useCallback(async () => {
     if (!smsApuracaoNome.trim() || smsApuracaoNome.trim().length < 2 || !smsApuracaoDate) return
