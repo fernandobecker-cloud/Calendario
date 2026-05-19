@@ -209,6 +209,7 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
   const [influenciadaData, setInfluenciadaData] = useState(null)
   const [canalBreakdownData, setCanalBreakdownData] = useState(null)
+  const [canalAtribuidaState, setCanalAtribuidaState] = useState({ data: null, loading: false, error: null })
 
   const handleAtualizar = useCallback(async () => {
     if (!startDate) return
@@ -219,17 +220,24 @@ export default function ResultadoGeralPage({ currentRole }) {
       if (activeView === 'executivo') {
         const [year, month] = startDate.split('-').map(Number)
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-
         const dailyParams = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-
         const canalParams = new URLSearchParams({ start: startDate, end: endDate || startDate })
 
-        const [atribuida, ga4, abandoned, daily, canalAtribuida] = await Promise.all([
+        // Canal carrega em paralelo com estado próprio (pode ser lento — não bloqueia o restante)
+        setCanalAtribuidaState({ data: null, loading: true, error: null })
+        fetchJson(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`)
+          .catch(() => ({ ok: false, data: null }))
+          .then(res => setCanalAtribuidaState({
+            data: res.ok ? res.data : null,
+            loading: false,
+            error: res.ok ? null : 'Falha ao carregar canal de receita atribuída.',
+          }))
+
+        const [atribuida, ga4, abandoned, daily] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
           fetchJson(`/api/ga4/crm/monthly?year=${year}&month=${month}`),
           fetchJson(`/api/ga4/abandoned-cart-coupons?start=${startDate}&end=${endDate || startDate}&crm_scope=non_crm`),
           fetchJson(`/api/open-data/emarsys/daily-revenue?${dailyParams}`),
-          fetchJson(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`).catch(() => ({ ok: false, data: null })),
         ])
 
         const purchaseCrm = Number(ga4.data?.current_year?.purchaseRevenue || 0)
@@ -243,7 +251,6 @@ export default function ResultadoGeralPage({ currentRole }) {
             purchaseNonCrm,
           },
           dailyRevenue: daily.ok ? (daily.data?.items ?? []) : [],
-          canalAtribuida: canalAtribuida.ok ? canalAtribuida.data : null,
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
@@ -343,7 +350,13 @@ export default function ResultadoGeralPage({ currentRole }) {
           )}
 
           {activeView === 'executivo' && (
-            <ExecutivoView data={executivoData} loading={loading} canalAtribuida={executivoData?.canalAtribuida} />
+            <ExecutivoView
+              data={executivoData}
+              loading={loading}
+              canalAtribuida={canalAtribuidaState.data}
+              canalLoading={canalAtribuidaState.loading}
+              canalError={canalAtribuidaState.error}
+            />
           )}
           {activeView === 'atribuida' && (
             <AtribuidaDetalhadaView
@@ -622,7 +635,7 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
   )
 }
 
-function ExecutivoView({ data, loading, canalAtribuida }) {
+function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -688,9 +701,17 @@ function ExecutivoView({ data, loading, canalAtribuida }) {
       </section>
 
       {/* Canal da Receita Atribuída */}
-      {canalAtribuida?.canal?.length > 0 && (
+      {canalLoading ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <p className="text-sm text-slate-400">Carregando canal de receita atribuída…</p>
+        </section>
+      ) : canalError ? (
+        <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+          <p className="text-sm text-rose-700">{canalError}</p>
+        </section>
+      ) : canalAtribuida?.canal?.length > 0 ? (
         <CanalAtribuidaCard data={canalAtribuida} totalAtribuida={atribuida?.total_receita_atribuida ?? 0} />
-      )}
+      ) : null}
 
       {/* Receita Direta */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
