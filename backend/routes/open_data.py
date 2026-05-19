@@ -2753,24 +2753,24 @@ si_contact_cpf AS (
   GROUP BY c.si_contact_id
 )
 SELECT
-  at.order_id,
-  CAST(at.contact_id AS STRING)                                               AS contact_id,
-  COALESCE(sc.external_id, '')                                                AS external_id,
+  atr.order_id,
+  CAST(atr.contact_id AS STRING)                                               AS contact_id,
+  COALESCE(sc.external_id, '')                                                 AS external_id,
   op.purchase_date,
   op.valor_pedido,
-  at.valor_atribuido,
-  COALESCE(en.nome_campanha, sn.nome_campanha, at.top_treatment.campaign_id)  AS nome_campanha,
+  atr.valor_atribuido,
+  COALESCE(en.nome_campanha, sn.nome_campanha, atr.top_treatment.campaign_id)  AS nome_campanha,
   '' AS data_toque,
   CASE
     WHEN en.campaign_id IS NOT NULL THEN 'email'
     WHEN sn.campaign_id IS NOT NULL THEN 'sms'
     ELSE ''
   END AS tipo_toque
-FROM attributed_treatments at
+FROM attributed_treatments atr
 INNER JOIN orders_period op USING (order_id)
 LEFT JOIN si_contact_cpf sc ON sc.si_contact_id = CAST(op.si_contact_id AS STRING)
-LEFT JOIN email_names en ON en.campaign_id = at.top_treatment.campaign_id
-LEFT JOIN sms_names sn ON sn.campaign_id = at.top_treatment.campaign_id
+LEFT JOIN email_names en ON en.campaign_id = atr.top_treatment.campaign_id
+LEFT JOIN sms_names sn ON sn.campaign_id = atr.top_treatment.campaign_id
 ORDER BY op.valor_pedido DESC
 """.strip()
 
