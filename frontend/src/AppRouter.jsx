@@ -26,6 +26,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
     if (tab.key === 'adm' || tab.key === 'mapa') return currentRole === 'admin'
+    if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
     if (currentRole === 'admin') return true
     if (viewerTabs && viewerTabs[tab.key] === false) return false
     return true
@@ -193,7 +194,7 @@ export default function AppRouter() {
           <Route path="/campanhas" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
-          <Route path="/auditoria" element={<AuditoriaPage />} />
+          <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/adm" element={<AdmPage />} />
           <Route path="/mapa-portal" element={<PortalMapPage />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
