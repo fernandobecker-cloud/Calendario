@@ -150,7 +150,7 @@ function RegionalPanel({ data }) {
         </div>
       ))}
       <p className="text-xs text-slate-400 pt-1">
-        {data.total_cruzado} linhas cruzadas · {data.total_cpfs} CPFs influenciados
+        {data.total_cruzado} pedidos cruzados · {data.total_orders ?? data.total_cpfs} influenciados
       </p>
     </div>
   )

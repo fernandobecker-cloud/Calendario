@@ -49,6 +49,17 @@ def _prefetch_cpfs(cache_key: str, sql: str, project_id: str, location: str | No
         pass  # falha silenciosa — o endpoint regional fará a query diretamente
 
 
+def _prefetch_order_ids(cache_key: str, sql: str, project_id: str, location: str | None) -> None:
+    """Executa a query de order_ids em background e armazena no cache."""
+    try:
+        records = run_bigquery_records(sql, project_id, location=location, timeout=30)
+        order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
+        order_ids.discard("")
+        _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
+    except Exception:
+        pass  # falha silenciosa — o endpoint regional fará a query diretamente
+
+
 EMARSYS_OPEN_DATA_PROJECT_ID = os.getenv("EMARSYS_OPEN_DATA_PROJECT_ID", "sap-od-herval").strip()
 EMARSYS_OPEN_DATA_DATASET = os.getenv("EMARSYS_OPEN_DATA_DATASET", "emarsys_herval_1091660394").strip()
 EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE = os.getenv(
@@ -3445,18 +3456,17 @@ def sms_apuracao(
             }
             for row in records
         ]
-        # Se Base Vendas BQ está configurado, pré-carrega CPFs em background para
-        # que o endpoint regional responda mais rápido.
+        # Pré-carrega order_ids em background para que o endpoint regional responda mais rápido.
         if BASE_VENDAS_BQ_PROJECT and items:
             for item in items:
                 cid_item = item.get("campaign_id")
                 if cid_item:
-                    ck = f"sms:{cid_item}:{dispatch_date}"
+                    ck = f"sms_orders:{cid_item}:{dispatch_date}"
                     if _cpf_cache_get(ck) is None:
-                        cpf_sql = _build_influenced_cpfs_sms_sql(cid_item, dispatch_date)
+                        oid_sql = _build_influenced_order_ids_sms_sql(cid_item, dispatch_date)
                         threading.Thread(
-                            target=_prefetch_cpfs,
-                            args=(ck, cpf_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
+                            target=_prefetch_order_ids,
+                            args=(ck, oid_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
                             daemon=True,
                         ).start()
 
@@ -3502,12 +3512,12 @@ def email_apuracao(
             for item in items:
                 cid_item = item.get("campaign_id")
                 if cid_item:
-                    ck = f"email:{cid_item}:{start_date}:{end_date}"
+                    ck = f"email_orders:{cid_item}:{start_date}:{end_date}"
                     if _cpf_cache_get(ck) is None:
-                        cpf_sql = _build_influenced_cpfs_email_sql(cid_item, start_date, end_date)
+                        oid_sql = _build_influenced_order_ids_email_sql(cid_item, start_date, end_date)
                         threading.Thread(
-                            target=_prefetch_cpfs,
-                            args=(ck, cpf_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
+                            target=_prefetch_order_ids,
+                            args=(ck, oid_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
                             daemon=True,
                         ).start()
 
@@ -4215,6 +4225,140 @@ def _sanitize_campaign_id(value: str) -> str:
     return cleaned
 
 
+def _build_influenced_order_ids_sms_sql(campaign_id: str, dispatch_date: str) -> str:
+    """Retorna order_ids influenciados pelo SMS — sem CPF, sem si_contacts."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    d = dispatch_date
+    cid = _sanitize_campaign_id(campaign_id)
+    return f"""
+WITH
+sms_sends_camp AS (
+  SELECT DISTINCT ss.contact_id, DATE(ss.event_time) AS send_date
+  FROM `{project_id}.{dataset}.{sms_sends_table}` ss
+  WHERE CAST(ss.campaign_id AS STRING) = '{cid}'
+    AND DATE(ss.event_time) = DATE('{d}')
+    AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
+                                   AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
+)
+SELECT DISTINCT r.order_id
+FROM sms_sends_camp ssc
+INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+  ON r.contact_id = ssc.contact_id
+  AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
+  AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+WHERE r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
+""".strip()
+
+
+def _build_influenced_order_ids_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
+    """Retorna order_ids influenciados pelo email — sem CPF, sem si_contacts."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    s, e = start_date, end_date
+    cid = _sanitize_campaign_id(campaign_id)
+    return f"""
+WITH
+email_opens_camp AS (
+  SELECT DISTINCT eo.contact_id, DATE(eo.event_time) AS open_date
+  FROM `{project_id}.{dataset}.{email_opens_table}` eo
+  WHERE CAST(eo.campaign_id AS STRING) = '{cid}'
+    AND DATE(eo.partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND DATE(eo.event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND eo.contact_id IS NOT NULL
+)
+SELECT DISTINCT r.order_id
+FROM email_opens_camp eoc
+INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+  ON r.contact_id = eoc.contact_id
+  AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
+WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+  AND r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
+""".strip()
+
+
+def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
+    """Retorna filial deduplica por Numero_Pedido (um pedido = uma filial)."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table = _quote_identifier(VENDAS_BQ_TABLE)
+    safe_ids = sorted({str(i).replace("'", "''") for i in order_ids if i})
+    ids_values = ", ".join(f"'{i}'" for i in safe_ids) if safe_ids else "'__no_match__'"
+    return f"""
+SELECT
+  Numero_Pedido AS order_id,
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+FROM `{project}.{dataset}.{table}`
+WHERE Numero_Pedido IN UNNEST([{ids_values}])
+  AND Numero_Pedido IS NOT NULL
+  AND TRIM(Numero_Pedido) != ''
+GROUP BY Numero_Pedido
+""".strip()
+
+
+def _cross_orders_regional(
+    order_ids: set[str],
+    total_influenciada: float = 0.0,
+) -> dict[str, Any]:
+    """Cruza order_ids com vendas_iplace e distribui receita_influenciada proporcionalmente por filial."""
+    if not order_ids:
+        return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
+
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
+    sql = _build_vendas_filial_by_orders_sql(order_ids)
+    records = run_bigquery_records(
+        sql, BASE_VENDAS_BQ_PROJECT,
+        location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+    )
+
+    filial_count: dict[str, int] = {}
+    for r in records:
+        filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+        filial_count[filial] = filial_count.get(filial, 0) + 1
+
+    total_matched = sum(filial_count.values()) or 1
+    matched = sum(filial_count.values())
+
+    regional_data: dict[str, dict[str, Any]] = {}
+    for filial, count in filial_count.items():
+        store_info = FILIAL_REGIONAL_MAP.get(filial)
+        regional = store_info["regional"] if store_info else "Outros"
+        nome_loja = store_info["nome"] if store_info else f"LJ{str(filial).zfill(3)}"
+        centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
+        pct = count / total_matched
+        receita_est = round(total_influenciada * pct, 2)
+
+        if regional not in regional_data:
+            regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
+        regional_data[regional]["linhas"] += count
+        regional_data[regional]["receita"] += receita_est
+        regional_data[regional]["lojas"].append({
+            "codigo_filial": filial,
+            "centro_sap": centro_sap,
+            "nome": nome_loja,
+            "linhas": count,
+            "receita": receita_est,
+        })
+
+    for rdata in regional_data.values():
+        rdata["lojas"].sort(key=lambda x: -x["receita"])
+        rdata["receita"] = round(rdata["receita"], 2)
+
+    return {
+        "regionais": sorted(regional_data.values(), key=lambda x: -x["receita"]),
+        "total_cruzado": matched,
+        "total_orders": len(order_ids),
+    }
+
+
 def _build_influenced_cpfs_sms_sql(campaign_id: str, dispatch_date: str) -> str:
     """Retorna DISTINCT cpf dos contatos com pedidos influenciados pelo SMS."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
@@ -4375,21 +4519,20 @@ def sms_apuracao_regional(
 ) -> dict[str, Any]:
     cid = _sanitize_campaign_id(campaign_id)
     d = _validate_optional_iso_date(date_param) or date_param
-    end_d = str(date.fromisoformat(d) + timedelta(days=7))
-    cache_key = f"sms:{cid}:{d}"
+    cache_key = f"sms_orders:{cid}:{d}"
     try:
-        cpfs = _cpf_cache_get(cache_key)
-        if cpfs is None:
-            sql = _build_influenced_cpfs_sms_sql(cid, d)
+        order_ids: set[str] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
+        if order_ids is None:
+            sql = _build_influenced_order_ids_sms_sql(cid, d)
             records = run_bigquery_records(
                 sql, EMARSYS_OPEN_DATA_PROJECT_ID,
                 location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
             )
-            cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-            cpfs.discard("")
-            _cpf_cache_set(cache_key, cpfs)
-        result = _cross_cpfs_regional(cpfs, d, end_d, total_influenciada=receita_influenciada)
-        return {**result, "campaign_id": cid, "dispatch_date": d, "cpfs_from_cache": _cpf_cache_get(cache_key) is not None}
+            order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
+            order_ids.discard("")
+            _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
+        result = _cross_orders_regional(order_ids, total_influenciada=receita_influenciada)
+        return {**result, "campaign_id": cid, "dispatch_date": d, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
     except Exception as exc:
@@ -4406,21 +4549,20 @@ def email_apuracao_regional(
     cid = _sanitize_campaign_id(campaign_id)
     s = _validate_optional_iso_date(start) or start
     e = _validate_optional_iso_date(end) or end
-    end_extended = str(date.fromisoformat(e) + timedelta(days=7))
-    cache_key = f"email:{cid}:{s}:{e}"
+    cache_key = f"email_orders:{cid}:{s}:{e}"
     try:
-        cpfs = _cpf_cache_get(cache_key)
-        if cpfs is None:
-            sql = _build_influenced_cpfs_email_sql(cid, s, e)
+        order_ids: set[str] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
+        if order_ids is None:
+            sql = _build_influenced_order_ids_email_sql(cid, s, e)
             records = run_bigquery_records(
                 sql, EMARSYS_OPEN_DATA_PROJECT_ID,
                 location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
             )
-            cpfs = {_normalize_match_key(str(r.get("cpf") or "")) for r in records if r.get("cpf")}
-            cpfs.discard("")
-            _cpf_cache_set(cache_key, cpfs)
-        result = _cross_cpfs_regional(cpfs, s, end_extended, total_influenciada=receita_influenciada)
-        return {**result, "campaign_id": cid, "start_date": s, "end_date": e, "cpfs_from_cache": _cpf_cache_get(cache_key) is not None}
+            order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
+            order_ids.discard("")
+            _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
+        result = _cross_orders_regional(order_ids, total_influenciada=receita_influenciada)
+        return {**result, "campaign_id": cid, "start_date": s, "end_date": e, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
     except Exception as exc:
