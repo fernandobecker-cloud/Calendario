@@ -2837,7 +2837,7 @@ def base_vendas_canal_breakdown(
         sql = _build_bv_canal_filial_sql(start_date, end_date)
         records = run_bigquery_records(
             sql, BASE_VENDAS_BQ_PROJECT,
-            location=BASE_VENDAS_BQ_LOCATION or None, timeout=55,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
         )
         canal_groups: dict[str, dict[str, Any]] = {}
         filial_list = []
@@ -4266,7 +4266,7 @@ def _cross_cpfs_regional(
     bv_sql = _build_bv_breakdown_sql(cpfs, start_date, end_date)
     records = run_bigquery_records(
         bv_sql, BASE_VENDAS_BQ_PROJECT,
-        location=BASE_VENDAS_BQ_LOCATION or None, timeout=55,
+        location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
     )
     filial_linhas = {
         str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)": int(r.get("linhas") or 0)
