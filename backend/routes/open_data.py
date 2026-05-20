@@ -4097,7 +4097,7 @@ GROUP BY r.order_id
 
 
 def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
-    """Busca canal e filial de cada pedido em vendas_iplace pelo Numero_Pedido."""
+    """Um canal/filial por Numero_Pedido (deduplicado) — vendas_iplace tem N linhas por pedido."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4108,12 +4108,13 @@ def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
-  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+  COALESCE(NULLIF(TRIM(ANY_VALUE(Canal)), ''), '(sem canal)') AS canal,
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
   AND TRIM(Numero_Pedido) != ''
+GROUP BY Numero_Pedido
 """.strip()
 
 
