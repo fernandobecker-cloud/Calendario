@@ -484,7 +484,7 @@ function DailyRevenueChart({ items }) {
   )
 }
 
-function CanalAtribuidaCard({ data, totalAtribuida }) {
+function CanalAtribuidaCard({ data }) {
   const [expandedRegionals, setExpandedRegionals] = useState(new Set())
   const [showRegional, setShowRegional] = useState(false)
 
@@ -494,38 +494,30 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
     return next
   })
 
-  const totalLinhas = (data.canal || []).reduce((s, c) => s + (c.linhas || 0), 0)
+  const totalReceita = (data.canal || []).reduce((s, c) => s + (c.receita || 0), 0)
+  const maxCanalReceita = Math.max(...(data.canal || []).map(c => c.receita || 0), 1)
 
-  const canaisComReceita = (data.canal || []).map(c => {
-    const pct = totalLinhas > 0 ? (c.linhas / totalLinhas) * 100 : 0
-    return { ...c, pct, receitaEstimada: totalAtribuida * (pct / 100) }
-  })
+  const canais = (data.canal || []).map(c => ({
+    ...c,
+    pct: totalReceita > 0 ? (c.receita / totalReceita) * 100 : 0,
+  }))
 
-  // Filiais VAREJO com receita estimada
+  // Filiais VAREJO com receita real
   const lojas = (data.filial || [])
     .filter(f => f.canal === 'VAREJO')
-    .map(f => {
-      const canal = canaisComReceita.find(c => c.canal === f.canal)
-      const totalFilialLinhas = (data.filial || [])
-        .filter(x => x.canal === f.canal)
-        .reduce((s, x) => s + (x.linhas || 0), 0)
-      const filialPct = totalFilialLinhas > 0 ? (f.linhas / totalFilialLinhas) * 100 : 0
-      const receitaEstimada = canal ? canal.receitaEstimada * (filialPct / 100) : 0
-      return { ...f, filialPct, receitaEstimada }
-    })
-    .sort((a, b) => b.receitaEstimada - a.receitaEstimada)
+    .sort((a, b) => (b.receita || 0) - (a.receita || 0))
 
-  // Agrupa lojas por regional
+  // Agrupa lojas por regional usando receita real
   const regionaisMap = {}
   for (const loja of lojas) {
     const reg = loja.regional || 'Outros'
-    if (!regionaisMap[reg]) regionaisMap[reg] = { regional: reg, linhas: 0, receitaEstimada: 0, lojas: [] }
+    if (!regionaisMap[reg]) regionaisMap[reg] = { regional: reg, linhas: 0, receita: 0, lojas: [] }
     regionaisMap[reg].linhas += loja.linhas || 0
-    regionaisMap[reg].receitaEstimada += loja.receitaEstimada
+    regionaisMap[reg].receita += loja.receita || 0
     regionaisMap[reg].lojas.push(loja)
   }
-  const regionais = Object.values(regionaisMap).sort((a, b) => b.receitaEstimada - a.receitaEstimada)
-  const maxRegReceita = regionais[0]?.receitaEstimada || 1
+  const regionais = Object.values(regionaisMap).sort((a, b) => (b.receita || 0) - (a.receita || 0))
+  const maxRegReceita = regionais[0]?.receita || 1
 
   const ChevronIcon = ({ open }) => (
     <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -541,23 +533,23 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
           Canal da Receita Atribuída
         </h2>
         <span className="text-xs text-slate-400">
-          estimativa via CPF · {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos Base Vendas
+          {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos cruzados · {(data.total_pedidos_crm || 0).toLocaleString('pt-BR')} atribuídos
         </span>
       </div>
       <p className="mb-4 text-xs text-slate-400">
-        Proporção de pedidos por canal aplicada sobre a receita atribuída total
+        Receita real por canal — cruzamento direto por número de pedido (vendas_iplace)
       </p>
 
       {/* Canal summary */}
       <div className="grid gap-3 sm:grid-cols-2 mb-4">
-        {canaisComReceita.map(c => (
+        {canais.map(c => (
           <div key={c.canal} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-slate-700">{c.canal}</span>
-              <span className="text-sm font-bold text-slate-900">~{formatCurrency(c.receitaEstimada)}</span>
+              <span className="text-sm font-bold text-slate-900">{formatCurrency(c.receita)}</span>
             </div>
             <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${c.pct}%` }} />
+              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${(c.receita / maxCanalReceita) * 100}%` }} />
             </div>
             <p className="mt-1 text-xs text-slate-400">{c.pct.toFixed(1)}% · {c.linhas.toLocaleString('pt-BR')} pedidos</p>
           </div>
@@ -580,7 +572,6 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
             <div className="space-y-2">
               {regionais.map(reg => (
                 <div key={reg.regional} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                  {/* Regional header */}
                   <button
                     onClick={() => toggleRegional(reg.regional)}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left"
@@ -590,23 +581,22 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
                         <span className="text-sm font-semibold text-slate-700">{reg.regional}</span>
                         <div className="flex items-center gap-4">
                           <span className="text-xs text-slate-400">{reg.linhas.toLocaleString('pt-BR')} pedidos</span>
-                          <span className="text-sm font-bold text-slate-900">~{formatCurrency(reg.receitaEstimada)}</span>
+                          <span className="text-sm font-bold text-slate-900">{formatCurrency(reg.receita)}</span>
                           <ChevronIcon open={expandedRegionals.has(reg.regional)} />
                         </div>
                       </div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                         <div
                           className="h-full rounded-full bg-indigo-400"
-                          style={{ width: `${(reg.receitaEstimada / maxRegReceita) * 100}%` }}
+                          style={{ width: `${(reg.receita / maxRegReceita) * 100}%` }}
                         />
                       </div>
                     </div>
                   </button>
-                  {/* Lojas expandidas */}
                   {expandedRegionals.has(reg.regional) && (
                     <div className="border-t border-slate-100 divide-y divide-slate-50 bg-slate-50">
                       {reg.lojas.map(f => {
-                        const maxLojaReceita = reg.lojas[0]?.receitaEstimada || 1
+                        const maxLojaReceita = reg.lojas[0]?.receita || 1
                         return (
                           <div key={f.codigo_filial} className="flex items-center gap-3 px-6 py-2 text-xs">
                             <span className="w-16 shrink-0 font-semibold text-slate-600">
@@ -617,12 +607,12 @@ function CanalAtribuidaCard({ data, totalAtribuida }) {
                               <div className="h-1 overflow-hidden rounded-full bg-slate-200">
                                 <div
                                   className="h-full rounded-full bg-indigo-300"
-                                  style={{ width: `${(f.receitaEstimada / maxLojaReceita) * 100}%` }}
+                                  style={{ width: `${((f.receita || 0) / maxLojaReceita) * 100}%` }}
                                 />
                               </div>
                             </div>
                             <span className="w-10 text-right text-slate-400">{f.linhas}p</span>
-                            <span className="w-28 text-right font-semibold text-slate-700">~{formatCurrency(f.receitaEstimada)}</span>
+                            <span className="w-28 text-right font-semibold text-slate-700">{formatCurrency(f.receita)}</span>
                           </div>
                         )
                       })}
@@ -713,7 +703,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
           <p className="text-sm text-rose-700">{canalError}</p>
         </section>
       ) : canalAtribuida?.canal?.length > 0 ? (
-        <CanalAtribuidaCard data={canalAtribuida} totalAtribuida={atribuida?.total_receita_atribuida ?? 0} />
+        <CanalAtribuidaCard data={canalAtribuida} />
       ) : null}
 
       {/* Receita Direta */}

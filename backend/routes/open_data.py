@@ -103,6 +103,13 @@ BASE_VENDAS_BQ_LOCATION = os.getenv("BASE_VENDAS_BQ_LOCATION", "southamerica-eas
 # Campos da view vw_performance_vendas (já tipados e sanitizados)
 # data_completa DATE | canal STRING | codigo_filial INTEGER | documento_cliente STRING | valor_faturamento_liquido FLOAT
 
+# Tabela vendas_iplace — cruzamento por Numero_Pedido (order_id)
+# Campos: Data_Completa STRING | Cod_Filial STRING | Canal STRING | Negocio STRING |
+#         Unidade_de_Negocio STRING | Numero_Pedido STRING | Status_Pedidos STRING |
+#         Vlr_Pedidos_Captados STRING
+VENDAS_BQ_DATASET = os.getenv("VENDAS_BQ_DATASET", "vendas_order").strip()
+VENDAS_BQ_TABLE = os.getenv("VENDAS_BQ_TABLE", "vendas_iplace").strip()
+
 
 
 def _quote_identifier(value: str) -> str:
@@ -3917,45 +3924,42 @@ def receita_atribuida_canal(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
-    """Canal/filial breakdown da receita atribuída — cruzamento BigQuery CPFs × Base Vendas."""
+    """Canal/filial breakdown da receita atribuída — cruzamento order_id × vendas_iplace."""
     start_date = _validate_optional_iso_date(start)
     end_date = _validate_optional_iso_date(end)
     if not start_date or not end_date:
         raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
 
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
     try:
-        # Step 1: get attributed CPFs (cache evita re-query no mesmo período)
-        cache_key = f"canal_cpfs:{start_date}:{end_date}"
-        attributed_cpfs = _cpf_cache_get(cache_key)
-        if attributed_cpfs is None:
-            sql = _build_attributed_cpfs_sql(start_date, end_date)
-            cpf_records = run_bigquery_records(
+        # Step 1: order_ids atribuídos no Emarsys (com cache)
+        cache_key = f"canal_orders:{start_date}:{end_date}"
+        attributed_orders = _cpf_cache_get(cache_key)
+        if attributed_orders is None:
+            sql = _build_attributed_order_ids_sql(start_date, end_date)
+            records = run_bigquery_records(
                 sql,
                 EMARSYS_OPEN_DATA_PROJECT_ID,
                 location=EMARSYS_OPEN_DATA_LOCATION or None,
                 timeout=25,
             )
-            attributed_cpfs = {
-                str(r.get("cpf_normalized") or "")
-                for r in cpf_records
-                if r.get("cpf_normalized")
-            }
-            attributed_cpfs.discard("")
-            _cpf_cache_set(cache_key, attributed_cpfs)
+            attributed_orders = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
+            attributed_orders.discard("")
+            _cpf_cache_set(cache_key, attributed_orders)
 
-        if not attributed_cpfs:
-            return {"canal": [], "filial": [], "total_clientes_crm": 0,
+        if not attributed_orders:
+            return {"canal": [], "filial": [], "total_pedidos_crm": 0,
                     "matched_rows": 0, "start_date": start_date, "end_date": end_date}
 
-        # Step 2: cross with Base Vendas via BigQuery
-        if not BASE_VENDAS_BQ_PROJECT:
-            raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
-
-        bv_sql = _build_bv_breakdown_sql(attributed_cpfs, start_date, end_date)
+        # Step 2: cruza com vendas_iplace por Numero_Pedido
+        bv_sql = _build_vendas_canal_filial_sql(attributed_orders, start_date, end_date)
         bv_records = run_bigquery_records(
             bv_sql, BASE_VENDAS_BQ_PROJECT,
-            location=BASE_VENDAS_BQ_LOCATION or None, timeout=25,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
         )
+
         canal_groups: dict[str, dict[str, Any]] = {}
         filial_list = []
         matched_rows = 0
@@ -3979,20 +3983,19 @@ def receita_atribuida_canal(
                 "linhas": linhas,
                 "receita": receita,
             })
+
         canal_list = sorted(
             [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
              for g in canal_groups.values()],
             key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
         )
         filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
-        revenue_column = "valor_faturamento_liquido"
 
         return {
             "canal": canal_list,
             "filial": filial_list,
-            "total_clientes_crm": len(attributed_cpfs),
+            "total_pedidos_crm": len(attributed_orders),
             "matched_rows": matched_rows,
-            "revenue_column": revenue_column,
             "start_date": start_date,
             "end_date": end_date,
         }
@@ -4057,6 +4060,65 @@ FILIAL_REGIONAL_MAP: dict[str, dict[str, str]] = {
     str(int(lj[2:])): {"centro_sap": lj, "nome": nome, "regional": regional}
     for lj, nome, regional in _FILIAL_CSV
 }
+
+
+def _build_attributed_order_ids_sql(start_date: str, end_date: str) -> str:
+    """Retorna order_ids distintos dos pedidos atribuídos no período."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    tz = EMARSYS_TZ
+    return f"""
+WITH
+attributed_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+)
+SELECT order_id FROM attributed_orders
+WHERE order_id IS NOT NULL AND TRIM(CAST(order_id AS STRING)) != ''
+""".strip()
+
+
+def _build_vendas_canal_filial_sql(order_ids: set[str], start_date: str, end_date: str) -> str:
+    """Cruza order_ids com vendas_iplace; retorna canal/filial/linhas/receita real."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table = _quote_identifier(VENDAS_BQ_TABLE)
+    safe_ids = sorted({str(i).replace("'", "''") for i in order_ids if i})
+    ids_values = ", ".join(f"'{i}'" for i in safe_ids) if safe_ids else "'__no_match__'"
+    return f"""
+WITH
+order_set AS (SELECT oid FROM UNNEST([{ids_values}]) AS oid),
+bv AS (
+  SELECT
+    COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
+    CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
+    Numero_Pedido AS order_id,
+    SAFE_CAST(
+      REPLACE(REPLACE(COALESCE(Vlr_Pedidos_Captados, '0'), '.', ''), ',', '.')
+      AS FLOAT64
+    ) AS receita
+  FROM `{project}.{dataset}.{table}`
+  WHERE Numero_Pedido IS NOT NULL
+    AND TRIM(Numero_Pedido) != ''
+)
+SELECT
+  bv.canal,
+  bv.codigo_filial,
+  COUNT(*) AS linhas,
+  ROUND(SUM(COALESCE(bv.receita, 0)), 2) AS receita
+FROM bv
+INNER JOIN order_set ON bv.order_id = order_set.oid
+GROUP BY bv.canal, bv.codigo_filial
+ORDER BY receita DESC
+""".strip()
 
 
 def _bv_normalize_cpf_sql(field: str) -> str:
