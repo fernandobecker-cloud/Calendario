@@ -12,6 +12,33 @@ const CHANNEL_COLORS = {
   other: '#8E8E93'
 }
 
+const CHANNEL_SOFT = {
+  email:    { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE', label: 'Email' },
+  whatsapp: { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0', label: 'WhatsApp' },
+  sms:      { bg: '#FFFBEB', text: '#B45309', border: '#FDE68A', label: 'SMS' },
+  other:    { bg: '#F8FAFC', text: '#475569', border: '#E2E8F0', label: 'Outro' },
+}
+
+function StatusIcon({ status, size = 11 }) {
+  const props = {
+    width: size, height: size, viewBox: '0 0 24 24',
+    fill: 'none', stroke: 'currentColor', strokeWidth: 2.2,
+    strokeLinecap: 'round', strokeLinejoin: 'round',
+    style: { flexShrink: 0 },
+  }
+  if (status === 'Planejada')
+    return <svg {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  if (status === 'Briefing Enviado')
+    return <svg {...props}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+  if (status === 'Programada')
+    return <svg {...props}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg>
+  if (status === 'Finalizada')
+    return <svg {...props}><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+  if (status === 'Cancelada')
+    return <svg {...props}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+  return <svg {...props}><circle cx="12" cy="12" r="4"/></svg>
+}
+
 const CAMPANHAS_MENU_ITEMS = [
   { key: 'calendar', label: 'Calendario CRM' },
   { key: 'utm', label: 'Gerador de Tags UTM' },
@@ -327,13 +354,12 @@ export default function App({ mode = 'campanhas' }) {
 
       const normalized = apiEvents.map((event) => {
         const channelKey = normalizeChannel(event?.extendedProps?.canal)
-        const fallbackColor = CHANNEL_COLORS[channelKey] || CHANNEL_COLORS.other
 
         return {
           ...event,
           allDay: true,
-          backgroundColor: event.backgroundColor || fallbackColor,
-          borderColor: event.borderColor || fallbackColor,
+          backgroundColor: 'transparent',
+          borderColor: 'transparent',
           extendedProps: {
             ...event.extendedProps,
             channelKey
@@ -1252,25 +1278,38 @@ export default function App({ mode = 'campanhas' }) {
 
       <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         {[
-          { key: 'all', label: 'Todos', color: '#8E8E93' },
-          { key: 'email', label: 'Email', color: CHANNEL_COLORS.email },
-          { key: 'whatsapp', label: 'WhatsApp', color: CHANNEL_COLORS.whatsapp },
-          { key: 'sms', label: 'SMS', color: CHANNEL_COLORS.sms }
-        ].map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setSelectedChannel(item.key)}
-            className={`rounded-full border px-4 py-1.5 text-sm font-medium transition ${
-              selectedChannel === item.key
-                ? 'border-slate-900 bg-slate-900 text-white'
-                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
-            }`}
-          >
-            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-            {item.label}
-          </button>
-        ))}
+          { key: 'all',      label: 'Todos',     soft: { bg: '#F8FAFC', text: '#475569', border: '#E2E8F0' } },
+          { key: 'email',    label: 'Email',      soft: CHANNEL_SOFT.email },
+          { key: 'whatsapp', label: 'WhatsApp',   soft: CHANNEL_SOFT.whatsapp },
+          { key: 'sms',      label: 'SMS',        soft: CHANNEL_SOFT.sms },
+        ].map((item) => {
+          const isActive = selectedChannel === item.key
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setSelectedChannel(item.key)}
+              style={isActive ? {
+                background: item.soft.bg,
+                color: item.soft.text,
+                borderColor: item.soft.border,
+              } : {}}
+              className={`flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium transition ${
+                isActive
+                  ? 'font-semibold'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'
+              }`}
+            >
+              {item.key !== 'all' && (
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: item.soft.text, opacity: 0.7 }}
+                />
+              )}
+              {item.label}
+            </button>
+          )
+        })}
       </section>
 
       {error && <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{error}</section>}
@@ -1302,6 +1341,36 @@ export default function App({ mode = 'campanhas' }) {
             eventClick={handleEventClick}
             height="auto"
             dayMaxEventRows={3}
+            eventContent={(info) => {
+              const key = info.event.extendedProps?.channelKey || 'other'
+              const status = info.event.extendedProps?.status || ''
+              const soft = CHANNEL_SOFT[key] || CHANNEL_SOFT.other
+              return (
+                <div
+                  title={`${info.event.title} · ${status}`}
+                  style={{
+                    background: soft.bg,
+                    color: soft.text,
+                    border: `1px solid ${soft.border}`,
+                    borderRadius: '5px',
+                    padding: '1px 5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    width: '100%',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <StatusIcon status={status} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {soft.label}
+                  </span>
+                </div>
+              )
+            }}
           />
         </div>
       </section>
