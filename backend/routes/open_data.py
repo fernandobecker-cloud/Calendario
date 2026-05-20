@@ -4201,11 +4201,12 @@ def _sanitize_campaign_id(value: str) -> str:
 
 
 def _build_influenced_order_ids_sms_sql(campaign_id: str, dispatch_date: str) -> str:
-    """Retorna order_ids influenciados pelo SMS — sem CPF, sem si_contacts."""
+    """Retorna order_id + receita (si_purchases) dos pedidos influenciados pelo SMS."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     d = dispatch_date
     cid = _sanitize_campaign_id(campaign_id)
     return f"""
@@ -4217,23 +4218,35 @@ sms_sends_camp AS (
     AND DATE(ss.event_time) = DATE('{d}')
     AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
                                    AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
+),
+influenced_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM sms_sends_camp ssc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+    ON r.contact_id = ssc.contact_id
+    AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
+    AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+  WHERE r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
 )
-SELECT DISTINCT r.order_id
-FROM sms_sends_camp ssc
-INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
-  ON r.contact_id = ssc.contact_id
-  AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
-  AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
-WHERE r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
+SELECT
+  io.order_id,
+  ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita
+FROM influenced_orders io
+LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p
+  ON p.order_id = io.order_id
+  AND DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+  AND p.sales_amount > 0
+GROUP BY io.order_id
 """.strip()
 
 
 def _build_influenced_order_ids_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
-    """Retorna order_ids influenciados pelo email — sem CPF, sem si_contacts."""
+    """Retorna order_id + receita (si_purchases) dos pedidos influenciados pelo email."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     s, e = start_date, end_date
     cid = _sanitize_campaign_id(campaign_id)
     return f"""
@@ -4245,19 +4258,30 @@ email_opens_camp AS (
     AND DATE(eo.partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
     AND DATE(eo.event_time) BETWEEN DATE('{s}') AND DATE('{e}')
     AND eo.contact_id IS NOT NULL
+),
+influenced_orders AS (
+  SELECT DISTINCT r.order_id
+  FROM email_opens_camp eoc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
+    ON r.contact_id = eoc.contact_id
+    AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
+  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+    AND r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
 )
-SELECT DISTINCT r.order_id
-FROM email_opens_camp eoc
-INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
-  ON r.contact_id = eoc.contact_id
-  AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
-WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
-  AND r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
+SELECT
+  io.order_id,
+  ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita
+FROM influenced_orders io
+LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p
+  ON p.order_id = io.order_id
+  AND DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  AND p.sales_amount > 0
+GROUP BY io.order_id
 """.strip()
 
 
 def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
-    """Um registro por Numero_Pedido com filial e receita real (Vlr_Pedidos_Captados)."""
+    """Retorna filial por Numero_Pedido (deduplicado) — sem receita, que vem do Emarsys."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4268,10 +4292,7 @@ def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
-  ROUND(SUM(
-    SAFE_CAST(REPLACE(REPLACE(COALESCE(Vlr_Pedidos_Captados, '0'), '.', ''), ',', '.') AS FLOAT64)
-  ), 2) AS receita
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
@@ -4280,15 +4301,15 @@ GROUP BY Numero_Pedido
 """.strip()
 
 
-def _cross_orders_regional(order_ids: set[str]) -> dict[str, Any]:
-    """Cruza order_ids com vendas_iplace; receita real por filial/regional (sem proporção)."""
-    if not order_ids:
+def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
+    """Cruza order_ids com vendas_iplace; usa receita do Emarsys (si_purchases) por filial."""
+    if not order_amounts:
         return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
 
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
 
-    sql = _build_vendas_filial_by_orders_sql(order_ids)
+    sql = _build_vendas_filial_by_orders_sql(set(order_amounts.keys()))
     records = run_bigquery_records(
         sql, BASE_VENDAS_BQ_PROJECT,
         location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
@@ -4297,8 +4318,9 @@ def _cross_orders_regional(order_ids: set[str]) -> dict[str, Any]:
     matched = 0
     regional_data: dict[str, dict[str, Any]] = {}
     for r in records:
+        order_id = str(r.get("order_id") or "")
         filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
-        receita = float(r.get("receita") or 0)
+        receita = order_amounts.get(order_id, 0.0)
         matched += 1
 
         store_info = FILIAL_REGIONAL_MAP.get(filial)
@@ -4325,7 +4347,7 @@ def _cross_orders_regional(order_ids: set[str]) -> dict[str, Any]:
     return {
         "regionais": sorted(regional_data.values(), key=lambda x: -x["receita"]),
         "total_cruzado": matched,
-        "total_orders": len(order_ids),
+        "total_orders": len(order_amounts),
     }
 
 
@@ -4491,17 +4513,19 @@ def sms_apuracao_regional(
     d = _validate_optional_iso_date(date_param) or date_param
     cache_key = f"sms_orders:{cid}:{d}"
     try:
-        order_ids: set[str] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
-        if order_ids is None:
+        order_amounts: dict[str, float] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
+        if order_amounts is None:
             sql = _build_influenced_order_ids_sms_sql(cid, d)
             records = run_bigquery_records(
                 sql, EMARSYS_OPEN_DATA_PROJECT_ID,
-                location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
+                location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=30,
             )
-            order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
-            order_ids.discard("")
-            _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
-        result = _cross_orders_regional(order_ids)
+            order_amounts = {
+                str(r["order_id"]): float(r.get("receita") or 0)
+                for r in records if r.get("order_id")
+            }
+            _cpf_cache_set(cache_key, order_amounts)  # type: ignore[arg-type]
+        result = _cross_orders_regional(order_amounts)
         return {**result, "campaign_id": cid, "dispatch_date": d, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
@@ -4521,17 +4545,19 @@ def email_apuracao_regional(
     e = _validate_optional_iso_date(end) or end
     cache_key = f"email_orders:{cid}:{s}:{e}"
     try:
-        order_ids: set[str] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
-        if order_ids is None:
+        order_amounts: dict[str, float] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
+        if order_amounts is None:
             sql = _build_influenced_order_ids_email_sql(cid, s, e)
             records = run_bigquery_records(
                 sql, EMARSYS_OPEN_DATA_PROJECT_ID,
-                location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=25,
+                location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=30,
             )
-            order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
-            order_ids.discard("")
-            _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
-        result = _cross_orders_regional(order_ids)
+            order_amounts = {
+                str(r["order_id"]): float(r.get("receita") or 0)
+                for r in records if r.get("order_id")
+            }
+            _cpf_cache_set(cache_key, order_amounts)  # type: ignore[arg-type]
+        result = _cross_orders_regional(order_amounts)
         return {**result, "campaign_id": cid, "start_date": s, "end_date": e, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
