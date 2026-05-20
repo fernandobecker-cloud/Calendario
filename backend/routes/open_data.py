@@ -3456,19 +3456,6 @@ def sms_apuracao(
             }
             for row in records
         ]
-        # Pré-carrega order_ids em background para que o endpoint regional responda mais rápido.
-        if BASE_VENDAS_BQ_PROJECT and items:
-            for item in items:
-                cid_item = item.get("campaign_id")
-                if cid_item:
-                    ck = f"sms_orders:{cid_item}:{dispatch_date}"
-                    if _cpf_cache_get(ck) is None:
-                        oid_sql = _build_influenced_order_ids_sms_sql(cid_item, dispatch_date)
-                        threading.Thread(
-                            target=_prefetch_order_ids,
-                            args=(ck, oid_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
-                            daemon=True,
-                        ).start()
 
         return {"items": items, "total": len(items), "nome": nome, "dispatch_date": dispatch_date}
     except HTTPException:
@@ -3508,18 +3495,6 @@ def email_apuracao(
             }
             for row in records
         ]
-        if BASE_VENDAS_BQ_PROJECT and items:
-            for item in items:
-                cid_item = item.get("campaign_id")
-                if cid_item:
-                    ck = f"email_orders:{cid_item}:{start_date}:{end_date}"
-                    if _cpf_cache_get(ck) is None:
-                        oid_sql = _build_influenced_order_ids_email_sql(cid_item, start_date, end_date)
-                        threading.Thread(
-                            target=_prefetch_order_ids,
-                            args=(ck, oid_sql, EMARSYS_OPEN_DATA_PROJECT_ID, EMARSYS_OPEN_DATA_LOCATION or None),
-                            daemon=True,
-                        ).start()
 
         return {"items": items, "total": len(items), "nome": nome, "start_date": start_date, "end_date": end_date}
     except HTTPException:
@@ -4282,7 +4257,7 @@ WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERV
 
 
 def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
-    """Retorna filial deduplica por Numero_Pedido (um pedido = uma filial)."""
+    """Um registro por Numero_Pedido com filial e receita real (Vlr_Pedidos_Captados)."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4293,7 +4268,10 @@ def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
+  ROUND(SUM(
+    SAFE_CAST(REPLACE(REPLACE(COALESCE(Vlr_Pedidos_Captados, '0'), '.', ''), ',', '.') AS FLOAT64)
+  ), 2) AS receita
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
@@ -4302,11 +4280,8 @@ GROUP BY Numero_Pedido
 """.strip()
 
 
-def _cross_orders_regional(
-    order_ids: set[str],
-    total_influenciada: float = 0.0,
-) -> dict[str, Any]:
-    """Cruza order_ids com vendas_iplace e distribui receita_influenciada proporcionalmente por filial."""
+def _cross_orders_regional(order_ids: set[str]) -> dict[str, Any]:
+    """Cruza order_ids com vendas_iplace; receita real por filial/regional (sem proporção)."""
     if not order_ids:
         return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
 
@@ -4319,33 +4294,28 @@ def _cross_orders_regional(
         location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
     )
 
-    filial_count: dict[str, int] = {}
+    matched = 0
+    regional_data: dict[str, dict[str, Any]] = {}
     for r in records:
         filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
-        filial_count[filial] = filial_count.get(filial, 0) + 1
+        receita = float(r.get("receita") or 0)
+        matched += 1
 
-    total_matched = sum(filial_count.values()) or 1
-    matched = sum(filial_count.values())
-
-    regional_data: dict[str, dict[str, Any]] = {}
-    for filial, count in filial_count.items():
         store_info = FILIAL_REGIONAL_MAP.get(filial)
         regional = store_info["regional"] if store_info else "Outros"
         nome_loja = store_info["nome"] if store_info else f"LJ{str(filial).zfill(3)}"
         centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
-        pct = count / total_matched
-        receita_est = round(total_influenciada * pct, 2)
 
         if regional not in regional_data:
             regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
-        regional_data[regional]["linhas"] += count
-        regional_data[regional]["receita"] += receita_est
+        regional_data[regional]["linhas"] += 1
+        regional_data[regional]["receita"] += receita
         regional_data[regional]["lojas"].append({
             "codigo_filial": filial,
             "centro_sap": centro_sap,
             "nome": nome_loja,
-            "linhas": count,
-            "receita": receita_est,
+            "linhas": 1,
+            "receita": round(receita, 2),
         })
 
     for rdata in regional_data.values():
@@ -4531,7 +4501,7 @@ def sms_apuracao_regional(
             order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
             order_ids.discard("")
             _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
-        result = _cross_orders_regional(order_ids, total_influenciada=receita_influenciada)
+        result = _cross_orders_regional(order_ids)
         return {**result, "campaign_id": cid, "dispatch_date": d, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
@@ -4561,7 +4531,7 @@ def email_apuracao_regional(
             order_ids = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
             order_ids.discard("")
             _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
-        result = _cross_orders_regional(order_ids, total_influenciada=receita_influenciada)
+        result = _cross_orders_regional(order_ids)
         return {**result, "campaign_id": cid, "start_date": s, "end_date": e, "from_cache": _cpf_cache_get(cache_key) is not None}
     except HTTPException:
         raise
