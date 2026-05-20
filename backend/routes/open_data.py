@@ -100,6 +100,14 @@ EMARSYS_OPEN_DATA_SMS_SENDS_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_SMS_SENDS_TABLE",
     "sms_sends_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE",
+    "session_categories_1091660394",
+).strip()
+EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE",
+    "client_updates_1091660394",
+).strip()
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -4563,3 +4571,139 @@ def email_apuracao_regional(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao carregar regional e-mail: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Apple Lover — contagem agregada de contatos Apple no Emarsys
+# ---------------------------------------------------------------------------
+
+_APPLE_PRODUCT_FILTER = """(
+    STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'apple')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'iphone')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'ipad')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'macbook')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'airpods')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'imac')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'mac mini')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'mac pro')
+    OR STARTS_WITH(LOWER(COALESCE(p.product_name, '')), 'apple watch')
+    OR LOWER(COALESCE(p.product_name, '')) LIKE '%apple watch%'
+  )"""
+
+_APPLE_CATEGORY_FILTER = """(
+    STARTS_WITH(category, 'iPhone')
+    OR STARTS_WITH(category, 'AirPods')
+    OR STARTS_WITH(category, 'Mac')
+    OR STARTS_WITH(category, 'iPad')
+    OR STARTS_WITH(category, 'Watch')
+    OR STARTS_WITH(category, 'Apple')
+  )"""
+
+
+def _build_apple_lover_summary_sql(lookback_days: int) -> str:
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    contacts = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    session_cat = _quote_identifier(EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE)
+    client_upd = _quote_identifier(EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE)
+    apple_prod = _APPLE_PRODUCT_FILTER
+    apple_cat = _APPLE_CATEGORY_FILTER
+
+    return f"""
+WITH buyers AS (
+  SELECT DISTINCT c.contact_id
+  FROM `{project}.{dataset}.{purchases}` p
+  JOIN `{project}.{dataset}.{contacts}` c ON c.si_contact_id = p.si_contact_id
+  WHERE c.contact_id IS NOT NULL
+    AND p.purchase_date >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback_days} DAY)
+    AND {apple_prod}
+),
+visitors AS (
+  SELECT DISTINCT contact_id
+  FROM `{project}.{dataset}.{session_cat}`
+  WHERE contact_id IS NOT NULL
+    AND partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback_days} DAY)
+    AND {apple_cat}
+),
+apple_spend_agg AS (
+  SELECT
+    ROUND(SUM(COALESCE(p.sales_amount, 0)), 2) AS total_spend,
+    COUNT(DISTINCT p.order_id) AS pedidos_apple
+  FROM `{project}.{dataset}.{purchases}` p
+  WHERE p.purchase_date >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback_days} DAY)
+    AND {apple_prod}
+),
+ios_devices_agg AS (
+  SELECT COUNT(*) AS ios_count
+  FROM `{project}.{dataset}.{client_upd}`
+  WHERE LOWER(COALESCE(platform, '')) = 'ios'
+    AND partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback_days} DAY)
+)
+SELECT
+  (SELECT COUNT(*) FROM buyers) AS buyers_count,
+  (SELECT COUNT(*) FROM visitors) AS visitors_count,
+  (SELECT COUNT(*) FROM (
+    SELECT contact_id FROM buyers
+    INTERSECT DISTINCT
+    SELECT contact_id FROM visitors
+  )) AS both_count,
+  (SELECT COUNT(*) FROM (
+    SELECT contact_id FROM buyers
+    UNION DISTINCT
+    SELECT contact_id FROM visitors
+  )) AS total_apple_lovers,
+  (SELECT total_spend FROM apple_spend_agg) AS total_apple_spend,
+  (SELECT pedidos_apple FROM apple_spend_agg) AS pedidos_apple,
+  (SELECT ios_count FROM ios_devices_agg) AS ios_devices_count
+""".strip()
+
+
+@router.get("/apple-lover/summary")
+def apple_lover_summary(
+    lookback_days: int = Query(default=90, ge=1, le=365),
+) -> dict[str, Any]:
+    try:
+        sql = _build_apple_lover_summary_sql(lookback_days)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=120,
+        )
+        if not records:
+            return {
+                "buyers_count": 0,
+                "visitors_count": 0,
+                "both_count": 0,
+                "total_apple_lovers": 0,
+                "total_apple_spend": 0.0,
+                "pedidos_apple": 0,
+                "ios_devices_count": 0,
+                "lookback_days": lookback_days,
+            }
+        row = records[0]
+        buyers = int(row.get("buyers_count") or 0)
+        visitors = int(row.get("visitors_count") or 0)
+        both = int(row.get("both_count") or 0)
+        total = int(row.get("total_apple_lovers") or 0)
+        spend = float(row.get("total_apple_spend") or 0)
+        pedidos = int(row.get("pedidos_apple") or 0)
+        ios = int(row.get("ios_devices_count") or 0)
+        avg_ticket = round(spend / buyers, 2) if buyers > 0 else 0.0
+        return {
+            "buyers_count": buyers,
+            "visitors_count": visitors,
+            "both_count": both,
+            "total_apple_lovers": total,
+            "total_apple_spend": spend,
+            "avg_ticket": avg_ticket,
+            "pedidos_apple": pedidos,
+            "ios_devices_count": ios,
+            "lookback_days": lookback_days,
+            "source": "bigquery_emarsys_open_data",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular Apple Lover: {exc}") from exc

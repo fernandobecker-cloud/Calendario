@@ -27,6 +27,7 @@ const ADM_MENU_ITEMS = [
   { key: 'campanha-detalhe', label: 'Apuracao de Campanhas' },
   { key: 'unidade-venda', label: 'Unidade de Venda' },
   { key: 'perfil-cliente', label: 'Perfil do Cliente' },
+  { key: 'apple-lover', label: 'Apple Lover' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
 ]
 
@@ -302,6 +303,10 @@ export default function App({ mode = 'campanhas' }) {
   const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
   const [unidadeVendaStart, setUnidadeVendaStart] = useState(() => getMonthDateRange(now.getFullYear(), now.getMonth() + 1).start)
   const [unidadeVendaEnd, setUnidadeVendaEnd] = useState(getLocalIsoDate(now))
+  const [appleLoverData, setAppleLoverData] = useState(null)
+  const [appleLoverLoading, setAppleLoverLoading] = useState(false)
+  const [appleLoverError, setAppleLoverError] = useState('')
+  const [appleLoverLookback, setAppleLoverLookback] = useState(90)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -890,6 +895,29 @@ export default function App({ mode = 'campanhas' }) {
       setUnidadeVendaLoading(false)
     }
   }, [unidadeVendaEnd, unidadeVendaMaxDocuments, unidadeVendaSampleLimit, unidadeVendaStart])
+
+  const loadAppleLover = useCallback(async () => {
+    setAppleLoverLoading(true)
+    setAppleLoverError('')
+    try {
+      const params = new URLSearchParams({ lookback_days: String(appleLoverLookback) })
+      const res = await fetch(`/api/open-data/apple-lover/summary?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) {
+        const detail = payload?.detail || `HTTP ${res.status}`
+        throw new Error(detail)
+      }
+      if (!payload) throw new Error('A API nao retornou dados.')
+      setAppleLoverData(payload)
+    } catch (err) {
+      setAppleLoverError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setAppleLoverData(null)
+    } finally {
+      setAppleLoverLoading(false)
+    }
+  }, [appleLoverLookback])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -2280,6 +2308,110 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderAppleLoverView = () => {
+    const d = appleLoverData
+    return (
+      <section className="space-y-5">
+        <section className="rounded-2xl bg-gradient-to-r from-slate-800 to-slate-700 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl"> Apple Lover</h1>
+              <p className="mt-2 text-sm text-slate-300 md:text-base">
+                Contatos com afinidade Apple: compradores (si_purchases), visitantes de categorias Apple (session_categories) e dispositivos iOS (client_updates).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Janela (dias)
+                <input
+                  type="number"
+                  min="7"
+                  max="365"
+                  value={appleLoverLookback}
+                  onChange={(e) => setAppleLoverLookback(Number(e.target.value || 90))}
+                  className="w-24 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={loadAppleLover}
+                disabled={appleLoverLoading}
+                className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60"
+              >
+                {appleLoverLoading ? 'Consultando...' : 'Consultar'}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {appleLoverError && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {appleLoverError}
+          </div>
+        )}
+
+        {!d && !appleLoverLoading && !appleLoverError && (
+          <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400">
+            Clique em "Consultar" para carregar os dados Apple Lover.
+          </div>
+        )}
+
+        {appleLoverLoading && (
+          <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400">
+            Consultando BigQuery... isso pode levar alguns segundos.
+          </div>
+        )}
+
+        {d && !appleLoverLoading && (
+          <>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Total Apple Lovers</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900">{d.total_apple_lovers?.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-slate-400">comprador OU visitante (últimos {d.lookback_days}d)</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Compradores Apple</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900">{d.buyers_count?.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-slate-400">critério 1 — si_purchases</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Visitantes Apple</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900">{d.visitors_count?.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-slate-400">critério 2 — session_categories</p>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs text-emerald-700">Sobreposição</p>
+                <p className="mt-1 text-3xl font-bold text-emerald-800">{d.both_count?.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-emerald-600">comprador E visitante</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Receita Apple (período)</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(d.total_apple_spend)}</p>
+                <p className="mt-1 text-xs text-slate-400">{d.pedidos_apple?.toLocaleString('pt-BR')} pedidos</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Ticket Médio Apple</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(d.avg_ticket)}</p>
+                <p className="mt-1 text-xs text-slate-400">receita ÷ compradores</p>
+              </div>
+              <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-5">
+                <p className="text-xs text-slate-500">Dispositivos iOS (critério 3)</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900">{d.ios_devices_count?.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  client_updates com platform = "ios" · sem vínculo direto a contact_id
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+    )
+  }
+
   const renderCampanhaDetalheView = () => (
     <section className="space-y-8">
 
@@ -2824,6 +2956,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
           {activeView === 'unidade-venda' && renderUnidadeVendaView()}
           {activeView === 'perfil-cliente' && <PerfilClientePage />}
+          {activeView === 'apple-lover' && renderAppleLoverView()}
         </div>
       </div>
 
