@@ -3934,68 +3934,81 @@ def receita_atribuida_canal(
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
 
     try:
-        # Step 1: order_ids atribuídos no Emarsys (com cache)
+        # Step 1: order_id + attributed_amount do Emarsys (com cache)
         cache_key = f"canal_orders:{start_date}:{end_date}"
-        attributed_orders = _cpf_cache_get(cache_key)
-        if attributed_orders is None:
-            sql = _build_attributed_order_ids_sql(start_date, end_date)
+        order_amounts: dict[str, float] | None = _cpf_cache_get(cache_key)  # type: ignore[assignment]
+        if order_amounts is None:
+            sql = _build_attributed_orders_amounts_sql(start_date, end_date)
             records = run_bigquery_records(
                 sql,
                 EMARSYS_OPEN_DATA_PROJECT_ID,
                 location=EMARSYS_OPEN_DATA_LOCATION or None,
                 timeout=25,
             )
-            attributed_orders = {str(r.get("order_id") or "") for r in records if r.get("order_id")}
-            attributed_orders.discard("")
-            _cpf_cache_set(cache_key, attributed_orders)
+            order_amounts = {
+                str(r["order_id"]): float(r.get("attributed_amount") or 0)
+                for r in records
+                if r.get("order_id")
+            }
+            _cpf_cache_set(cache_key, order_amounts)  # type: ignore[arg-type]
 
-        if not attributed_orders:
+        if not order_amounts:
             return {"canal": [], "filial": [], "total_pedidos_crm": 0,
                     "matched_rows": 0, "start_date": start_date, "end_date": end_date}
 
-        # Step 2: cruza com vendas_iplace por Numero_Pedido
-        bv_sql = _build_vendas_canal_filial_sql(attributed_orders, start_date, end_date)
+        # Step 2: canal/filial de cada pedido em vendas_iplace
+        bv_sql = _build_vendas_canal_filial_sql(set(order_amounts.keys()))
         bv_records = run_bigquery_records(
             bv_sql, BASE_VENDAS_BQ_PROJECT,
             location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
         )
 
+        # Step 3: join Python — atribui o attributed_amount do Emarsys a cada canal/filial
         canal_groups: dict[str, dict[str, Any]] = {}
-        filial_list = []
-        matched_rows = 0
+        filial_groups: dict[str, dict[str, Any]] = {}
+        matched_order_ids: set[str] = set()
         for r in bv_records:
+            order_id = str(r.get("order_id") or "")
             canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
             filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
-            linhas = int(r.get("linhas") or 0)
-            receita = float(r.get("receita") or 0)
-            matched_rows += linhas
+            amount = order_amounts.get(order_id, 0.0)
+            matched_order_ids.add(order_id)
+
             if canal not in canal_groups:
                 canal_groups[canal] = {"canal": canal, "linhas": 0, "receita": 0.0}
-            canal_groups[canal]["linhas"] += linhas
-            canal_groups[canal]["receita"] += receita
-            store_info = FILIAL_REGIONAL_MAP.get(filial)
-            filial_list.append({
-                "canal": canal,
-                "codigo_filial": filial,
-                "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial.zfill(3)}",
-                "nome": store_info["nome"] if store_info else "",
-                "regional": store_info["regional"] if store_info else "Outros",
-                "linhas": linhas,
-                "receita": receita,
-            })
+            canal_groups[canal]["linhas"] += 1
+            canal_groups[canal]["receita"] += amount
+
+            filial_key = f"{canal}|{filial}"
+            if filial_key not in filial_groups:
+                store_info = FILIAL_REGIONAL_MAP.get(filial)
+                filial_groups[filial_key] = {
+                    "canal": canal,
+                    "codigo_filial": filial,
+                    "centro_sap": store_info["centro_sap"] if store_info else f"LJ{filial.zfill(3)}",
+                    "nome": store_info["nome"] if store_info else "",
+                    "regional": store_info["regional"] if store_info else "Outros",
+                    "linhas": 0,
+                    "receita": 0.0,
+                }
+            filial_groups[filial_key]["linhas"] += 1
+            filial_groups[filial_key]["receita"] += amount
 
         canal_list = sorted(
             [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
              for g in canal_groups.values()],
             key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
         )
-        filial_list.sort(key=lambda x: -x["receita"] if x["receita"] else -x["linhas"])
+        filial_list = sorted(
+            [{**g, "receita": round(g["receita"], 2)} for g in filial_groups.values()],
+            key=lambda x: -x["receita"] if x["receita"] else -x["linhas"],
+        )
 
         return {
             "canal": canal_list,
             "filial": filial_list,
-            "total_pedidos_crm": len(attributed_orders),
-            "matched_rows": matched_rows,
+            "total_pedidos_crm": len(order_amounts),
+            "matched_rows": len(matched_order_ids),
             "start_date": start_date,
             "end_date": end_date,
         }
@@ -4062,30 +4075,29 @@ FILIAL_REGIONAL_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def _build_attributed_order_ids_sql(start_date: str, end_date: str) -> str:
-    """Retorna order_ids distintos dos pedidos atribuídos no período."""
+def _build_attributed_orders_amounts_sql(start_date: str, end_date: str) -> str:
+    """Retorna order_id + attributed_amount total por pedido no período."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     tz = EMARSYS_TZ
     return f"""
-WITH
-attributed_orders AS (
-  SELECT DISTINCT r.order_id
-  FROM `{project_id}.{dataset}.{revenue_table}` r
-  CROSS JOIN UNNEST(r.treatments) AS t
-  WHERE ARRAY_LENGTH(r.treatments) > 0
-    AND t.attributed_amount > 0
-    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
-)
-SELECT order_id FROM attributed_orders
-WHERE order_id IS NOT NULL AND TRIM(CAST(order_id AS STRING)) != ''
+SELECT
+  r.order_id,
+  SUM(t.attributed_amount) AS attributed_amount
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE ARRAY_LENGTH(r.treatments) > 0
+  AND t.attributed_amount > 0
+  AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+  AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+  AND r.order_id IS NOT NULL
+GROUP BY r.order_id
 """.strip()
 
 
-def _build_vendas_canal_filial_sql(order_ids: set[str], start_date: str, end_date: str) -> str:
-    """Cruza order_ids com vendas_iplace; retorna canal/filial/linhas/receita real."""
+def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
+    """Busca canal e filial de cada pedido em vendas_iplace pelo Numero_Pedido."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4094,30 +4106,14 @@ def _build_vendas_canal_filial_sql(order_ids: set[str], start_date: str, end_dat
     safe_ids = sorted({str(i).replace("'", "''") for i in order_ids if i})
     ids_values = ", ".join(f"'{i}'" for i in safe_ids) if safe_ids else "'__no_match__'"
     return f"""
-WITH
-order_set AS (SELECT oid FROM UNNEST([{ids_values}]) AS oid),
-bv AS (
-  SELECT
-    COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
-    CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
-    Numero_Pedido AS order_id,
-    SAFE_CAST(
-      REPLACE(REPLACE(COALESCE(Vlr_Pedidos_Captados, '0'), '.', ''), ',', '.')
-      AS FLOAT64
-    ) AS receita
-  FROM `{project}.{dataset}.{table}`
-  WHERE Numero_Pedido IS NOT NULL
-    AND TRIM(Numero_Pedido) != ''
-)
 SELECT
-  bv.canal,
-  bv.codigo_filial,
-  COUNT(*) AS linhas,
-  ROUND(SUM(COALESCE(bv.receita, 0)), 2) AS receita
-FROM bv
-INNER JOIN order_set ON bv.order_id = order_set.oid
-GROUP BY bv.canal, bv.codigo_filial
-ORDER BY receita DESC
+  Numero_Pedido AS order_id,
+  COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+FROM `{project}.{dataset}.{table}`
+WHERE Numero_Pedido IN UNNEST([{ids_values}])
+  AND Numero_Pedido IS NOT NULL
+  AND TRIM(Numero_Pedido) != ''
 """.strip()
 
 
