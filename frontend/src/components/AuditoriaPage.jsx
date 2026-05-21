@@ -1111,7 +1111,7 @@ export default function AuditoriaPage() {
         {/* Conteúdo */}
         <div className="min-w-0 flex-1">
           {auditView === 'nova' && (
-            <AuditoriaNovaPage startDate={startDate} endDate={endDate} />
+            <AuditoriaNovaPage />
           )}
           {auditView === 'antiga' && (
             <AntigaAuditoriaContent

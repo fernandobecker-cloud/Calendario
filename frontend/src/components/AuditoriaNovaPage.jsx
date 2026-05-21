@@ -124,7 +124,19 @@ function exportCsv(items, startDate, endDate) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function AuditoriaNovaPage({ startDate, endDate }) {
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function firstOfMonthIso() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
+export default function AuditoriaNovaPage() {
+  const [localStart, setLocalStart] = useState(firstOfMonthIso)
+  const [localEnd, setLocalEnd] = useState(todayIso)
+
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -135,6 +147,9 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
   const [filtroDeltatMin, setFiltroDeltatMin] = useState(0)
   const [pagina, setPagina] = useState(0)
 
+  // Tabela colapsável
+  const [tabelaAberta, setTabelaAberta] = useState(false)
+
   // ---- Fetch ----
 
   const handleCarregar = useCallback(async () => {
@@ -142,10 +157,11 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
     setError('')
     setData(null)
     setPagina(0)
+    setTabelaAberta(false)
     try {
       const params = new URLSearchParams()
-      if (startDate) params.set('start', startDate)
-      if (endDate) params.set('end', endDate)
+      if (localStart) params.set('start', localStart)
+      if (localEnd) params.set('end', localEnd)
       const res = await fetch(`/api/open-data/emarsys/auditoria-receita-crm?${params}`)
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -159,7 +175,7 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
     } finally {
       setLoading(false)
     }
-  }, [startDate, endDate])
+  }, [localStart, localEnd])
 
   // ---- Filtros derivados ----
 
@@ -214,8 +230,26 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
   return (
     <div className="space-y-6">
 
-      {/* Botão carregar */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Controles de data + botão */}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs text-slate-500">
+          De
+          <input
+            type="date"
+            value={localStart}
+            onChange={(e) => setLocalStart(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-500">
+          Até
+          <input
+            type="date"
+            value={localEnd}
+            onChange={(e) => setLocalEnd(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900"
+          />
+        </label>
         <button
           onClick={handleCarregar}
           disabled={loading}
@@ -225,7 +259,7 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
         </button>
         {data && (
           <span className="text-xs text-slate-400">
-            Período: {fmtDate(data.start_date)} – {fmtDate(data.end_date)} · {(data.items || []).length.toLocaleString('pt-BR')} registros
+            {(data.items || []).length.toLocaleString('pt-BR')} registros
           </span>
         )}
       </div>
@@ -461,124 +495,138 @@ export default function AuditoriaNovaPage({ startDate, endDate }) {
             </section>
           </div>
 
-          {/* ---- Tabela paginada ---- */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          {/* ---- Tabela paginada (colapsável) ---- */}
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+            {/* Cabeçalho — sempre visível */}
+            <button
+              type="button"
+              onClick={() => setTabelaAberta((v) => !v)}
+              className="flex w-full items-center justify-between px-5 py-4 text-left"
+            >
+              <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Detalhamento por Pedido
-              </h2>
-              <span className="text-xs text-slate-400">
-                {pagina * PAGE_SIZE + 1}–{Math.min((pagina + 1) * PAGE_SIZE, itemsFiltrados.length)} de{' '}
-                {itemsFiltrados.length.toLocaleString('pt-BR')} registros
+                <span className="ml-2 text-xs font-normal normal-case text-slate-400">
+                  ({itemsFiltrados.length.toLocaleString('pt-BR')} registros)
+                </span>
               </span>
-            </div>
+              <svg
+                className={`h-4 w-4 text-slate-400 transition-transform ${tabelaAberta ? 'rotate-180' : ''}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
 
-            {itensPagina.length === 0 ? (
-              <p className="text-sm text-slate-500">Nenhum registro com os filtros selecionados.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      {[
-                        { label: 'Pedido',           right: false },
-                        { label: 'Data Compra',      right: false },
-                        { label: 'ID Contato',       right: false },
-                        { label: 'Valor Real',       right: true  },
-                        { label: 'Valor Atribuído',  right: true  },
-                        { label: 'Delta (%)',        right: true  },
-                        { label: 'Canal',            right: false },
-                        { label: 'Campaign IDs',     right: false },
-                        { label: 'Treatments',       right: true  },
-                        { label: 'Status',           right: false },
-                      ].map((col, i) => (
-                        <th
-                          key={i}
-                          className={`whitespace-nowrap px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 ${col.right ? 'text-right' : 'text-left'}`}
-                        >
-                          {col.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {itensPagina.map((row, i) => (
-                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-600">
-                          {row.order_id ?? '-'}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600">
-                          {fmtDate(row.purchase_date)}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">
-                          {row.contact_id ?? '-'}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-slate-900">
-                          {formatCurrency(row.valor_real)}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-indigo-700">
-                          {formatCurrency(row.valor_atribuido)}
-                        </td>
-                        <td
-                          className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${
-                            row.delta_pct == null
-                              ? 'text-slate-400'
-                              : Number(row.delta_pct) < 0
-                              ? 'text-red-600'
-                              : 'text-emerald-700'
-                          }`}
-                        >
-                          {fmtPct(row.delta_pct)}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">
-                          {row.canais ?? '-'}
-                        </td>
-                        <td
-                          className="max-w-xs truncate px-3 py-2 text-xs text-slate-500"
-                          title={row.campaign_ids ?? undefined}
-                        >
-                          {row.campaign_ids ?? '-'}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
-                          {Number(row.qtd_treatments) > 1 ? (
-                            <span className="inline-flex items-center gap-0.5">
-                              <span className="inline-block h-2 w-2 rounded-full bg-purple-500" title="Multi-campanha" />
-                              <span className="text-purple-700 font-semibold">{row.qtd_treatments}</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-500">{row.qtd_treatments ?? '-'}</span>
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2">
-                          <StatusBadge status={row.status} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {tabelaAberta && (
+              <div className="border-t border-slate-100 px-5 pb-5 pt-4">
+                {itensPagina.length === 0 ? (
+                  <p className="text-sm text-slate-500">Nenhum registro com os filtros selecionados.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          {[
+                            { label: 'Pedido',           right: false },
+                            { label: 'Data Compra',      right: false },
+                            { label: 'ID Contato',       right: false },
+                            { label: 'Valor Real',       right: true  },
+                            { label: 'Valor Atribuído',  right: true  },
+                            { label: 'Delta (%)',        right: true  },
+                            { label: 'Canal',            right: false },
+                            { label: 'Campaign IDs',     right: false },
+                            { label: 'Treatments',       right: true  },
+                            { label: 'Status',           right: false },
+                          ].map((col, i) => (
+                            <th
+                              key={i}
+                              className={`whitespace-nowrap px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 ${col.right ? 'text-right' : 'text-left'}`}
+                            >
+                              {col.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensPagina.map((row, i) => (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-600">
+                              {row.order_id ?? '-'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                              {fmtDate(row.purchase_date)}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">
+                              {row.contact_id ?? '-'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-slate-900">
+                              {formatCurrency(row.valor_real)}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-indigo-700">
+                              {formatCurrency(row.valor_atribuido)}
+                            </td>
+                            <td
+                              className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${
+                                row.delta_pct == null
+                                  ? 'text-slate-400'
+                                  : Number(row.delta_pct) < 0
+                                  ? 'text-red-600'
+                                  : 'text-emerald-700'
+                              }`}
+                            >
+                              {fmtPct(row.delta_pct)}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">
+                              {row.canais ?? '-'}
+                            </td>
+                            <td
+                              className="max-w-xs truncate px-3 py-2 text-xs text-slate-500"
+                              title={row.campaign_ids ?? undefined}
+                            >
+                              {row.campaign_ids ?? '-'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
+                              {Number(row.qtd_treatments) > 1 ? (
+                                <span className="inline-flex items-center gap-0.5">
+                                  <span className="inline-block h-2 w-2 rounded-full bg-purple-500" title="Multi-campanha" />
+                                  <span className="text-purple-700 font-semibold">{row.qtd_treatments}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">{row.qtd_treatments ?? '-'}</span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <StatusBadge status={row.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Paginação */}
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => setPagina((p) => Math.max(0, p - 1))}
+                    disabled={pagina === 0}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-xs text-slate-500">
+                    Página {pagina + 1} de {totalPaginas} · {pagina * PAGE_SIZE + 1}–{Math.min((pagina + 1) * PAGE_SIZE, itemsFiltrados.length)}
+                  </span>
+                  <button
+                    onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))}
+                    disabled={pagina >= totalPaginas - 1}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Próxima
+                  </button>
+                </div>
               </div>
             )}
-
-            {/* Paginação */}
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <button
-                onClick={() => setPagina((p) => Math.max(0, p - 1))}
-                disabled={pagina === 0}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
-              >
-                Anterior
-              </button>
-              <span className="text-xs text-slate-500">
-                Página {pagina + 1} de {totalPaginas}
-              </span>
-              <button
-                onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))}
-                disabled={pagina >= totalPaginas - 1}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
-              >
-                Próxima
-              </button>
-            </div>
           </section>
         </>
       )}

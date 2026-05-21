@@ -5158,7 +5158,6 @@ def apple_lover_summary(
 def auditoria_receita_crm(
     start: str = Query(default="2026-03-01"),
     end: str = Query(default="2026-04-30"),
-    limit: int = Query(default=5000, ge=1, le=10000),
 ) -> dict[str, Any]:
     try:
         start_date = date.fromisoformat(start).isoformat()
@@ -5178,6 +5177,7 @@ WITH deduped AS (
   FROM `{project}.{dataset}.{revenue_table}`
   WHERE ARRAY_LENGTH(COALESCE(treatments, [])) > 0
     AND order_id IS NOT NULL
+    AND DATE(event_time) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
   QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY partitiontime DESC, event_time DESC) = 1
 ),
 treatment_agg AS (
@@ -5244,7 +5244,6 @@ combined AS (
 )
 SELECT * FROM combined
 ORDER BY COALESCE(purchase_date, DATE('2099-01-01')) DESC, delta_valor DESC
-LIMIT {limit}
 """.strip()
 
     try:
