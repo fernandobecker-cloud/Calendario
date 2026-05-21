@@ -5148,3 +5148,186 @@ def apple_lover_summary(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular Apple Lover: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Auditoria de Receita CRM — cruzamento revenue_attribution × si_purchases
+# ---------------------------------------------------------------------------
+
+@router.get("/emarsys/auditoria-receita-crm")
+def auditoria_receita_crm(
+    start: str = Query(default="2026-03-01"),
+    end: str = Query(default="2026-04-30"),
+    limit: int = Query(default=5000, ge=1, le=10000),
+) -> dict[str, Any]:
+    try:
+        start_date = date.fromisoformat(start).isoformat()
+        end_date = date.fromisoformat(end).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Datas inválidas: {exc}") from exc
+
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+
+    sql = f"""
+WITH deduped AS (
+  SELECT order_id, contact_id, treatments
+  FROM `{project}.{dataset}.{revenue_table}`
+  WHERE ARRAY_LENGTH(COALESCE(treatments, [])) > 0
+    AND order_id IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY partitiontime DESC, event_time DESC) = 1
+),
+treatment_agg AS (
+  SELECT
+    d.order_id,
+    d.contact_id,
+    ROUND(SUM(COALESCE(t.attributed_amount, 0)), 2)         AS valor_atribuido,
+    COUNT(*)                                                  AS qtd_treatments,
+    NULLIF(STRING_AGG(
+      DISTINCT NULLIF(UPPER(COALESCE(CAST(t.channel AS STRING), '')), ''),
+      ', ' ORDER BY NULLIF(UPPER(COALESCE(CAST(t.channel AS STRING), '')), '')
+    ), '')                                                    AS canais,
+    NULLIF(STRING_AGG(
+      DISTINCT NULLIF(CAST(t.campaign_id AS STRING), 'NULL'),
+      ', ' ORDER BY NULLIF(CAST(t.campaign_id AS STRING), 'NULL')
+    ), '')                                                    AS campaign_ids
+  FROM deduped d
+  CROSS JOIN UNNEST(d.treatments) AS t
+  WHERE COALESCE(t.attributed_amount, 0) > 0
+  GROUP BY d.order_id, d.contact_id
+),
+contacts_bridge AS (
+  SELECT DISTINCT contact_id, si_contact_id
+  FROM `{project}.{dataset}.{contacts_table}`
+  WHERE contact_id IS NOT NULL
+),
+real_purchases AS (
+  SELECT
+    order_id,
+    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS valor_real,
+    DATE(MIN(purchase_date))                 AS purchase_date
+  FROM `{project}.{dataset}.{purchases_table}`
+  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND order_id IS NOT NULL
+  GROUP BY order_id
+),
+combined AS (
+  SELECT
+    ta.order_id,
+    ta.contact_id,
+    ta.valor_atribuido,
+    ta.qtd_treatments,
+    ta.canais,
+    ta.campaign_ids,
+    (cb.contact_id IS NULL)                                   AS sem_vinculo,
+    rp.valor_real,
+    rp.purchase_date,
+    ROUND(COALESCE(rp.valor_real, 0) - ta.valor_atribuido, 2) AS delta_valor,
+    CASE
+      WHEN rp.valor_real IS NULL OR rp.valor_real = 0 THEN NULL
+      ELSE ROUND((rp.valor_real - ta.valor_atribuido) / rp.valor_real * 100, 2)
+    END AS delta_pct,
+    CASE
+      WHEN cb.contact_id IS NULL                                   THEN 'sem_vinculo'
+      WHEN rp.valor_real IS NULL                                   THEN 'sem_purchase'
+      WHEN ta.valor_atribuido > COALESCE(rp.valor_real, 0)        THEN 'sobreatribuido'
+      WHEN rp.valor_real > 0
+       AND ABS(rp.valor_real - ta.valor_atribuido) / rp.valor_real <= 0.01 THEN 'atribuicao_total'
+      ELSE 'atribuicao_parcial'
+    END AS status
+  FROM treatment_agg ta
+  LEFT JOIN contacts_bridge cb ON cb.contact_id = ta.contact_id
+  LEFT JOIN real_purchases rp  ON rp.order_id   = ta.order_id
+)
+SELECT * FROM combined
+ORDER BY COALESCE(purchase_date, DATE('2099-01-01')) DESC, delta_valor DESC
+LIMIT {limit}
+""".strip()
+
+    try:
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=120,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao executar auditoria receita CRM: {exc}") from exc
+
+    items = _records_to_response_items(records)
+
+    # ---- Aggregates em Python ----
+
+    # totals
+    total_orders = len(items)
+    soma_valor_real = round(sum(float(it.get("valor_real") or 0) for it in items), 2)
+    soma_valor_atribuido = round(sum(float(it.get("valor_atribuido") or 0) for it in items), 2)
+    delta_total = round(soma_valor_real - soma_valor_atribuido, 2)
+    delta_pcts = [float(it["delta_pct"]) for it in items if it.get("delta_pct") is not None]
+    delta_medio_pct = round(sum(delta_pcts) / len(delta_pcts), 2) if delta_pcts else None
+    count_sobreatribuidos = sum(1 for it in items if it.get("status") == "sobreatribuido")
+    count_sem_vinculo = sum(1 for it in items if it.get("status") == "sem_vinculo")
+    count_sem_purchase = sum(1 for it in items if it.get("status") == "sem_purchase")
+
+    totals = {
+        "total_orders": total_orders,
+        "soma_valor_real": soma_valor_real,
+        "soma_valor_atribuido": soma_valor_atribuido,
+        "delta_total": delta_total,
+        "delta_medio_pct": delta_medio_pct,
+        "count_sobreatribuidos": count_sobreatribuidos,
+        "count_sem_vinculo": count_sem_vinculo,
+        "count_sem_purchase": count_sem_purchase,
+    }
+
+    # by_status
+    status_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        s = it.get("status") or "desconhecido"
+        acc = status_acc.setdefault(s, {"status": s, "count": 0, "valor_real": 0.0, "valor_atribuido": 0.0})
+        acc["count"] += 1
+        acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
+        acc["valor_atribuido"] = round(acc["valor_atribuido"] + float(it.get("valor_atribuido") or 0), 2)
+    by_status = list(status_acc.values())
+
+    # by_canal
+    canal_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        canais_str = it.get("canais") or ""
+        if not canais_str:
+            canais_list = ["(sem canal)"]
+        else:
+            canais_list = [c.strip() for c in canais_str.split(",") if c.strip()]
+        for canal in canais_list:
+            acc = canal_acc.setdefault(canal, {"canal": canal, "count": 0, "valor_atribuido": 0.0})
+            acc["count"] += 1
+            acc["valor_atribuido"] = round(acc["valor_atribuido"] + float(it.get("valor_atribuido") or 0), 2)
+    by_canal = list(canal_acc.values())
+
+    # by_day
+    day_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        pd_val = it.get("purchase_date")
+        if pd_val is None:
+            continue
+        key = str(pd_val)
+        acc = day_acc.setdefault(key, {"purchase_date": key, "valor_real": 0.0, "valor_atribuido": 0.0})
+        acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
+        acc["valor_atribuido"] = round(acc["valor_atribuido"] + float(it.get("valor_atribuido") or 0), 2)
+    by_day = sorted(day_acc.values(), key=lambda x: x["purchase_date"])
+
+    return {
+        "items": items,
+        "totals": totals,
+        "by_status": by_status,
+        "by_canal": by_canal,
+        "by_day": by_day,
+        "start_date": start_date,
+        "end_date": end_date,
+        "source": "bigquery_emarsys_open_data",
+    }

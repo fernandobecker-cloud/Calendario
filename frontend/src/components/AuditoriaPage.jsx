@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import AuditoriaNovaPage from './AuditoriaNovaPage'
 
 function formatCurrency(value) {
   if (value == null || isNaN(Number(value))) return '-'
@@ -944,10 +945,7 @@ function AuditoriaCruzamento({ cruzamento }) {
   )
 }
 
-export default function AuditoriaPage() {
-  const defaults = getDefaultDates()
-  const [startDate, setStartDate] = useState(defaults.start)
-  const [endDate, setEndDate] = useState(defaults.end)
+function AntigaAuditoriaContent({ startDate, setStartDate, endDate, setEndDate }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
@@ -996,11 +994,9 @@ export default function AuditoriaPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
-      <h1 className="mb-6 text-xl font-bold text-slate-900">Auditoria</h1>
-
+    <div className="flex flex-col gap-6">
       {/* Filtro de período */}
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1 text-sm text-slate-600">
             Data inicial
@@ -1031,7 +1027,7 @@ export default function AuditoriaPage() {
       </section>
 
       {error && (
-        <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </p>
       )}
@@ -1042,7 +1038,6 @@ export default function AuditoriaPage() {
 
       {data && (
         <div className="flex flex-col gap-6">
-          {/* Cruzamento geral si_purchases × revenue_attribution */}
           {data.cruzamento && (
             <AuditoriaCruzamento cruzamento={data.cruzamento} />
           )}
@@ -1051,18 +1046,14 @@ export default function AuditoriaPage() {
             <AttributionByDayChart items={data.atribuicaoPorDia} />
           )}
 
-          {/* Detalhamento lazy dos pedidos que deveriam ter sido atribuídos */}
           {data.cruzamento && (
             <DetalheDeviaAtribuir startDate={startDate} endDate={endDate} />
           )}
 
-          {/* Cruzamento order_id × Número Pedido (vendas_iplace) */}
           <CruzamentoOrderId startDate={startDate} endDate={endDate} />
 
-          {/* Diagnóstico de schema das 3 tabelas */}
           <SchemaDiagnostico />
 
-          {/* Diagnóstico — orders sem treatments */}
           <SemTreatmentDiagnostico />
 
           <SectionCard
@@ -1078,6 +1069,60 @@ export default function AuditoriaPage() {
           </SectionCard>
         </div>
       )}
+    </div>
+  )
+}
+
+export default function AuditoriaPage() {
+  const defaults = getDefaultDates()
+  const [startDate, setStartDate] = useState(defaults.start)
+  const [endDate, setEndDate] = useState(defaults.end)
+  const [auditView, setAuditView] = useState('nova')
+
+  const NAV = [
+    { key: 'nova',   label: 'Nova' },
+    { key: 'antiga', label: 'Antiga' },
+  ]
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
+      <h1 className="mb-6 text-xl font-bold text-slate-900">Auditoria</h1>
+
+      <div className="flex gap-6">
+        {/* Sidebar */}
+        <aside className="w-32 shrink-0">
+          <nav className="flex flex-col gap-1">
+            {NAV.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setAuditView(item.key)}
+                className={`rounded-lg px-4 py-2.5 text-left text-sm font-semibold transition ${
+                  auditView === item.key
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        {/* Conteúdo */}
+        <div className="min-w-0 flex-1">
+          {auditView === 'nova' && (
+            <AuditoriaNovaPage startDate={startDate} endDate={endDate} />
+          )}
+          {auditView === 'antiga' && (
+            <AntigaAuditoriaContent
+              startDate={startDate}
+              setStartDate={setStartDate}
+              endDate={endDate}
+              setEndDate={setEndDate}
+            />
+          )}
+        </div>
+      </div>
     </div>
   )
 }
