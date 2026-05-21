@@ -94,15 +94,18 @@ function exportCsv(items, startDate, endDate) {
   URL.revokeObjectURL(url)
 }
 
-const QUICK_DATES = [
-  { label: 'Março 2026',  start: '2026-03-01', end: '2026-03-31' },
-  { label: 'Abril 2026',  start: '2026-04-01', end: '2026-04-30' },
-  { label: 'Mar+Abr 2026', start: '2026-03-01', end: '2026-04-30' },
-]
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function firstOfMonthIso() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
 
 export default function AuditoriaNaoAtribuidosPage() {
-  const [localStart, setLocalStart] = useState('2026-03-01')
-  const [localEnd,   setLocalEnd]   = useState('2026-04-30')
+  const [localStart, setLocalStart] = useState(firstOfMonthIso)
+  const [localEnd,   setLocalEnd]   = useState(todayIso)
 
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(false)
@@ -187,21 +190,6 @@ export default function AuditoriaNaoAtribuidosPage() {
 
       {/* Controles de data */}
       <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {QUICK_DATES.map((q) => (
-            <button
-              key={q.label}
-              onClick={() => { setLocalStart(q.start); setLocalEnd(q.end) }}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                localStart === q.start && localEnd === q.end
-                  ? 'bg-indigo-600 text-white'
-                  : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {q.label}
-            </button>
-          ))}
-        </div>
         <label className="flex flex-col gap-1 text-xs text-slate-500">
           De
           <input type="date" value={localStart} onChange={(e) => setLocalStart(e.target.value)}
