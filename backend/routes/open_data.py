@@ -2030,6 +2030,161 @@ def emarsys_audit_deveria_atribuir(
         raise HTTPException(status_code=502, detail=f"Falha no detalhe de deveria atribuir: {exc}") from exc
 
 
+def _build_sem_treatment_estados_sql() -> str:
+    """Para cada order_id dos últimos 90 dias: aparece só sem treatment, só com, ou nas duas?"""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    return f"""
+WITH order_states AS (
+  SELECT
+    order_id,
+    COUNTIF(ARRAY_LENGTH(COALESCE(treatments, [])) = 0) > 0 AS tem_linha_sem_treatment,
+    COUNTIF(ARRAY_LENGTH(COALESCE(treatments, [])) > 0) > 0 AS tem_linha_com_treatment,
+    COUNT(*)                                                   AS total_linhas,
+    MIN(DATE(partitiontime))                                   AS primeira_particao,
+    MAX(DATE(partitiontime))                                   AS ultima_particao
+  FROM `{project}.{dataset}.{revenue}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    AND order_id IS NOT NULL
+  GROUP BY order_id
+)
+SELECT
+  COUNT(*)                                                                AS total_order_ids,
+  COUNTIF(tem_linha_sem_treatment AND NOT tem_linha_com_treatment)        AS apenas_sem_treatment,
+  COUNTIF(NOT tem_linha_sem_treatment AND tem_linha_com_treatment)        AS apenas_com_treatment,
+  COUNTIF(tem_linha_sem_treatment AND tem_linha_com_treatment)            AS aparece_nas_duas_situacoes,
+  ROUND(COUNTIF(tem_linha_sem_treatment AND NOT tem_linha_com_treatment)
+    * 100.0 / COUNT(*), 1)                                               AS pct_apenas_sem,
+  ROUND(COUNTIF(NOT tem_linha_sem_treatment AND tem_linha_com_treatment)
+    * 100.0 / COUNT(*), 1)                                               AS pct_apenas_com,
+  ROUND(COUNTIF(tem_linha_sem_treatment AND tem_linha_com_treatment)
+    * 100.0 / COUNT(*), 1)                                               AS pct_aparece_nas_duas
+FROM order_states
+""".strip()
+
+
+def _build_sem_treatment_cronologia_sql() -> str:
+    """Para orders que aparecem com E sem treatment: o sem vem antes ou depois cronologicamente?"""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    return f"""
+WITH both_states AS (
+  SELECT
+    order_id,
+    MIN(CASE WHEN ARRAY_LENGTH(COALESCE(treatments, [])) = 0
+             THEN DATE(partitiontime) END) AS primeira_particao_sem,
+    MIN(CASE WHEN ARRAY_LENGTH(COALESCE(treatments, [])) > 0
+             THEN DATE(partitiontime) END) AS primeira_particao_com,
+    MAX(CASE WHEN ARRAY_LENGTH(COALESCE(treatments, [])) > 0
+             THEN DATE(partitiontime) END) AS ultima_particao_com
+  FROM `{project}.{dataset}.{revenue}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    AND order_id IS NOT NULL
+  GROUP BY order_id
+  HAVING primeira_particao_sem IS NOT NULL AND primeira_particao_com IS NOT NULL
+)
+SELECT
+  COUNT(*)                                                       AS total_ambos,
+  COUNTIF(primeira_particao_sem < primeira_particao_com)         AS sem_aparece_antes_do_com,
+  COUNTIF(primeira_particao_sem = primeira_particao_com)         AS sem_e_com_mesma_particao,
+  COUNTIF(primeira_particao_sem > primeira_particao_com)         AS sem_aparece_depois_do_com,
+  ROUND(COUNTIF(primeira_particao_sem < primeira_particao_com)
+    * 100.0 / COUNT(*), 1)                                       AS pct_sem_antes,
+  ROUND(COUNTIF(primeira_particao_sem = primeira_particao_com)
+    * 100.0 / COUNT(*), 1)                                       AS pct_mesma_particao,
+  ROUND(AVG(DATE_DIFF(primeira_particao_com, primeira_particao_sem, DAY)), 1)
+                                                                 AS media_dias_ate_receber_treatment
+FROM both_states
+""".strip()
+
+
+def _build_sem_treatment_si_purchases_sql() -> str:
+    """Dos orders sem treatment, quantos existem em si_purchases (compra real vs ruído)?"""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+WITH sem_treatment AS (
+  SELECT DISTINCT order_id
+  FROM `{project}.{dataset}.{revenue}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    AND order_id IS NOT NULL
+    AND ARRAY_LENGTH(COALESCE(treatments, [])) = 0
+),
+com_treatment AS (
+  SELECT DISTINCT order_id
+  FROM `{project}.{dataset}.{revenue}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    AND order_id IS NOT NULL
+    AND ARRAY_LENGTH(COALESCE(treatments, [])) > 0
+),
+so_sem AS (
+  SELECT s.order_id
+  FROM sem_treatment s
+  LEFT JOIN com_treatment c USING (order_id)
+  WHERE c.order_id IS NULL
+),
+purchases AS (
+  SELECT DISTINCT order_id FROM `{project}.{dataset}.{purchases}` WHERE order_id IS NOT NULL
+)
+SELECT
+  COUNT(so_sem.order_id)                                              AS total_apenas_sem_treatment,
+  COUNTIF(p.order_id IS NOT NULL)                                     AS encontrados_em_si_purchases,
+  COUNTIF(p.order_id IS NULL)                                         AS nao_encontrados_em_si_purchases,
+  ROUND(COUNTIF(p.order_id IS NOT NULL) * 100.0 / COUNT(so_sem.order_id), 1)
+                                                                      AS pct_em_si_purchases
+FROM so_sem
+LEFT JOIN purchases p USING (order_id)
+""".strip()
+
+
+@router.get("/emarsys/audit-sem-treatment")
+def emarsys_audit_sem_treatment() -> dict[str, Any]:
+    """Diagnostica os orders sem treatments em revenue_attribution: pendente vs não-CRM."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def run(sql: str) -> list[dict[str, Any]]:
+        return run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=120,
+        )
+
+    sqls = {
+        "estados":     _build_sem_treatment_estados_sql(),
+        "cronologia":  _build_sem_treatment_cronologia_sql(),
+        "si_purchases": _build_sem_treatment_si_purchases_sql(),
+    }
+
+    results: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(run, sql): key for key, sql in sqls.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    rows = future.result()
+                    results[key] = _records_to_response_items(rows)[0] if rows else {}
+                except Exception as exc:
+                    errors[key] = str(exc)[:200]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no diagnóstico sem-treatment: {exc}") from exc
+
+    return {
+        "estados":      results.get("estados", {}),
+        "cronologia":   results.get("cronologia", {}),
+        "si_purchases": results.get("si_purchases", {}),
+        "errors": errors,
+        "source": "bigquery_emarsys_sem_treatment_diagnostico",
+    }
+
+
 def _build_schema_diagnostico_contact_id_sql() -> str:
     """Pergunta 1 — distribuição de contact_id nulo em si_contacts."""
     project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)

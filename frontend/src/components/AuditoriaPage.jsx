@@ -246,6 +246,184 @@ function fmt(v) { return v == null ? '—' : Number(v).toLocaleString('pt-BR') }
 function fmtPct(v) { return v == null ? '—' : `${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` }
 function fmtCur(v) { return v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v)) }
 
+function SemTreatmentDiagnostico() {
+  const [state, setState] = useState({ data: null, loading: false, error: '' })
+
+  const handleCarregar = async () => {
+    setState({ data: null, loading: true, error: '' })
+    try {
+      const res = await fetchJson('/api/open-data/emarsys/audit-sem-treatment')
+      if (!res.ok) { setState({ data: null, loading: false, error: res.error || 'Erro.' }); return }
+      setState({ data: res.data, loading: false, error: '' })
+    } catch (e) {
+      setState({ data: null, loading: false, error: e.message || 'Erro.' })
+    }
+  }
+
+  const { data, loading, error } = state
+  const est = data?.estados || {}
+  const cron = data?.cronologia || {}
+  const sip = data?.si_purchases || {}
+  const errs = data?.errors || {}
+
+  // Derived conclusion
+  const pctAmbos = Number(est.pct_aparece_nas_duas || 0)
+  const pctSemAntes = Number(cron.pct_sem_antes || 0)
+  const pctNaoEncontrado = sip.total_apenas_sem_treatment > 0
+    ? (100 - Number(sip.pct_em_si_purchases || 0)).toFixed(1)
+    : null
+
+  let conclusao = null
+  if (data && !errs.estados && !errs.cronologia) {
+    if (pctAmbos < 5 && pctSemAntes < 20) {
+      conclusao = {
+        tipo: 'nao-crm',
+        texto: 'Os 91% sem treatment são pedidos PERMANENTEMENTE sem atribuição CRM — compradores que não interagiram com nenhuma campanha na janela de atribuição. Não é processamento pendente.',
+        cor: 'border-slate-300 bg-slate-50 text-slate-700',
+      }
+    } else if (pctSemAntes > 60) {
+      conclusao = {
+        tipo: 'pendente',
+        texto: `${cron.pct_sem_antes}% das ordens aparecem sem treatment ANTES de receber treatment — são registros intermediários de processamento (estado "pendente" que depois recebe atribuição). O dado final é o com treatment.`,
+        cor: 'border-amber-300 bg-amber-50 text-amber-800',
+      }
+    } else {
+      conclusao = {
+        tipo: 'misto',
+        texto: 'Resultado misto: parte é processamento pendente, parte é pedido sem atribuição CRM permanente. Ver métricas abaixo para dimensionar cada grupo.',
+        cor: 'border-blue-200 bg-blue-50 text-blue-800',
+      }
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-300 bg-white p-5 shadow-soft md:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+            Diagnóstico — Orders sem Treatments em revenue_attribution
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Três queries (últimos 90 dias): distribuição de estados, ordem cronológica e
+            sobreposição com si_purchases. Responde se são pedidos pendentes ou não-CRM permanentes.
+          </p>
+        </div>
+        <button
+          onClick={handleCarregar}
+          disabled={loading}
+          className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-50"
+        >
+          {loading ? 'Consultando BQ...' : data ? 'Rerodar' : 'Rodar diagnóstico'}
+        </button>
+      </div>
+
+      {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+      {!data && !loading && <p className="text-sm text-slate-500">Clique em "Rodar diagnóstico" — 3 queries em paralelo (~30–60 s).</p>}
+
+      {data && (
+        <div className="space-y-5">
+
+          {/* Conclusão automática */}
+          {conclusao && (
+            <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${conclusao.cor}`}>
+              {conclusao.texto}
+            </div>
+          )}
+
+          {/* Bloco 1 — estados */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              1 — Distribuição de estados por order_id (90 dias)
+            </p>
+            {errs.estados
+              ? <p className="text-xs text-rose-600">{errs.estados}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                  {[
+                    { label: 'order_ids únicos', value: fmt(est.total_order_ids) },
+                    { label: 'APENAS sem treatment', value: fmt(est.apenas_sem_treatment), pct: est.pct_apenas_sem, hi: Number(est.pct_apenas_sem) > 50 },
+                    { label: 'APENAS com treatment', value: fmt(est.apenas_com_treatment), pct: est.pct_apenas_com },
+                    { label: 'Aparece nas DUAS situações', value: fmt(est.aparece_nas_duas_situacoes), pct: est.pct_aparece_nas_duas, hi: Number(est.pct_aparece_nas_duas) > 10, good: true },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.hi ? (s.good ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50') : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className="mt-0.5 text-xl font-bold text-slate-900">{s.value}</p>
+                      {s.pct != null && <p className="text-xs text-slate-400">{fmtPct(s.pct)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <p className="mt-2 text-xs text-slate-400">
+              Se "aparece nas duas" for {'<'} 5% → os sem-treatment são grupo separado (não CRM). Se {'>'} 30% → muitos são estados intermediários de processamento.
+            </p>
+          </div>
+
+          {/* Bloco 2 — cronologia */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              2 — Cronologia: order_ids que aparecem nas duas situações (sem → com treatment)
+            </p>
+            {errs.cronologia
+              ? <p className="text-xs text-rose-600">{errs.cronologia}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Total com ambas situações', value: fmt(cron.total_ambos) },
+                    { label: 'Sem aparece ANTES do com', value: fmt(cron.sem_aparece_antes_do_com), pct: cron.pct_sem_antes, hi: Number(cron.pct_sem_antes) > 60 },
+                    { label: 'Sem e com na MESMA partição', value: fmt(cron.sem_e_com_mesma_particao), pct: cron.pct_mesma_particao },
+                    { label: 'Sem aparece DEPOIS do com', value: fmt(cron.sem_aparece_depois_do_com) },
+                    { label: 'Média de dias até receber treatment', value: cron.media_dias_ate_receber_treatment != null ? `${Number(cron.media_dias_ate_receber_treatment).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias` : '—' },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.hi ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className="mt-0.5 text-xl font-bold text-slate-900">{s.value}</p>
+                      {s.pct != null && <p className="text-xs text-slate-400">{fmtPct(s.pct)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <p className="mt-2 text-xs text-slate-400">
+              Se "sem aparece antes" {'>'} 80% e média de dias for {'>'} 0 → o registro sem-treatment é estado intermediário (processamento pendente). Se for 0 dias ou mesma partição → co-existência permanente.
+            </p>
+          </div>
+
+          {/* Bloco 3 — si_purchases overlap */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              3 — Orders APENAS sem treatment: existem em si_purchases? (30 dias)
+            </p>
+            {errs.si_purchases
+              ? <p className="text-xs text-rose-600">{errs.si_purchases}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Total apenas sem treatment', value: fmt(sip.total_apenas_sem_treatment) },
+                    { label: 'Encontrados em si_purchases', value: fmt(sip.encontrados_em_si_purchases), pct: sip.pct_em_si_purchases },
+                    { label: 'NÃO encontrados em si_purchases', value: fmt(sip.nao_encontrados_em_si_purchases), hi: Number(sip.nao_encontrados_em_si_purchases) > 0, pct: pctNaoEncontrado },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.hi ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className="mt-0.5 text-xl font-bold text-slate-900">{s.value}</p>
+                      {s.pct != null && <p className="text-xs text-slate-400">{fmtPct(s.pct)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <p className="mt-2 text-xs text-slate-400">
+              Se {'>'} 95% estão em si_purchases → são compras reais (pedidos genuínos sem touchpoint CRM).
+              Se muitos NÃO estão em si_purchases → podem ser registros de teste, cancelamentos ou pedidos de outras fontes.
+            </p>
+          </div>
+
+        </div>
+      )}
+    </section>
+  )
+}
+
 function SchemaDiagnostico() {
   const [state, setState] = useState({ data: null, loading: false, error: '' })
 
@@ -883,6 +1061,9 @@ export default function AuditoriaPage() {
 
           {/* Diagnóstico de schema das 3 tabelas */}
           <SchemaDiagnostico />
+
+          {/* Diagnóstico — orders sem treatments */}
+          <SemTreatmentDiagnostico />
 
           <SectionCard
             title="Atribuição sem Valor"
