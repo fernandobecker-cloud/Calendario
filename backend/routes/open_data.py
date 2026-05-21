@@ -2030,6 +2030,149 @@ def emarsys_audit_deveria_atribuir(
         raise HTTPException(status_code=502, detail=f"Falha no detalhe de deveria atribuir: {exc}") from exc
 
 
+def _build_schema_diagnostico_contact_id_sql() -> str:
+    """Pergunta 1 — distribuição de contact_id nulo em si_contacts."""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    return f"""
+SELECT
+  COUNT(*)                                                        AS total_rows,
+  COUNTIF(contact_id IS NULL)                                     AS contact_id_null,
+  COUNTIF(contact_id IS NOT NULL)                                 AS contact_id_preenchido,
+  ROUND(COUNTIF(contact_id IS NULL) * 100.0 / COUNT(*), 1)        AS pct_null,
+  COUNTIF(contact_id IS NULL AND external_id IS NOT NULL)         AS null_mas_tem_external_id,
+  COUNTIF(contact_id IS NULL AND TRIM(COALESCE(external_id,''))='') AS null_e_sem_external_id,
+  COUNT(DISTINCT CASE WHEN contact_id IS NULL THEN si_contact_id END) AS distinct_si_contact_sem_contact_id
+FROM `{project}.{dataset}.{contacts}`
+""".strip()
+
+
+def _build_schema_diagnostico_order_id_sql() -> str:
+    """Pergunta 2 — unicidade de order_id em revenue_attribution (últimos 30 dias)."""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    return f"""
+WITH per_order AS (
+  SELECT
+    order_id,
+    COUNT(*)                               AS linhas_por_order,
+    SUM(ARRAY_LENGTH(COALESCE(treatments, []))) AS total_treatments,
+    MAX(ARRAY_LENGTH(COALESCE(treatments, []))) AS max_treatments_numa_linha
+  FROM `{project}.{dataset}.{revenue}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    AND order_id IS NOT NULL
+  GROUP BY order_id
+)
+SELECT
+  COUNT(*)                                     AS distinct_order_ids,
+  COUNTIF(linhas_por_order = 1)                AS orders_uma_linha,
+  COUNTIF(linhas_por_order > 1)                AS orders_multiplas_linhas,
+  MAX(linhas_por_order)                        AS max_linhas_por_order,
+  COUNTIF(total_treatments > 1)                AS orders_com_multiplos_treatments,
+  MAX(total_treatments)                        AS max_treatments_por_order,
+  ROUND(AVG(total_treatments), 2)              AS media_treatments_por_order
+FROM per_order
+""".strip()
+
+
+def _build_schema_diagnostico_attributed_vs_sales_sql() -> str:
+    """Pergunta 3 — attributed_amount vs SUM(sales_amount) por order_id (últimos 30 dias)."""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+WITH attr AS (
+  SELECT
+    r.order_id,
+    ROUND(SUM(t.attributed_amount), 2)       AS valor_atribuido,
+    COUNT(DISTINCT t.campaign_id)             AS campanhas_distintas
+  FROM `{project}.{dataset}.{revenue}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+    AND t.attributed_amount > 0
+    AND r.order_id IS NOT NULL
+  GROUP BY r.order_id
+),
+sales AS (
+  SELECT
+    order_id,
+    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS valor_total
+  FROM `{project}.{dataset}.{purchases}`
+  WHERE order_id IS NOT NULL
+  GROUP BY order_id
+),
+joined AS (
+  SELECT
+    a.order_id,
+    a.valor_atribuido,
+    a.campanhas_distintas,
+    s.valor_total,
+    ROUND(ABS(a.valor_atribuido - COALESCE(s.valor_total, 0)), 2) AS diferenca_abs
+  FROM attr a
+  LEFT JOIN sales s USING (order_id)
+)
+SELECT
+  COUNT(*)                                                AS total_orders,
+  COUNTIF(campanhas_distintas > 1)                        AS orders_multi_campanha,
+  MAX(campanhas_distintas)                                AS max_campanhas_por_order,
+  COUNTIF(diferenca_abs < 0.02)                           AS attributed_igual_total,
+  COUNTIF(diferenca_abs BETWEEN 0.02 AND valor_total * 0.05) AS attributed_parcial_ate_5pct,
+  COUNTIF(diferenca_abs > valor_total * 0.05)             AS attributed_difere_mais_5pct,
+  COUNTIF(valor_total IS NULL)                            AS orders_sem_si_purchases,
+  ROUND(AVG(valor_atribuido), 2)                          AS media_valor_atribuido,
+  ROUND(AVG(valor_total), 2)                              AS media_valor_total,
+  ROUND(AVG(SAFE_DIVIDE(valor_atribuido, valor_total)) * 100, 1) AS media_pct_atribuido_vs_total
+FROM joined
+""".strip()
+
+
+@router.get("/emarsys/schema-diagnostico")
+def emarsys_schema_diagnostico() -> dict[str, Any]:
+    """Roda 3 queries de diagnóstico de schema: contact_id nulo, unicidade order_id, attributed vs sales."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def run(sql: str) -> list[dict[str, Any]]:
+        return run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=120,
+        )
+
+    sqls = {
+        "contact_id": _build_schema_diagnostico_contact_id_sql(),
+        "order_id":   _build_schema_diagnostico_order_id_sql(),
+        "attributed": _build_schema_diagnostico_attributed_vs_sales_sql(),
+    }
+
+    results: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(run, sql): key for key, sql in sqls.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    rows = future.result()
+                    results[key] = _records_to_response_items(rows)[0] if rows else {}
+                except Exception as exc:
+                    errors[key] = str(exc)[:200]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no diagnóstico: {exc}") from exc
+
+    return {
+        "contact_id_diagnostico": results.get("contact_id", {}),
+        "order_id_diagnostico":   results.get("order_id", {}),
+        "attributed_diagnostico": results.get("attributed", {}),
+        "errors": errors,
+        "source": "bigquery_emarsys_schema_diagnostico",
+    }
+
+
 def _build_audit_order_cruzamento_emarsys_sql(start_date: str, end_date: str, limit: int) -> str:
     """Retorna order_id + valor_atribuido + valor_total (si_purchases) para pedidos atribuídos no período."""
     project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)

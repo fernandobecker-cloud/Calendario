@@ -242,6 +242,172 @@ function DetalheDeviaAtribuir({ startDate, endDate }) {
   )
 }
 
+function fmt(v) { return v == null ? '—' : Number(v).toLocaleString('pt-BR') }
+function fmtPct(v) { return v == null ? '—' : `${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` }
+function fmtCur(v) { return v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v)) }
+
+function SchemaDiagnostico() {
+  const [state, setState] = useState({ data: null, loading: false, error: '' })
+
+  const handleCarregar = async () => {
+    setState({ data: null, loading: true, error: '' })
+    try {
+      const res = await fetchJson('/api/open-data/emarsys/schema-diagnostico')
+      if (!res.ok) { setState({ data: null, loading: false, error: res.error || 'Erro.' }); return }
+      setState({ data: res.data, loading: false, error: '' })
+    } catch (e) {
+      setState({ data: null, loading: false, error: e.message || 'Erro.' })
+    }
+  }
+
+  const { data, loading, error } = state
+  const c = data?.contact_id_diagnostico || {}
+  const o = data?.order_id_diagnostico || {}
+  const a = data?.attributed_diagnostico || {}
+  const errs = data?.errors || {}
+
+  return (
+    <section className="rounded-2xl border border-violet-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-violet-700">
+            Diagnóstico de Schema
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Valida 3 hipóteses sobre a estrutura das tabelas Emarsys: contact_id nulo em si_contacts,
+            unicidade de order_id em revenue_attribution e relação attributed_amount vs sales_amount.
+          </p>
+        </div>
+        <button
+          onClick={handleCarregar}
+          disabled={loading}
+          className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+        >
+          {loading ? 'Consultando BQ...' : data ? 'Rerodar' : 'Rodar diagnóstico'}
+        </button>
+      </div>
+
+      {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+      {!data && !loading && <p className="text-sm text-slate-500">Clique em "Rodar diagnóstico" — as 3 queries rodam em paralelo (~30–60 s).</p>}
+
+      {data && (
+        <div className="space-y-6">
+
+          {/* Pergunta 1 — contact_id nulo em si_contacts */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Pergunta 1 — contact_id nulo em si_contacts
+            </p>
+            {errs.contact_id
+              ? <p className="text-xs text-rose-600">{errs.contact_id}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Total de linhas',          value: fmt(c.total_rows) },
+                    { label: 'contact_id NULO',          value: fmt(c.contact_id_null), highlight: Number(c.contact_id_null) > 0 },
+                    { label: 'contact_id preenchido',    value: fmt(c.contact_id_preenchido) },
+                    { label: '% nulo',                   value: fmtPct(c.pct_null), highlight: Number(c.pct_null) > 0 },
+                    { label: 'Nulo mas tem external_id', value: fmt(c.null_mas_tem_external_id) },
+                    { label: 'Nulo e sem external_id',   value: fmt(c.null_e_sem_external_id), highlight: Number(c.null_e_sem_external_id) > 0 },
+                    { label: 'si_contact_ids distintos sem contact_id', value: fmt(c.distinct_si_contact_sem_contact_id) },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.highlight ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className={`mt-0.5 text-lg font-bold ${s.highlight ? 'text-amber-800' : 'text-slate-900'}`}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 text-xs text-slate-500 leading-relaxed">
+              <strong className="text-slate-700">Interpretação:</strong>{' '}
+              Se <em>% nulo {'>'} 0</em> e <em>nulo mas tem external_id {'>'} 0</em> → esses contatos existem no Emarsys
+              mas o campo <code>contact_id</code> não foi populado na tabela Open Data; o join
+              <code> revenue_attribution.contact_id → si_contacts.contact_id</code> não vai encontrá-los.
+              Se <em>nulo e sem external_id {'>'} 0</em> → não há outra chave disponível para cruzamento.
+            </div>
+          </div>
+
+          {/* Pergunta 2 — unicidade order_id em revenue_attribution */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Pergunta 2 — unicidade de order_id em revenue_attribution (últimos 30 dias)
+            </p>
+            {errs.order_id
+              ? <p className="text-xs text-rose-600">{errs.order_id}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'order_ids distintos',           value: fmt(o.distinct_order_ids) },
+                    { label: 'Com 1 linha (único)',           value: fmt(o.orders_uma_linha) },
+                    { label: 'Com múltiplas linhas',          value: fmt(o.orders_multiplas_linhas), highlight: Number(o.orders_multiplas_linhas) > 0 },
+                    { label: 'Máx linhas por order_id',       value: fmt(o.max_linhas_por_order), highlight: Number(o.max_linhas_por_order) > 1 },
+                    { label: 'Com múltiplos treatments',      value: fmt(o.orders_com_multiplos_treatments) },
+                    { label: 'Máx treatments por order',      value: fmt(o.max_treatments_por_order) },
+                    { label: 'Média treatments por order',    value: fmt(o.media_treatments_por_order) },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.highlight ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className={`mt-0.5 text-lg font-bold ${s.highlight ? 'text-amber-800' : 'text-slate-900'}`}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 text-xs text-slate-500 leading-relaxed">
+              <strong className="text-slate-700">Interpretação:</strong>{' '}
+              Se <em>com múltiplas linhas {'>'} 0</em> → o mesmo order_id aparece em mais de uma partição (re-processamento);
+              o <code>GROUP BY order_id</code> atual com <code>MAX()</code> já trata isso.
+              <em> Treatments</em> dentro do array são as campanhas que contribuíram para aquele pedido —
+              múltiplos treatments = atribuição multi-campanha no mesmo pedido.
+            </div>
+          </div>
+
+          {/* Pergunta 3 — attributed_amount vs sales_amount */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Pergunta 3 — attributed_amount vs SUM(sales_amount) por order_id (últimos 30 dias)
+            </p>
+            {errs.attributed
+              ? <p className="text-xs text-rose-600">{errs.attributed}</p>
+              : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Total orders comparados',          value: fmt(a.total_orders) },
+                    { label: 'attributed == total (Δ < R$0,02)', value: fmt(a.attributed_igual_total) },
+                    { label: 'attributed parcial (até 5%)',       value: fmt(a.attributed_parcial_ate_5pct), highlight: Number(a.attributed_parcial_ate_5pct) > 0 },
+                    { label: 'attributed difere > 5%',           value: fmt(a.attributed_difere_mais_5pct), highlight: Number(a.attributed_difere_mais_5pct) > 0 },
+                    { label: 'Orders multi-campanha',            value: fmt(a.orders_multi_campanha) },
+                    { label: 'Máx campanhas por order',          value: fmt(a.max_campanhas_por_order) },
+                    { label: 'Média % atribuído vs total',       value: fmtPct(a.media_pct_atribuido_vs_total) },
+                    { label: 'Média valor atribuído',            value: fmtCur(a.media_valor_atribuido) },
+                    { label: 'Média valor total (si_purchases)', value: fmtCur(a.media_valor_total) },
+                    { label: 'Orders sem si_purchases',          value: fmt(a.orders_sem_si_purchases), highlight: Number(a.orders_sem_si_purchases) > 0 },
+                  ].map((s) => (
+                    <div key={s.label} className={`rounded-lg border p-3 ${s.highlight ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      <p className="text-xs text-slate-500">{s.label}</p>
+                      <p className={`mt-0.5 text-lg font-bold ${s.highlight ? 'text-amber-800' : 'text-slate-900'}`}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3 text-xs text-slate-500 leading-relaxed">
+              <strong className="text-slate-700">Interpretação:</strong>{' '}
+              Se <em>attributed == total</em> = maioria → o Emarsys atribui o valor integral do pedido
+              (não uma fração da campanha). Se <em>difere {'>'} 5%</em> for significativo →
+              <code>attributed_amount</code> é uma fração — usar <code>SUM(sales_amount)</code>
+              de si_purchases para o valor real do pedido.
+              <em> Multi-campanha</em> = pedido contabilizado em mais de um treatment.
+            </div>
+          </div>
+
+        </div>
+      )}
+    </section>
+  )
+}
+
 function CruzamentoOrderId({ startDate, endDate }) {
   const [state, setState] = useState({ data: null, loading: false, error: '' })
   const [limit, setLimit] = useState(1000)
@@ -714,6 +880,9 @@ export default function AuditoriaPage() {
 
           {/* Cruzamento order_id × Número Pedido (vendas_iplace) */}
           <CruzamentoOrderId startDate={startDate} endDate={endDate} />
+
+          {/* Diagnóstico de schema das 3 tabelas */}
+          <SchemaDiagnostico />
 
           <SectionCard
             title="Atribuição sem Valor"
