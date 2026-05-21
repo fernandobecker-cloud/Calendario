@@ -100,6 +100,10 @@ EMARSYS_OPEN_DATA_SMS_SENDS_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_SMS_SENDS_TABLE",
     "sms_sends_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE",
+    "sms_send_reports_1091660394",
+).strip()
 EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE",
     "session_categories_1091660394",
@@ -5326,6 +5330,257 @@ ORDER BY COALESCE(purchase_date, DATE('2099-01-01')) DESC, delta_valor DESC
         "by_status": by_status,
         "by_canal": by_canal,
         "by_day": by_day,
+        "start_date": start_date,
+        "end_date": end_date,
+        "source": "bigquery_emarsys_open_data",
+    }
+
+
+@router.get("/emarsys/auditoria-nao-atribuidos")
+def auditoria_nao_atribuidos(
+    start: str = Query(default="2026-03-01"),
+    end: str = Query(default="2026-04-30"),
+) -> dict[str, Any]:
+    try:
+        start_date = date.fromisoformat(start).isoformat()
+        end_date = date.fromisoformat(end).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Datas inválidas: {exc}") from exc
+
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    sms_reports_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE)
+    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+
+    sql = f"""
+WITH
+purchases AS (
+  SELECT
+    order_id,
+    si_contact_id,
+    DATE(MIN(purchase_date))                          AS purchase_date,
+    ROUND(SUM(COALESCE(sales_amount, 0)), 2)          AS valor_real
+  FROM `{project}.{dataset}.{purchases_table}`
+  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND order_id IS NOT NULL
+  GROUP BY order_id, si_contact_id
+),
+contact_bridge AS (
+  SELECT DISTINCT si_contact_id, contact_id
+  FROM `{project}.{dataset}.{contacts_table}`
+  WHERE si_contact_id IS NOT NULL
+),
+purchases_with_contact AS (
+  SELECT
+    p.order_id,
+    p.purchase_date,
+    p.si_contact_id,
+    cb.contact_id,
+    p.valor_real
+  FROM purchases p
+  LEFT JOIN contact_bridge cb ON cb.si_contact_id = p.si_contact_id
+),
+sms_accepted AS (
+  SELECT DISTINCT contact_id, campaign_id
+  FROM `{project}.{dataset}.{sms_reports_table}`
+  WHERE UPPER(TRIM(COALESCE(CAST(status AS STRING), ''))) = 'ACCEPTED'
+),
+sms_window AS (
+  SELECT DISTINCT ss.contact_id, ss.event_time, CAST(ss.campaign_id AS STRING) AS campaign_id
+  FROM `{project}.{dataset}.{sms_sends_table}` ss
+  INNER JOIN sms_accepted sa
+    ON sa.contact_id  = ss.contact_id
+   AND sa.campaign_id = ss.campaign_id
+  WHERE DATE(ss.event_time)
+    BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 7 DAY) AND DATE('{end_date}')
+),
+email_window AS (
+  SELECT DISTINCT eo.contact_id, eo.event_time, CAST(eo.campaign_id AS STRING) AS campaign_id
+  FROM `{project}.{dataset}.{email_opens_table}` eo
+  WHERE DATE(eo.event_time)
+    BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 7 DAY) AND DATE('{end_date}')
+),
+last_sms_per_order AS (
+  SELECT
+    p.order_id,
+    MAX(sw.event_time)                                                        AS last_sms_time,
+    ARRAY_AGG(sw.campaign_id ORDER BY sw.event_time DESC LIMIT 1)[OFFSET(0)] AS sms_campaign_id
+  FROM purchases_with_contact p
+  JOIN sms_window sw
+    ON  sw.contact_id         = p.contact_id
+    AND DATE(sw.event_time)  >= DATE_SUB(p.purchase_date, INTERVAL 7 DAY)
+    AND DATE(sw.event_time)  <  p.purchase_date
+  WHERE p.contact_id IS NOT NULL
+  GROUP BY p.order_id
+),
+last_email_per_order AS (
+  SELECT
+    p.order_id,
+    MAX(ew.event_time)                                                        AS last_email_time,
+    ARRAY_AGG(ew.campaign_id ORDER BY ew.event_time DESC LIMIT 1)[OFFSET(0)] AS email_campaign_id
+  FROM purchases_with_contact p
+  JOIN email_window ew
+    ON  ew.contact_id         = p.contact_id
+    AND DATE(ew.event_time)  >= DATE_SUB(p.purchase_date, INTERVAL 7 DAY)
+    AND DATE(ew.event_time)  <  p.purchase_date
+  WHERE p.contact_id IS NOT NULL
+  GROUP BY p.order_id
+),
+ra_deduped AS (
+  SELECT
+    order_id,
+    ARRAY_LENGTH(COALESCE(treatments, [])) > 0 AS has_treatment
+  FROM `{project}.{dataset}.{revenue_table}`
+  WHERE order_id IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY partitiontime DESC, event_time DESC) = 1
+),
+combined AS (
+  SELECT
+    pwc.order_id,
+    pwc.purchase_date,
+    pwc.contact_id,
+    pwc.valor_real,
+    (ls.last_sms_time IS NOT NULL AND le.last_email_time IS NOT NULL)   AS multi_gatilho,
+    CASE
+      WHEN ls.last_sms_time IS NULL AND le.last_email_time IS NULL THEN NULL
+      WHEN ls.last_sms_time  IS NULL                              THEN 'EMAIL'
+      WHEN le.last_email_time IS NULL                             THEN 'SMS'
+      WHEN ls.last_sms_time  >= le.last_email_time                THEN 'SMS'
+      ELSE 'EMAIL'
+    END AS canal_last_touch,
+    CASE
+      WHEN ls.last_sms_time IS NULL AND le.last_email_time IS NULL THEN NULL
+      WHEN ls.last_sms_time  IS NULL                              THEN le.last_email_time
+      WHEN le.last_email_time IS NULL                             THEN ls.last_sms_time
+      WHEN ls.last_sms_time  >= le.last_email_time                THEN ls.last_sms_time
+      ELSE le.last_email_time
+    END AS data_gatilho,
+    CASE
+      WHEN ls.last_sms_time IS NULL AND le.last_email_time IS NULL THEN NULL
+      WHEN ls.last_sms_time  IS NULL                              THEN le.email_campaign_id
+      WHEN le.last_email_time IS NULL                             THEN ls.sms_campaign_id
+      WHEN ls.last_sms_time  >= le.last_email_time                THEN ls.sms_campaign_id
+      ELSE le.email_campaign_id
+    END AS campaign_id_gatilho,
+    (ra.order_id IS NOT NULL)         AS em_revenue_attribution,
+    COALESCE(ra.has_treatment, FALSE) AS foi_atribuido
+  FROM purchases_with_contact pwc
+  LEFT JOIN last_sms_per_order   ls ON ls.order_id = pwc.order_id
+  LEFT JOIN last_email_per_order le ON le.order_id = pwc.order_id
+  LEFT JOIN ra_deduped           ra ON ra.order_id = pwc.order_id
+)
+SELECT
+  order_id,
+  purchase_date,
+  contact_id,
+  valor_real,
+  canal_last_touch,
+  data_gatilho,
+  IF(data_gatilho IS NOT NULL,
+     DATE_DIFF(purchase_date, DATE(data_gatilho), DAY),
+     NULL)                            AS dias_gatilho_compra,
+  campaign_id_gatilho,
+  multi_gatilho,
+  em_revenue_attribution,
+  foi_atribuido,
+  CASE
+    WHEN contact_id IS NULL       THEN 'sem_vinculo'
+    WHEN NOT em_revenue_attribution THEN 'ausente_revenue'
+    WHEN canal_last_touch = 'SMS' THEN 'nao_atribuido_sms'
+    ELSE                               'nao_atribuido_email'
+  END AS status
+FROM combined
+WHERE contact_id IS NULL OR canal_last_touch IS NOT NULL
+ORDER BY valor_real DESC
+""".strip()
+
+    try:
+        all_records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=180,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao executar auditoria não atribuídos: {exc}") from exc
+
+    all_items = _records_to_response_items(all_records)
+
+    items = [it for it in all_items if not it.get("foi_atribuido")]
+
+    total_eligible = len(all_items)
+    total_nao_atribuidos = len(items)
+    pct_nao_atribuicao = round(total_nao_atribuidos / total_eligible * 100, 2) if total_eligible else 0.0
+    receita_nao_atribuida = round(sum(float(it.get("valor_real") or 0) for it in items), 2)
+    count_sms = sum(1 for it in items if (it.get("canal_last_touch") or "").upper() == "SMS")
+    count_email = sum(1 for it in items if (it.get("canal_last_touch") or "").upper() == "EMAIL")
+    count_ausentes = sum(1 for it in items if it.get("status") == "ausente_revenue")
+    count_sem_vinculo = sum(1 for it in items if it.get("status") == "sem_vinculo")
+
+    totals = {
+        "total_eligible": total_eligible,
+        "total_nao_atribuidos": total_nao_atribuidos,
+        "pct_nao_atribuicao": pct_nao_atribuicao,
+        "receita_nao_atribuida": receita_nao_atribuida,
+        "count_sms": count_sms,
+        "count_email": count_email,
+        "count_ausentes_revenue": count_ausentes,
+        "count_sem_vinculo": count_sem_vinculo,
+    }
+
+    # by_status
+    status_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        s = it.get("status") or "desconhecido"
+        acc = status_acc.setdefault(s, {"status": s, "count": 0, "valor_real": 0.0})
+        acc["count"] += 1
+        acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
+    by_status = list(status_acc.values())
+
+    # by_canal (non-attributed only)
+    canal_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        canal = (it.get("canal_last_touch") or "(sem canal)").upper()
+        acc = canal_acc.setdefault(canal, {"canal": canal, "count": 0, "valor_real": 0.0})
+        acc["count"] += 1
+        acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
+    by_canal = list(canal_acc.values())
+
+    # by_day (eligible vs nao_atribuidos)
+    day_acc: dict[str, dict[str, Any]] = {}
+    for it in all_items:
+        pd_val = it.get("purchase_date")
+        if pd_val is None:
+            continue
+        key = str(pd_val)
+        acc = day_acc.setdefault(key, {"purchase_date": key, "elegiveis": 0, "nao_atribuidos": 0})
+        acc["elegiveis"] += 1
+        if not it.get("foi_atribuido"):
+            acc["nao_atribuidos"] += 1
+    by_day = sorted(day_acc.values(), key=lambda x: x["purchase_date"])
+
+    # by_campaign — top 10 by non-attributed revenue
+    campaign_acc: dict[str, dict[str, Any]] = {}
+    for it in items:
+        cid = str(it.get("campaign_id_gatilho") or "(sem campanha)")
+        acc = campaign_acc.setdefault(cid, {"campaign_id": cid, "count": 0, "valor_real": 0.0})
+        acc["count"] += 1
+        acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
+    by_campaign = sorted(campaign_acc.values(), key=lambda x: x["valor_real"], reverse=True)[:10]
+
+    return {
+        "items": items,
+        "totals": totals,
+        "by_status": by_status,
+        "by_canal": by_canal,
+        "by_day": by_day,
+        "by_campaign": by_campaign,
         "start_date": start_date,
         "end_date": end_date,
         "source": "bigquery_emarsys_open_data",

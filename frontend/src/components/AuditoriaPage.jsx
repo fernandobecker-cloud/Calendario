@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import AuditoriaNovaPage from './AuditoriaNovaPage'
+import AuditoriaNaoAtribuidosPage from './AuditoriaNaoAtribuidosPage'
 
 function formatCurrency(value) {
   if (value == null || isNaN(Number(value))) return '-'
@@ -1080,8 +1081,9 @@ export default function AuditoriaPage() {
   const [auditView, setAuditView] = useState('nova')
 
   const NAV = [
-    { key: 'nova',   label: 'Nova' },
-    { key: 'antiga', label: 'Antiga' },
+    { key: 'nova',          label: 'Nova' },
+    { key: 'nao-atribuidos', label: 'Não Atribuídos' },
+    { key: 'antiga',        label: 'Antiga' },
   ]
 
   return (
@@ -1112,6 +1114,9 @@ export default function AuditoriaPage() {
         <div className="min-w-0 flex-1">
           {auditView === 'nova' && (
             <AuditoriaNovaPage />
+          )}
+          {auditView === 'nao-atribuidos' && (
+            <AuditoriaNaoAtribuidosPage />
           )}
           {auditView === 'antiga' && (
             <AntigaAuditoriaContent
