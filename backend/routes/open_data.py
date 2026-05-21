@@ -5494,7 +5494,14 @@ SELECT
     ELSE                               'nao_atribuido_email'
   END AS status
 FROM combined
-WHERE contact_id IS NULL OR canal_last_touch IS NOT NULL
+WHERE
+  -- sem_vinculo: inclui independentemente da janela (contact_id nao encontrado)
+  contact_id IS NULL
+  OR (
+    canal_last_touch IS NOT NULL
+    -- Garante janela de atribuicao: gatilho deve estar 1-7 dias antes da compra
+    AND DATE_DIFF(purchase_date, DATE(data_gatilho), DAY) BETWEEN 1 AND 7
+  )
 ORDER BY valor_real DESC
 """.strip()
 
