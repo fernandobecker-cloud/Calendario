@@ -4775,6 +4775,15 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
             "receita": round(receita, 2),
         })
 
+    # Pedidos sem match em vendas_iplace: soma em "Outros" para fechar o total
+    matched_order_ids = set(candidates.keys())
+    for order_id, receita in order_amounts.items():
+        if order_id in matched_order_ids:
+            continue
+        outros = regional_data.setdefault("Outros", {"regional": "Outros", "linhas": 0, "receita": 0.0, "lojas": []})
+        outros["linhas"] += 1
+        outros["receita"] += receita
+
     for rdata in regional_data.values():
         rdata["lojas"].sort(key=lambda x: -x["receita"])
         rdata["receita"] = round(rdata["receita"], 2)
