@@ -5182,7 +5182,7 @@ WITH deduped AS (
   WHERE ARRAY_LENGTH(COALESCE(treatments, [])) > 0
     AND order_id IS NOT NULL
     AND DATE(event_time) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY partitiontime DESC, event_time DESC) = 1
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id, contact_id ORDER BY partitiontime DESC, event_time DESC) = 1
 ),
 treatment_agg AS (
   SELECT
@@ -5210,13 +5210,15 @@ contacts_bridge AS (
 ),
 real_purchases AS (
   SELECT
-    order_id,
-    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS valor_real,
-    DATE(MIN(purchase_date))                 AS purchase_date
-  FROM `{project}.{dataset}.{purchases_table}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-    AND order_id IS NOT NULL
-  GROUP BY order_id
+    p.order_id,
+    cb.contact_id,
+    ROUND(SUM(COALESCE(p.sales_amount, 0)), 2) AS valor_real,
+    DATE(MIN(p.purchase_date))                 AS purchase_date
+  FROM `{project}.{dataset}.{purchases_table}` p
+  LEFT JOIN contacts_bridge cb ON cb.si_contact_id = p.si_contact_id
+  WHERE DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND p.order_id IS NOT NULL
+  GROUP BY p.order_id, cb.contact_id
 ),
 combined AS (
   SELECT
@@ -5244,7 +5246,8 @@ combined AS (
     END AS status
   FROM treatment_agg ta
   LEFT JOIN contacts_bridge cb ON cb.contact_id = ta.contact_id
-  LEFT JOIN real_purchases rp  ON rp.order_id   = ta.order_id
+  LEFT JOIN real_purchases rp  ON rp.order_id  = ta.order_id
+                               AND rp.contact_id = ta.contact_id
 )
 SELECT * FROM combined
 ORDER BY COALESCE(purchase_date, DATE('2099-01-01')) DESC, delta_valor DESC
@@ -5433,10 +5436,11 @@ last_email_per_order AS (
 ra_deduped AS (
   SELECT
     order_id,
+    contact_id,
     ARRAY_LENGTH(COALESCE(treatments, [])) > 0 AS has_treatment
   FROM `{project}.{dataset}.{revenue_table}`
-  WHERE order_id IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY partitiontime DESC, event_time DESC) = 1
+  WHERE order_id IS NOT NULL AND contact_id IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id, contact_id ORDER BY partitiontime DESC, event_time DESC) = 1
 ),
 combined AS (
   SELECT
@@ -5471,7 +5475,8 @@ combined AS (
   FROM purchases_with_contact pwc
   LEFT JOIN last_sms_per_order   ls ON ls.order_id = pwc.order_id
   LEFT JOIN last_email_per_order le ON le.order_id = pwc.order_id
-  LEFT JOIN ra_deduped           ra ON ra.order_id = pwc.order_id
+  LEFT JOIN ra_deduped           ra ON ra.order_id  = pwc.order_id
+                                   AND ra.contact_id = pwc.contact_id
 )
 SELECT
   order_id,
