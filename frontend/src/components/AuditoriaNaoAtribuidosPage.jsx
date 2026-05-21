@@ -69,6 +69,7 @@ function exportCsv(items, startDate, endDate) {
     { key: 'canal_last_touch',     label: 'Canal Last Touch' },
     { key: 'data_gatilho',         label: 'Data Gatilho' },
     { key: 'dias_gatilho_compra',  label: 'Dias Gatilho→Compra' },
+    { key: 'nome_campanha_gatilho', label: 'Nome Campanha' },
     { key: 'campaign_id_gatilho',  label: 'Campaign ID Gatilho' },
     { key: 'multi_gatilho',        label: 'Multi Gatilho' },
     { key: 'em_revenue_attribution', label: 'Em Revenue Attribution' },
@@ -153,8 +154,10 @@ export default function AuditoriaNaoAtribuidosPage() {
       }
       if (filtroValorMin > 0 && (Number(it.valor_real) || 0) < filtroValorMin) return false
       if (filtroCampaign.trim()) {
-        const cid = String(it.campaign_id_gatilho || '')
-        if (!cid.toLowerCase().includes(filtroCampaign.trim().toLowerCase())) return false
+        const term = filtroCampaign.trim().toLowerCase()
+        const cid  = String(it.campaign_id_gatilho || '').toLowerCase()
+        const nome = String(it.nome_campanha_gatilho || '').toLowerCase()
+        if (!cid.includes(term) && !nome.includes(term)) return false
       }
       return true
     })
@@ -358,7 +361,7 @@ export default function AuditoriaNaoAtribuidosPage() {
                 <BarChart data={byCampaign} layout="vertical" margin={{ top: 4, right: 40, left: 80, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                   <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
-                  <YAxis type="category" dataKey="campaign_id" tick={{ fontSize: 10 }} width={80} />
+                  <YAxis type="category" dataKey="nome_campanha" tick={{ fontSize: 10 }} width={160} />
                   <Tooltip formatter={(v) => fmtCur(v)} />
                   <Bar dataKey="valor_real" name="Receita não atribuída" fill="#8B5CF6" radius={[0,4,4,0]} />
                 </BarChart>
@@ -399,7 +402,7 @@ export default function AuditoriaNaoAtribuidosPage() {
                             { label: 'Canal',               right: false },
                             { label: 'Data Gatilho',        right: false },
                             { label: 'Dias',                right: true  },
-                            { label: 'Campaign ID',         right: false },
+                            { label: 'Campanha',             right: false },
                             { label: 'Multi',               right: true  },
                             { label: 'Em Rev. Attrib.',     right: true  },
                             { label: 'Status',              right: false },
@@ -423,7 +426,10 @@ export default function AuditoriaNaoAtribuidosPage() {
                             <td className="whitespace-nowrap px-3 py-2 text-right text-xs text-slate-600">
                               {row.dias_gatilho_compra != null ? `${row.dias_gatilho_compra}d` : '-'}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{row.campaign_id_gatilho ?? '-'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700"
+                              title={row.campaign_id_gatilho ?? ''}>
+                              {row.nome_campanha_gatilho || row.campaign_id_gatilho || '-'}
+                            </td>
                             <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
                               {row.multi_gatilho
                                 ? <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">sim</span>

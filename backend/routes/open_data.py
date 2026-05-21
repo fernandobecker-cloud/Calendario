@@ -5358,6 +5358,8 @@ def auditoria_nao_atribuidos(
     sms_reports_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE)
     email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
 
     sql = f"""
 WITH
@@ -5442,6 +5444,22 @@ ra_deduped AS (
   WHERE order_id IS NOT NULL AND contact_id IS NOT NULL
   QUALIFY ROW_NUMBER() OVER (PARTITION BY order_id, contact_id ORDER BY partitiontime DESC, event_time DESC) = 1
 ),
+email_names AS (
+  SELECT
+    CAST(id AS STRING)                                                                    AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)]        AS nome_campanha
+  FROM `{project}.{dataset}.{email_campaigns_table}`
+  WHERE id IS NOT NULL
+  GROUP BY 1
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING)                                                           AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)]        AS nome_campanha
+  FROM `{project}.{dataset}.{sms_campaigns_table}`
+  WHERE campaign_id IS NOT NULL
+  GROUP BY 1
+),
 combined AS (
   SELECT
     pwc.order_id,
@@ -5477,6 +5495,14 @@ combined AS (
   LEFT JOIN last_email_per_order le ON le.order_id = pwc.order_id
   LEFT JOIN ra_deduped           ra ON ra.order_id  = pwc.order_id
                                    AND ra.contact_id = pwc.contact_id
+),
+with_names AS (
+  SELECT
+    c.*,
+    COALESCE(en.nome_campanha, sn.nome_campanha) AS nome_campanha_gatilho
+  FROM combined c
+  LEFT JOIN email_names en ON en.campaign_id = c.campaign_id_gatilho
+  LEFT JOIN sms_names   sn ON sn.campaign_id = c.campaign_id_gatilho
 )
 SELECT
   order_id,
@@ -5489,22 +5515,21 @@ SELECT
      DATE_DIFF(purchase_date, DATE(data_gatilho), DAY),
      NULL)                            AS dias_gatilho_compra,
   campaign_id_gatilho,
+  nome_campanha_gatilho,
   multi_gatilho,
   em_revenue_attribution,
   foi_atribuido,
   CASE
-    WHEN contact_id IS NULL       THEN 'sem_vinculo'
+    WHEN contact_id IS NULL         THEN 'sem_vinculo'
     WHEN NOT em_revenue_attribution THEN 'ausente_revenue'
-    WHEN canal_last_touch = 'SMS' THEN 'nao_atribuido_sms'
-    ELSE                               'nao_atribuido_email'
+    WHEN canal_last_touch = 'SMS'   THEN 'nao_atribuido_sms'
+    ELSE                                 'nao_atribuido_email'
   END AS status
-FROM combined
+FROM with_names
 WHERE
-  -- sem_vinculo: inclui independentemente da janela (contact_id nao encontrado)
   contact_id IS NULL
   OR (
     canal_last_touch IS NOT NULL
-    -- Garante janela de atribuicao: gatilho deve estar 1-7 dias antes da compra
     AND DATE_DIFF(purchase_date, DATE(data_gatilho), DAY) BETWEEN 1 AND 7
   )
 ORDER BY valor_real DESC
@@ -5581,7 +5606,8 @@ ORDER BY valor_real DESC
     campaign_acc: dict[str, dict[str, Any]] = {}
     for it in items:
         cid = str(it.get("campaign_id_gatilho") or "(sem campanha)")
-        acc = campaign_acc.setdefault(cid, {"campaign_id": cid, "count": 0, "valor_real": 0.0})
+        nome = str(it.get("nome_campanha_gatilho") or cid)
+        acc = campaign_acc.setdefault(cid, {"campaign_id": cid, "nome_campanha": nome, "count": 0, "valor_real": 0.0})
         acc["count"] += 1
         acc["valor_real"] = round(acc["valor_real"] + float(it.get("valor_real") or 0), 2)
     by_campaign = sorted(campaign_acc.values(), key=lambda x: x["valor_real"], reverse=True)[:10]
