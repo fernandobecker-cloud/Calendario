@@ -4654,82 +4654,50 @@ def _sanitize_campaign_id(value: str) -> str:
 
 
 def _build_influenced_order_ids_sms_sql(campaign_id: str, dispatch_date: str) -> str:
-    """Retorna order_id + receita (si_purchases) dos pedidos influenciados pelo SMS."""
+    """Retorna order_id + attributed_amount de revenue_attribution para a campanha SMS.
+    Usa a mesma fonte e lógica do cabeçalho (receita_atribuida), garantindo que o
+    total regional some exatamente o valor exibido na linha da campanha."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    sms_sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     d = dispatch_date
     cid = _sanitize_campaign_id(campaign_id)
     return f"""
-WITH
-sms_sends_camp AS (
-  SELECT DISTINCT ss.contact_id, DATE(ss.event_time) AS send_date
-  FROM `{project_id}.{dataset}.{sms_sends_table}` ss
-  WHERE CAST(ss.campaign_id AS STRING) = '{cid}'
-    AND DATE(ss.event_time) = DATE('{d}')
-    AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
-                                   AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
-),
-influenced_orders AS (
-  SELECT DISTINCT r.order_id
-  FROM sms_sends_camp ssc
-  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
-    ON r.contact_id = ssc.contact_id
-    AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
-    AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
-  WHERE r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
-)
 SELECT
-  io.order_id,
-  ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita
-FROM influenced_orders io
-LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p
-  ON p.order_id = io.order_id
-  AND DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
-  AND p.sales_amount > 0
-GROUP BY io.order_id
+  r.order_id,
+  ROUND(SUM(t.attributed_amount), 2) AS receita
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE CAST(t.campaign_id AS STRING) = '{cid}'
+  AND t.attributed_amount > 0
+  AND DATE(r.event_time) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+  AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+  AND r.order_id IS NOT NULL
+GROUP BY r.order_id
 """.strip()
 
 
 def _build_influenced_order_ids_email_sql(campaign_id: str, start_date: str, end_date: str) -> str:
-    """Retorna order_id + receita (si_purchases) dos pedidos influenciados pelo email."""
+    """Retorna order_id + attributed_amount de revenue_attribution para a campanha de email.
+    Usa a mesma fonte e lógica do cabeçalho (receita_atribuida), garantindo que o
+    total regional some exatamente o valor exibido na linha da campanha."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    email_opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     s, e = start_date, end_date
     cid = _sanitize_campaign_id(campaign_id)
     return f"""
-WITH
-email_opens_camp AS (
-  SELECT DISTINCT eo.contact_id, DATE(eo.event_time) AS open_date
-  FROM `{project_id}.{dataset}.{email_opens_table}` eo
-  WHERE CAST(eo.campaign_id AS STRING) = '{cid}'
-    AND DATE(eo.partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
-    AND DATE(eo.event_time) BETWEEN DATE('{s}') AND DATE('{e}')
-    AND eo.contact_id IS NOT NULL
-),
-influenced_orders AS (
-  SELECT DISTINCT r.order_id
-  FROM email_opens_camp eoc
-  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r
-    ON r.contact_id = eoc.contact_id
-    AND DATE(r.event_time) BETWEEN eoc.open_date AND DATE_ADD(eoc.open_date, INTERVAL 7 DAY)
-  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
-    AND r.order_id IS NOT NULL AND TRIM(CAST(r.order_id AS STRING)) != ''
-)
 SELECT
-  io.order_id,
-  ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita
-FROM influenced_orders io
-LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p
-  ON p.order_id = io.order_id
-  AND DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
-  AND p.sales_amount > 0
-GROUP BY io.order_id
+  r.order_id,
+  ROUND(SUM(t.attributed_amount), 2) AS receita
+FROM `{project_id}.{dataset}.{revenue_table}` r
+CROSS JOIN UNNEST(r.treatments) AS t
+WHERE CAST(t.campaign_id AS STRING) = '{cid}'
+  AND t.attributed_amount > 0
+  AND DATE(r.event_time) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  AND DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+  AND r.order_id IS NOT NULL
+GROUP BY r.order_id
 """.strip()
 
 
