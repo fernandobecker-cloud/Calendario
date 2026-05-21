@@ -4734,7 +4734,7 @@ GROUP BY io.order_id
 
 
 def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
-    """Retorna filial por Numero_Pedido (deduplicado) — sem receita, que vem do Emarsys."""
+    """Retorna filial+vlr por (Numero_Pedido, Cod_Filial) para desambiguação por valor."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4745,17 +4745,18 @@ def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
+  ROUND(SUM(COALESCE(SAFE_CAST(REGEXP_REPLACE(COALESCE(TRIM(Vlr_Pedidos_Captados), ''), r'[^0-9.]', '') AS FLOAT64), 0)), 2) AS vlr_captados
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
   AND TRIM(Numero_Pedido) != ''
-GROUP BY Numero_Pedido
+GROUP BY Numero_Pedido, Cod_Filial
 """.strip()
 
 
 def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
-    """Cruza order_ids com vendas_iplace; usa receita do Emarsys (si_purchases) por filial."""
+    """Cruza order_ids com vendas_iplace; desambigua filial por order_id+valor quando há duplicatas."""
     if not order_amounts:
         return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
 
@@ -4768,12 +4769,25 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
         location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
     )
 
+    # Agrupa candidatos por order_id (pode ter >1 quando mesmo número existe em filiais diferentes)
+    from collections import defaultdict
+    candidates: dict[str, list[dict]] = defaultdict(list)
+    for r in records:
+        oid = str(r.get("order_id") or "")
+        if not oid:
+            continue
+        candidates[oid].append({
+            "filial": str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)",
+            "vlr_captados": float(r.get("vlr_captados") or 0),
+        })
+
+    # Escolhe melhor filial: única candidata ou a de valor mais próximo ao do Emarsys
     matched = 0
     regional_data: dict[str, dict[str, Any]] = {}
-    for r in records:
-        order_id = str(r.get("order_id") or "")
-        filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+    for order_id, cands in candidates.items():
         receita = order_amounts.get(order_id, 0.0)
+        best = cands[0] if len(cands) == 1 else min(cands, key=lambda c: abs(c["vlr_captados"] - receita))
+        filial = best["filial"]
         matched += 1
 
         store_info = FILIAL_REGIONAL_MAP.get(filial)

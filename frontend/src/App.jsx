@@ -850,7 +850,7 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
 
-  const toggleSmsRegional = useCallback(async (campaignId, dispatchDate, receitaInfluenciada) => {
+  const toggleSmsRegional = useCallback(async (campaignId, dispatchDate) => {
     setSmsRegional(prev => {
       const cur = prev[campaignId] || {}
       if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
@@ -858,7 +858,7 @@ export default function App({ mode = 'campanhas' }) {
     })
     setSmsRegional(prev => {
       if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
-      const params = new URLSearchParams({ campaign_id: campaignId, date: dispatchDate, receita_influenciada: String(receitaInfluenciada || 0) })
+      const params = new URLSearchParams({ campaign_id: campaignId, date: dispatchDate })
       fetch(`/api/open-data/sms-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -871,7 +871,7 @@ export default function App({ mode = 'campanhas' }) {
     })
   }, [])
 
-  const toggleEmailRegional = useCallback(async (campaignId, startDate, endDate, receitaInfluenciada) => {
+  const toggleEmailRegional = useCallback(async (campaignId, startDate, endDate) => {
     setEmailRegional(prev => {
       const cur = prev[campaignId] || {}
       if (cur.data || cur.loading) return { ...prev, [campaignId]: { ...cur, expanded: !cur.expanded } }
@@ -879,7 +879,7 @@ export default function App({ mode = 'campanhas' }) {
     })
     setEmailRegional(prev => {
       if (prev[campaignId]?.data || prev[campaignId]?.loading === false) return prev
-      const params = new URLSearchParams({ campaign_id: campaignId, start: startDate, end: endDate, receita_influenciada: String(receitaInfluenciada || 0) })
+      const params = new URLSearchParams({ campaign_id: campaignId, start: startDate, end: endDate })
       fetch(`/api/open-data/email-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -2557,7 +2557,6 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Enviados</th>
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Receita Atribuida</th>
-                      <th className="px-4 py-3 text-right">Receita Influenciada</th>
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
@@ -2571,9 +2570,8 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date, item.receita_influenciada)}
+                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
@@ -2582,7 +2580,7 @@ export default function App({ mode = 'campanhas' }) {
                           </tr>
                           {reg.expanded && (
                             <tr>
-                              <td colSpan={6} className="p-0 border-b border-slate-200">
+                              <td colSpan={5} className="p-0 border-b border-slate-200">
                                 {reg.error
                                   ? <div className="px-4 py-2 text-xs text-rose-600">{reg.error}</div>
                                   : reg.data
@@ -2689,7 +2687,6 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Taxa Abertura</th>
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Receita Atribuida</th>
-                      <th className="px-4 py-3 text-right">Receita Influenciada</th>
                       <th className="px-4 py-3 text-right">Itens</th>
                       <th className="px-4 py-3 text-right">Itens Apple</th>
                       <th className="px-4 py-3 text-right">Itens Não-Apple</th>
@@ -2712,7 +2709,6 @@ export default function App({ mode = 'campanhas' }) {
                             </td>
                             <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(item.receita_influenciada)}</td>
                             <td className="px-4 py-3 text-right text-slate-600">{(item.total_itens || 0).toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right text-slate-700">
                               <div>{(item.itens_apple || 0).toLocaleString('pt-BR')}</div>
@@ -2725,7 +2721,7 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_apple || 0)}</td>
                             <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_nao_apple || 0)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date, item.receita_influenciada)}
+                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
@@ -2734,7 +2730,7 @@ export default function App({ mode = 'campanhas' }) {
                           </tr>
                           {reg.expanded && (
                             <tr>
-                              <td colSpan={13} className="p-0 border-b border-slate-200">
+                              <td colSpan={12} className="p-0 border-b border-slate-200">
                                 {reg.error
                                   ? <div className="px-4 py-2 text-xs text-rose-600">{reg.error}</div>
                                   : reg.data
