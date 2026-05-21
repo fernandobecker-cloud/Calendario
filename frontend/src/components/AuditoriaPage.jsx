@@ -242,6 +242,196 @@ function DetalheDeviaAtribuir({ startDate, endDate }) {
   )
 }
 
+function CruzamentoOrderId({ startDate, endDate }) {
+  const [state, setState] = useState({ data: null, loading: false, error: '' })
+  const [limit, setLimit] = useState(1000)
+
+  const handleCarregar = async () => {
+    setState({ data: null, loading: true, error: '' })
+    try {
+      const params = new URLSearchParams({ start: startDate, end: endDate, limit: String(limit) })
+      const res = await fetchJson(`/api/open-data/emarsys/audit-order-cruzamento?${params}`)
+      if (!res.ok) {
+        setState({ data: null, loading: false, error: res.error || 'Erro ao carregar.' })
+        return
+      }
+      setState({ data: res.data, loading: false, error: '' })
+    } catch (e) {
+      setState({ data: null, loading: false, error: e.message || 'Erro.' })
+    }
+  }
+
+  const handleExport = () => {
+    const items = state.data?.items
+    if (!items?.length) return
+    const fmtNum = (v) =>
+      v == null ? '' : new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))
+    const cols = [
+      { key: 'order_id',        label: 'Numero Pedido' },
+      { key: 'data_atribuicao', label: 'Data Atribuicao' },
+      { key: 'data_compra',     label: 'Data Compra' },
+      { key: 'canal',           label: 'Canal' },
+      { key: 'status_pedido',   label: 'Status Pedido' },
+      { key: 'valor_atribuido', label: 'Valor Atribuido (R$)', fmt: fmtNum },
+      { key: 'valor_total',     label: 'Valor Pedido Total (R$)', fmt: fmtNum },
+      { key: 'vlr_captados',    label: 'Vlr Pedidos Captados (R$)', fmt: fmtNum },
+      { key: 'cruzado',         label: 'Cruzado vendas_iplace', fmt: (v) => v ? 'Sim' : 'Nao' },
+    ]
+    const esc = (v) => {
+      if (v == null) return ''
+      const s = String(v)
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const csv = '﻿' + [
+      cols.map((c) => c.label).join(','),
+      ...items.map((r) => cols.map((c) => esc(c.fmt ? c.fmt(r[c.key]) : r[c.key])).join(',')),
+    ].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cruzamento-order-id-${startDate}-${endDate}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const { data, loading, error } = state
+
+  return (
+    <section className="rounded-2xl border border-indigo-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-indigo-700">
+            Cruzamento order_id × Número Pedido
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Pedidos atribuídos pelo Emarsys (revenue_attribution) cruzados com vendas_iplace —
+            compara valor atribuído, valor total (si_purchases) e Vlr_Pedidos_Captados.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-slate-500">
+            Limite
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-800"
+            >
+              {[500, 1000, 2000, 5000].map((v) => (
+                <option key={v} value={v}>{v.toLocaleString('pt-BR')}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={handleCarregar}
+            disabled={loading}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? 'Carregando...' : data ? 'Recarregar' : 'Carregar cruzamento'}
+          </button>
+          {data?.items?.length > 0 && (
+            <button
+              onClick={handleExport}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Exportar CSV
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
+      )}
+
+      {!data && !loading && (
+        <p className="text-sm text-slate-500">Clique em "Carregar cruzamento" para ver os dados.</p>
+      )}
+
+      {data && (
+        <>
+          {/* Resumo */}
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {[
+              { label: 'Pedidos atribuídos', value: data.total?.toLocaleString('pt-BR'), sub: `${data.cruzados} cruzados com vendas_iplace` },
+              { label: 'Valor Atribuído', value: formatCurrency(data.total_valor_atribuido), sub: 'revenue_attribution' },
+              { label: 'Valor Total Pedido', value: formatCurrency(data.total_valor_total), sub: 'si_purchases' },
+              { label: 'Vlr Captados', value: formatCurrency(data.total_vlr_captados), sub: 'vendas_iplace' },
+              {
+                label: 'Δ Atribuído vs Total',
+                value: formatCurrency(data.total_valor_total - data.total_valor_atribuido),
+                sub: 'diferença por pedido',
+                highlight: true,
+              },
+            ].map((s) => (
+              <div key={s.label} className={`rounded-xl border p-3 ${s.highlight ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-xs text-slate-500">{s.label}</p>
+                <p className={`mt-0.5 text-lg font-bold ${s.highlight ? 'text-amber-800' : 'text-slate-900'}`}>{s.value}</p>
+                <p className="text-xs text-slate-400">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabela */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  {[
+                    { label: 'Número Pedido', right: false },
+                    { label: 'Data Atrib.', right: false },
+                    { label: 'Data Compra', right: false },
+                    { label: 'Canal', right: false },
+                    { label: 'Status', right: false },
+                    { label: 'Vlr Atribuído', right: true },
+                    { label: 'Vlr Total Pedido', right: true },
+                    { label: 'Vlr Captados', right: true },
+                    { label: 'Δ Atrib. vs Total', right: true },
+                  ].map((col, i) => (
+                    <th key={i} className={`whitespace-nowrap px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 ${col.right ? 'text-right' : 'text-left'}`}>
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((row, i) => {
+                  const delta = (row.valor_total || 0) - (row.valor_atribuido || 0)
+                  return (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-600">
+                        {row.order_id || '-'}
+                        {!row.cruzado && <span className="ml-1 rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-400">sem cruzamento</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{row.data_atribuicao || '-'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{row.data_compra || '-'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-600">{row.canal || '-'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-slate-500 text-xs">{row.status_pedido || '-'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-indigo-700">{formatCurrency(row.valor_atribuido)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-medium text-slate-900">{formatCurrency(row.valor_total)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{row.vlr_captados ? formatCurrency(row.vlr_captados) : '-'}</td>
+                      <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold ${delta > 0 ? 'text-emerald-700' : delta < 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+                        {formatCurrency(delta)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {data.total >= limit && (
+            <p className="mt-3 text-xs text-slate-400">
+              Exibindo os {limit.toLocaleString('pt-BR')} pedidos de maior valor atribuído — aumente o limite ou use a exportação para ver todos.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function AttributionByDayChart({ items }) {
   if (!items || items.length === 0) return null
 
@@ -521,6 +711,9 @@ export default function AuditoriaPage() {
           {data.cruzamento && (
             <DetalheDeviaAtribuir startDate={startDate} endDate={endDate} />
           )}
+
+          {/* Cruzamento order_id × Número Pedido (vendas_iplace) */}
+          <CruzamentoOrderId startDate={startDate} endDate={endDate} />
 
           <SectionCard
             title="Atribuição sem Valor"

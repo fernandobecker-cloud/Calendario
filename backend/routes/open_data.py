@@ -2030,6 +2030,149 @@ def emarsys_audit_deveria_atribuir(
         raise HTTPException(status_code=502, detail=f"Falha no detalhe de deveria atribuir: {exc}") from exc
 
 
+def _build_audit_order_cruzamento_emarsys_sql(start_date: str, end_date: str, limit: int) -> str:
+    """Retorna order_id + valor_atribuido + valor_total (si_purchases) para pedidos atribuídos no período."""
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    tz = EMARSYS_TZ
+
+    return f"""
+WITH atribuidos AS (
+  SELECT
+    r.order_id,
+    DATE(MIN(r.event_time), '{tz}') AS data_atribuicao,
+    ROUND(SUM(t.attributed_amount), 2) AS valor_atribuido
+  FROM `{project}.{dataset}.{revenue}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+    AND r.order_id IS NOT NULL
+  GROUP BY r.order_id
+),
+compras AS (
+  SELECT
+    order_id,
+    ROUND(SUM(COALESCE(sales_amount, 0)), 2) AS valor_total,
+    DATE(MIN(purchase_date)) AS data_compra
+  FROM `{project}.{dataset}.{purchases}`
+  WHERE order_id IS NOT NULL
+  GROUP BY order_id
+)
+SELECT
+  a.order_id,
+  a.data_atribuicao,
+  a.valor_atribuido,
+  COALESCE(c.valor_total, 0) AS valor_total,
+  c.data_compra
+FROM atribuidos a
+LEFT JOIN compras c ON a.order_id = c.order_id
+ORDER BY a.valor_atribuido DESC
+LIMIT {limit}
+""".strip()
+
+
+def _build_audit_order_cruzamento_vendas_sql(order_ids: list[str]) -> str:
+    """Retorna Vlr_Pedidos_Captados + Canal + Status por Numero_Pedido na vendas_iplace."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        return ""
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table = _quote_identifier(VENDAS_BQ_TABLE)
+    safe_ids = sorted({str(i).replace("'", "''") for i in order_ids if i})
+    ids_values = ", ".join(f"'{i}'" for i in safe_ids) if safe_ids else "'__no_match__'"
+
+    return f"""
+SELECT
+  Numero_Pedido AS order_id,
+  COALESCE(NULLIF(TRIM(ANY_VALUE(Canal)), ''), '(sem canal)') AS canal,
+  ANY_VALUE(Status_Pedidos) AS status_pedido,
+  ROUND(
+    SUM(COALESCE(SAFE_CAST(REGEXP_REPLACE(COALESCE(TRIM(Vlr_Pedidos_Captados), ''), r'[^0-9\\.]', '') AS FLOAT64), 0)),
+    2
+  ) AS vlr_captados
+FROM `{project}.{dataset}.{table}`
+WHERE Numero_Pedido IN UNNEST([{ids_values}])
+  AND Numero_Pedido IS NOT NULL
+  AND TRIM(Numero_Pedido) != ''
+GROUP BY Numero_Pedido
+""".strip()
+
+
+@router.get("/emarsys/audit-order-cruzamento")
+def emarsys_audit_order_cruzamento(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=1000, ge=1, le=5000),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or start
+        e = _validate_optional_iso_date(end) or end
+
+        # Passo 1 — Emarsys (EU): order_id + valor_atribuido + valor_total
+        sql_emarsys = _build_audit_order_cruzamento_emarsys_sql(s, e, limit)
+        emarsys_records = run_bigquery_records(
+            sql_emarsys, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=60,
+        )
+
+        if not emarsys_records:
+            return {
+                "items": [], "total": 0, "cruzados": 0,
+                "total_valor_atribuido": 0.0, "total_valor_total": 0.0, "total_vlr_captados": 0.0,
+                "start_date": s, "end_date": e, "limit": limit,
+            }
+
+        # Passo 2 — vendas_iplace (SA): Vlr_Pedidos_Captados + Canal
+        order_ids = [str(r["order_id"]) for r in emarsys_records if r.get("order_id")]
+        vendas_map: dict[str, Any] = {}
+        if order_ids and BASE_VENDAS_BQ_PROJECT:
+            sql_vendas = _build_audit_order_cruzamento_vendas_sql(order_ids)
+            vendas_records = run_bigquery_records(
+                sql_vendas, BASE_VENDAS_BQ_PROJECT,
+                location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+            )
+            vendas_map = {str(r["order_id"]): r for r in vendas_records if r.get("order_id")}
+
+        # Passo 3 — join Python
+        items: list[dict[str, Any]] = []
+        for r in emarsys_records:
+            oid = str(r.get("order_id") or "")
+            vendas = vendas_map.get(oid, {})
+            items.append({
+                "order_id": oid,
+                "data_atribuicao": _normalize_open_data_value(r.get("data_atribuicao")),
+                "data_compra": _normalize_open_data_value(r.get("data_compra")),
+                "valor_atribuido": round(float(r.get("valor_atribuido") or 0), 2),
+                "valor_total": round(float(r.get("valor_total") or 0), 2),
+                "vlr_captados": round(float(vendas.get("vlr_captados") or 0), 2),
+                "canal": vendas.get("canal") or "",
+                "status_pedido": vendas.get("status_pedido") or "",
+                "cruzado": bool(vendas),
+            })
+
+        cruzados = sum(1 for i in items if i["cruzado"])
+        return {
+            "items": items,
+            "total": len(items),
+            "cruzados": cruzados,
+            "total_valor_atribuido": round(sum(i["valor_atribuido"] for i in items), 2),
+            "total_valor_total": round(sum(i["valor_total"] for i in items), 2),
+            "total_vlr_captados": round(sum(i["vlr_captados"] for i in items), 2),
+            "start_date": s,
+            "end_date": e,
+            "limit": limit,
+            "source": "bigquery_emarsys_x_vendas_iplace",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha no cruzamento order-id: {exc}") from exc
+
+
 def _build_receita_teste_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     """Mirrors Auditoria 'atribuida_direta' logic but splits by transactional vs marketing campaign."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
