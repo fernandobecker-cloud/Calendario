@@ -5533,10 +5533,13 @@ def _build_apple_lover_tiers_sql(start_date: str, end_date: str) -> str:
 WITH
 
 -- Contatos que usaram dispositivo Apple (Mac ou iPhone) — via client_snapshots
+-- Filtra por last_event_time para evitar full scan em períodos longos
 apple_devices AS (
   SELECT DISTINCT identified_contact_id AS contact_id
   FROM `{project}.{dataset}.{snapshots}`
   WHERE identified_contact_id IS NOT NULL
+    AND last_event_time BETWEEN TIMESTAMP(DATE_SUB(DATE('{start_date}'), INTERVAL 60 DAY))
+                            AND TIMESTAMP(DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY))
     AND REGEXP_CONTAINS(COALESCE(model, ''), r'Macintosh|iPhone\\d+,\\d+|iPhone; CPU iPhone OS')
 ),
 
@@ -5688,7 +5691,7 @@ def apple_lover_tiers(
         sql = _build_apple_lover_tiers_sql(start_date, end_date)
         records = run_bigquery_records(
             sql, EMARSYS_OPEN_DATA_PROJECT_ID,
-            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=180,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=300,
         )
 
         contacts = []
