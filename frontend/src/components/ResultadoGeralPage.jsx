@@ -153,48 +153,6 @@ function Table({ columns, rows, emptyText = 'Nenhum resultado.' }) {
   )
 }
 
-function ResumoAtribuicao({ totais, resumoPorCategoria }) {
-  const totalCrm = totais.total_crm ?? 0
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Receita Emarsys
-      </h2>
-
-      <div className="mb-5 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
-          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totalCrm)}</p>
-          <p className="mt-0.5 text-xs text-violet-600">todas as compras com CPF</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
-          <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.reportado)}</p>
-          <p className="mt-0.5 text-xs text-slate-400">
-            {totalCrm > 0 ? `${((totais.reportado / totalCrm) * 100).toFixed(1)}% do total iPlace` : 'conforme Emarsys'}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {resumoPorCategoria.map((r) => {
-          const cfg = CATEGORIA_CONFIG[r.categoria] ?? CATEGORIA_CONFIG.marketing
-          return (
-            <div key={r.categoria} className={`rounded-lg border ${cfg.border} ${cfg.bg} px-3 py-2.5`}>
-              <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
-                <p className={`text-xs font-semibold ${cfg.text}`}>{cfg.label}</p>
-              </div>
-              <p className="mt-1 text-sm font-bold text-slate-800">{formatCurrency(r.receita_total)}</p>
-              <p className="text-xs text-slate-400">{r.num_campanhas} campanhas</p>
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
 
 export default function ResultadoGeralPage({ currentRole }) {
   const defaults = getDefaultDates()
@@ -822,53 +780,93 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
 
   return (
     <div className="flex flex-col gap-4">
-      {byChannel && (
+      {(byChannel || totais) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Receita Atribuída
           </h2>
-          <p className="text-4xl font-bold text-slate-900">
-            {formatCurrency(byChannel.total_receita_atribuida)}
-          </p>
-          {monthRow && (
-            <p className="mt-1 text-sm text-slate-500">
-              {monthRow.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
-              {' · '}
-              {monthRow.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
-            </p>
+
+          {byChannel && (
+            <>
+              <p className="text-4xl font-bold text-slate-900">
+                {formatCurrency(byChannel.total_receita_atribuida)}
+              </p>
+              {monthRow && (
+                <p className="mt-1 text-sm text-slate-500">
+                  {monthRow.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
+                  {' · '}
+                  {monthRow.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
+                </p>
+              )}
+              {channels.length > 0 && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {channels.map((ch) => {
+                    const cfg = CHANNEL_CONFIG[ch.canal] ?? {
+                      label: ch.canal,
+                      color: 'text-slate-600',
+                      bg: 'bg-slate-50',
+                      border: 'border-slate-200',
+                    }
+                    return (
+                      <article key={ch.canal} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}>
+                        <h3 className={`text-xs font-semibold uppercase tracking-wide ${cfg.color}`}>
+                          {cfg.label}
+                        </h3>
+                        <p className="mt-2 text-xl font-bold text-slate-900">
+                          {formatCurrency(ch.receita_atribuida)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {ch.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
+                          {' · '}
+                          {ch.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
+                        </p>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
-          {channels.length > 0 && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {channels.map((ch) => {
-                const cfg = CHANNEL_CONFIG[ch.canal] ?? {
-                  label: ch.canal,
-                  color: 'text-slate-600',
-                  bg: 'bg-slate-50',
-                  border: 'border-slate-200',
-                }
-                return (
-                  <article key={ch.canal} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}>
-                    <h3 className={`text-xs font-semibold uppercase tracking-wide ${cfg.color}`}>
-                      {cfg.label}
-                    </h3>
-                    <p className="mt-2 text-xl font-bold text-slate-900">
-                      {formatCurrency(ch.receita_atribuida)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {ch.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
-                      {' · '}
-                      {ch.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
-                    </p>
-                  </article>
-                )
-              })}
-            </div>
+
+          {totais && (
+            <>
+              <div className={`grid gap-4 sm:grid-cols-2 ${byChannel ? 'mt-5 border-t border-slate-100 pt-5' : ''}`}>
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.total_crm ?? 0)}</p>
+                  <p className="mt-0.5 text-xs text-violet-600">todas as compras com CPF</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.reportado)}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {(totais.total_crm ?? 0) > 0
+                      ? `${((totais.reportado / totais.total_crm) * 100).toFixed(1)}% do total iPlace`
+                      : 'conforme Emarsys'}
+                  </p>
+                </div>
+              </div>
+
+              {resumoPorCategoria?.length > 0 && (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {resumoPorCategoria.map((r) => {
+                    const cfg = CATEGORIA_CONFIG[r.categoria] ?? CATEGORIA_CONFIG.marketing
+                    return (
+                      <div key={r.categoria} className={`rounded-lg border ${cfg.border} ${cfg.bg} px-3 py-2.5`}>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+                          <p className={`text-xs font-semibold ${cfg.text}`}>{cfg.label}</p>
+                        </div>
+                        <p className="mt-1 text-sm font-bold text-slate-800">{formatCurrency(r.receita_total)}</p>
+                        <p className="text-xs text-slate-400">{r.num_campanhas} campanhas</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
         </section>
-      )}
-
-      {totais && (
-        <ResumoAtribuicao totais={totais} resumoPorCategoria={resumoPorCategoria} />
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
