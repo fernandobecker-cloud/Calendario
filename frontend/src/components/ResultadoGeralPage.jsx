@@ -499,7 +499,7 @@ function CanalAtribuidaCard({ data, startDate, endDate }) {
       const res = await fetch(`/api/open-data/emarsys/receita-atribuida-canal/sem-canal?${params}`)
       if (!res.ok) throw new Error(await res.text())
       const rows = await res.json()
-      if (!rows.length) { alert('Nenhum pedido sem canal no período.'); return }
+      if (!rows.length) { alert('Nenhum pedido Pendente de Atribuição no período.'); return }
       const cols = ['order_id', 'contact_id', 'external_id', 'purchase_date', 'attributed_amount', 'channels', 'campaign_ids']
       const esc = v => { if (v == null) return ''; const s = String(v); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s }
       const csv = [cols.join(','), ...rows.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
@@ -561,7 +561,7 @@ function CanalAtribuidaCard({ data, startDate, endDate }) {
           {(data.total_pedidos_crm || 0) > (data.matched_rows || 0) && (
             <button onClick={exportSemCanal} disabled={exportLoading}
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-              {exportLoading ? '…' : `Exportar sem canal (${(data.total_pedidos_crm - data.matched_rows).toLocaleString('pt-BR')})`}
+              {exportLoading ? '…' : `Exportar Pendente de Atribuição (${(data.total_pedidos_crm - data.matched_rows).toLocaleString('pt-BR')})`}
             </button>
           )}
         </div>

@@ -4410,7 +4410,7 @@ def receita_atribuida_canal(
             if not oid:
                 continue
             candidates[oid].append({
-                "canal": str(r.get("canal") or "(sem canal)").strip() or "(sem canal)",
+                "canal": str(r.get("canal") or "Pendente de Atribuição").strip() or "Pendente de Atribuição",
                 "filial": str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)",
                 "vlr_captados": float(r.get("vlr_captados") or 0),
             })
@@ -4450,12 +4450,12 @@ def receita_atribuida_canal(
         for order_id, amount in order_amounts.items():
             if order_id in matched_order_ids:
                 continue
-            canal_groups.setdefault("(sem canal)", {"canal": "(sem canal)", "linhas": 0, "receita": 0.0})
-            canal_groups["(sem canal)"]["linhas"] += 1
-            canal_groups["(sem canal)"]["receita"] += amount
-            fk = "(sem canal)|(sem filial)"
+            canal_groups.setdefault("Pendente de Atribuição", {"canal": "Pendente de Atribuição", "linhas": 0, "receita": 0.0})
+            canal_groups["Pendente de Atribuição"]["linhas"] += 1
+            canal_groups["Pendente de Atribuição"]["receita"] += amount
+            fk = "Pendente de Atribuição|(sem filial)"
             if fk not in filial_groups:
-                filial_groups[fk] = {"canal": "(sem canal)", "codigo_filial": "(sem filial)",
+                filial_groups[fk] = {"canal": "Pendente de Atribuição", "codigo_filial": "(sem filial)",
                                      "centro_sap": "", "nome": "", "regional": "Outros",
                                      "linhas": 0, "receita": 0.0}
             filial_groups[fk]["linhas"] += 1
@@ -4675,7 +4675,7 @@ def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
+  COALESCE(NULLIF(TRIM(Canal), ''), 'Pendente de Atribuição') AS canal,
   CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
   ROUND(SUM(COALESCE(SAFE_CAST(REGEXP_REPLACE(COALESCE(TRIM(Vlr_Pedidos_Captados), ''), r'[^0-9.]', '') AS FLOAT64), 0)), 2) AS vlr_captados
 FROM `{project}.{dataset}.{table}`
