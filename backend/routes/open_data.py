@@ -112,6 +112,10 @@ EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE = os.getenv(
     "EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE",
     "client_updates_1091660394",
 ).strip()
+EMARSYS_OPEN_DATA_CLIENT_SNAPSHOTS_TABLE = os.getenv(
+    "EMARSYS_OPEN_DATA_CLIENT_SNAPSHOTS_TABLE",
+    "client_snapshots_1091660394",
+).strip()
 
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -5523,9 +5527,18 @@ def _build_apple_lover_tiers_sql(start_date: str, end_date: str) -> str:
     purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     contacts = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     session_cat = _quote_identifier(EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE)
+    snapshots = _quote_identifier(EMARSYS_OPEN_DATA_CLIENT_SNAPSHOTS_TABLE)
 
     return f"""
 WITH
+
+-- Contatos que usaram dispositivo Apple (Mac ou iPhone) — via client_snapshots
+apple_devices AS (
+  SELECT DISTINCT identified_contact_id AS contact_id
+  FROM `{project}.{dataset}.{snapshots}`
+  WHERE identified_contact_id IS NOT NULL
+    AND REGEXP_CONTAINS(COALESCE(model, ''), r'Macintosh|iPhone\\d+,\\d+|iPhone; CPU iPhone OS')
+),
 
 -- Compras Apple no período: categorias distintas, pedidos, receita e última data
 apple_purchases AS (
@@ -5588,7 +5601,6 @@ base_contacts AS (
 ),
 
 -- Pontuação e união de todas as fontes
--- Nota: client_updates não possui contact_id; uses_ios_device = FALSE por padrão
 scored AS (
   SELECT
     bc.contact_id,
@@ -5599,32 +5611,35 @@ scored AS (
     ap.last_apple_purchase_date,
     COALESCE(s.visited_apple_category, FALSE) AS visited_apple_category,
     COALESCE(s.qtd_categorias_visitadas, 0)   AS qtd_apple_categories_visited,
-    FALSE AS uses_ios_device,
+    COALESCE(ad.contact_id IS NOT NULL, FALSE) AS uses_apple_device,
     bc.average_order_value,
     bc.average_future_spend,
     bc.buyer_status,
-    -- Score 0-4 (iOS removido pois client_updates não tem contact_id)
+    -- Score 0-5
     (
       CASE WHEN COALESCE(ap.qtd_categorias_compradas, 0) >= 2 THEN 2 ELSE 0 END
       + CASE WHEN COALESCE(ap.qtd_pedidos, 0)              >= 2 THEN 1 ELSE 0 END
       + CASE WHEN SAFE_CAST(bc.average_order_value AS NUMERIC) >= 2000 THEN 1 ELSE 0 END
+      + CASE WHEN ad.contact_id IS NOT NULL THEN 1 ELSE 0 END
     ) AS apple_lover_score
   FROM base_contacts bc
   LEFT JOIN apple_purchases ap ON ap.contact_id = bc.contact_id
   LEFT JOIN apple_sessions   s  ON s.contact_id  = bc.contact_id
+  LEFT JOIN apple_devices    ad ON ad.contact_id  = bc.contact_id
   WHERE ap.contact_id IS NOT NULL
-     OR s.contact_id IS NOT NULL
+     OR s.contact_id  IS NOT NULL
+     OR ad.contact_id IS NOT NULL
 )
 
 -- Classificação final por tier
--- T1: ≥2 categorias compradas E ≥2 pedidos Apple (iOS removido por indisponibilidade)
+-- T1: ≥2 categorias compradas E ≥2 pedidos Apple E usa dispositivo Apple
 -- T2: ≥2 de (comprou Apple / ticket ≥ 2000 / ≥2 categorias visitadas)
--- T3: visitou categoria Apple
+-- T3: visitou categoria Apple OU usa dispositivo Apple
 SELECT
   contact_id,
   COALESCE(external_id, '') AS external_id,
   CASE
-    WHEN qtd_apple_categories_bought >= 2 AND qtd_apple_purchases >= 2
+    WHEN qtd_apple_categories_bought >= 2 AND qtd_apple_purchases >= 2 AND uses_apple_device
     THEN 'T1 - Ecosystem Enthusiast'
     WHEN (
       CASE WHEN qtd_apple_purchases          >= 1    THEN 1 ELSE 0 END
@@ -5632,7 +5647,7 @@ SELECT
       + CASE WHEN qtd_apple_categories_visited >= 2          THEN 1 ELSE 0 END
     ) >= 2
     THEN 'T2 - Aspirational Buyer'
-    WHEN visited_apple_category
+    WHEN visited_apple_category OR uses_apple_device
     THEN 'T3 - Apple Interested'
   END AS apple_lover_tier,
   apple_lover_score,
@@ -5642,20 +5657,20 @@ SELECT
   last_apple_purchase_date,
   visited_apple_category,
   qtd_apple_categories_visited,
-  uses_ios_device,
+  uses_apple_device,
   ROUND(COALESCE(average_order_value, 0), 2)   AS average_order_value,
   ROUND(COALESCE(average_future_spend, 0), 2)  AS average_future_spend,
   COALESCE(buyer_status, '') AS buyer_status
 FROM scored
 WHERE (
-    qtd_apple_categories_bought >= 2 AND qtd_apple_purchases >= 2 AND uses_ios_device
+    (qtd_apple_categories_bought >= 2 AND qtd_apple_purchases >= 2 AND uses_apple_device)
     OR (
       CASE WHEN qtd_apple_purchases >= 1 THEN 1 ELSE 0 END
       + CASE WHEN COALESCE(average_order_value, 0) >= 2000 THEN 1 ELSE 0 END
       + CASE WHEN qtd_apple_categories_visited >= 2 THEN 1 ELSE 0 END
     ) >= 2
     OR visited_apple_category
-    OR uses_ios_device
+    OR uses_apple_device
 )
 ORDER BY apple_lover_score DESC, total_apple_spend DESC
 LIMIT 1000
@@ -5695,7 +5710,7 @@ def apple_lover_tiers(
                 "last_apple_purchase_date":   str(r.get("last_apple_purchase_date") or ""),
                 "visited_apple_category":     bool(r.get("visited_apple_category") or False),
                 "qtd_apple_categories_visited":int(r.get("qtd_apple_categories_visited") or 0),
-                "uses_ios_device":            bool(r.get("uses_ios_device") or False),
+                "uses_apple_device":          bool(r.get("uses_apple_device") or False),
                 "average_order_value":        float(r.get("average_order_value") or 0),
                 "average_future_spend":       float(r.get("average_future_spend") or 0),
                 "buyer_status":               str(r.get("buyer_status") or ""),

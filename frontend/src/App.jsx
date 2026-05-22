@@ -2396,7 +2396,7 @@ export default function App({ mode = 'campanhas' }) {
 
     const exportCsv = () => {
       if (!d?.contacts?.length) return
-      const cols = ['contact_id','external_id','apple_lover_tier','apple_lover_score','qtd_apple_purchases','qtd_apple_categories_bought','total_apple_spend','last_apple_purchase_date','visited_apple_category','qtd_apple_categories_visited','uses_ios_device','average_order_value','average_future_spend','buyer_status']
+      const cols = ['contact_id','external_id','apple_lover_tier','apple_lover_score','qtd_apple_purchases','qtd_apple_categories_bought','total_apple_spend','last_apple_purchase_date','visited_apple_category','qtd_apple_categories_visited','uses_apple_device','average_order_value','average_future_spend','buyer_status']
       const esc = v => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s }
       const csv = [cols.join(','), ...visibleContacts.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -2499,7 +2499,7 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="pb-2 pr-3 font-medium text-right">Receita Apple</th>
                       <th className="pb-2 pr-3 font-medium">Última Compra</th>
                       <th className="pb-2 pr-3 font-medium text-right">Ticket Médio</th>
-                      <th className="pb-2 pr-3 font-medium">iOS</th>
+                      <th className="pb-2 pr-3 font-medium">Disp. Apple</th>
                       <th className="pb-2 font-medium">Status</th>
                     </tr>
                   </thead>
@@ -2521,7 +2521,7 @@ export default function App({ mode = 'campanhas' }) {
                           <td className="py-1.5 pr-3 text-right font-semibold">{formatCurrency(c.total_apple_spend)}</td>
                           <td className="py-1.5 pr-3 text-slate-500">{c.last_apple_purchase_date || '—'}</td>
                           <td className="py-1.5 pr-3 text-right">{formatCurrency(c.average_order_value)}</td>
-                          <td className="py-1.5 pr-3">{c.uses_ios_device ? '✓' : ''}</td>
+                          <td className="py-1.5 pr-3">{c.uses_apple_device ? '✓' : ''}</td>
                           <td className="py-1.5 text-slate-500">{c.buyer_status}</td>
                         </tr>
                       )
