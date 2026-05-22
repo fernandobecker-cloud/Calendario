@@ -5673,7 +5673,6 @@ WHERE (
     OR uses_apple_device
 )
 ORDER BY apple_lover_score DESC, total_apple_spend DESC
-LIMIT 1000
 """.strip()
 
 
