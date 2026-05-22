@@ -339,7 +339,7 @@ export default function App({ mode = 'campanhas' }) {
   const [appleLoverEnd, setAppleLoverEnd] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   })
-  const [appleLoverTierFilter, setAppleLoverTierFilter] = useState('todos')
+
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -2382,23 +2382,51 @@ export default function App({ mode = 'campanhas' }) {
 
   const renderAppleLoverView = () => {
     const d = appleLoverData
-    const TIER_CFG = {
-      'T1 - Ecosystem Enthusiast': { label: 'T1 — Ecosystem Enthusiast', short: 'T1', bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', dot: 'bg-violet-500' },
-      'T2 - Aspirational Buyer':   { label: 'T2 — Aspirational Buyer',   short: 'T2', bg: 'bg-blue-50',   border: 'border-blue-200',   text: 'text-blue-700',   dot: 'bg-blue-500'   },
-      'T3 - Apple Interested':     { label: 'T3 — Apple Interested',     short: 'T3', bg: 'bg-slate-50',  border: 'border-slate-200',  text: 'text-slate-600',  dot: 'bg-slate-400'  },
-    }
 
-    const visibleContacts = d
-      ? (appleLoverTierFilter === 'todos'
-          ? d.contacts
-          : d.contacts.filter(c => c.apple_lover_tier === appleLoverTierFilter))
-      : []
+    const TIERS = [
+      {
+        key: 'T1 - Ecosystem Enthusiast',
+        short: 'T1',
+        name: 'Ecosystem Enthusiast',
+        desc: 'Clientes com alto envolvimento comprovado no ecossistema Apple.',
+        criteria: ['≥ 2 categorias Apple compradas', '≥ 2 pedidos Apple no período', 'Usa dispositivo Apple (Mac ou iPhone)'],
+        bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', badge: 'bg-violet-100 text-violet-700',
+        count: () => d.summary.t1,
+      },
+      {
+        key: 'T2 - Aspirational Buyer',
+        short: 'T2',
+        name: 'Aspirational Buyer',
+        desc: 'Clientes com forte sinal de intenção Apple, mas ainda em transição.',
+        criteria: ['≥ 2 dos critérios a seguir:', '• Comprou produto Apple', '• Ticket médio ≥ R$ 2.000', '• Visitou ≥ 2 categorias Apple'],
+        bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700',
+        count: () => d.summary.t2,
+      },
+      {
+        key: 'T3 - Apple Interested',
+        short: 'T3',
+        name: 'Apple Interested',
+        desc: 'Clientes que demonstraram interesse em produtos Apple mas ainda não compraram.',
+        criteria: ['Visitou categoria Apple no site', 'ou usa dispositivo Apple'],
+        bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-600', badge: 'bg-slate-100 text-slate-600',
+        count: () => d.summary.t3,
+      },
+    ]
+
+    const tierMetrics = (key) => {
+      const list = d.contacts.filter(c => c.apple_lover_tier === key)
+      const totalSpend = list.reduce((s, c) => s + (c.total_apple_spend || 0), 0)
+      const buyers = list.filter(c => c.qtd_apple_purchases > 0)
+      const avgTicket = buyers.length ? buyers.reduce((s, c) => s + (c.average_order_value || 0), 0) / buyers.length : 0
+      const pctDevice = list.length ? Math.round(list.filter(c => c.uses_apple_device).length / list.length * 100) : 0
+      return { totalSpend, avgTicket, pctDevice }
+    }
 
     const exportCsv = () => {
       if (!d?.contacts?.length) return
       const cols = ['contact_id','external_id','apple_lover_tier','apple_lover_score','qtd_apple_purchases','qtd_apple_categories_bought','total_apple_spend','last_apple_purchase_date','visited_apple_category','qtd_apple_categories_visited','uses_apple_device','average_order_value','average_future_spend','buyer_status']
       const esc = v => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s }
-      const csv = [cols.join(','), ...visibleContacts.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
+      const csv = [cols.join(','), ...d.contacts.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
       a.download = `apple_lover_${appleLoverStart}_${appleLoverEnd}.csv`; a.click()
     }
@@ -2411,7 +2439,7 @@ export default function App({ mode = 'campanhas' }) {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Apple Lover</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Classificação de contatos por afinidade Apple: T1 Ecosystem Enthusiast · T2 Aspirational Buyer · T3 Apple Interested
+                Classificação de contatos por afinidade com o ecossistema Apple
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
@@ -2449,89 +2477,55 @@ export default function App({ mode = 'campanhas' }) {
 
         {d && !appleLoverLoading && (
           <>
-            {/* Resumo por tier */}
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Total Apple Lovers</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{d.summary.total.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-slate-400">{d.start_date} → {d.end_date}</p>
+            {/* Total + exportar */}
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4">
+              <div>
+                <span className="text-sm text-slate-500">Total Apple Lovers</span>
+                <span className="ml-3 text-2xl font-bold text-slate-900">{d.summary.total.toLocaleString('pt-BR')}</span>
+                <span className="ml-3 text-xs text-slate-400">{d.start_date} → {d.end_date}</span>
               </div>
-              {['T1 - Ecosystem Enthusiast','T2 - Aspirational Buyer','T3 - Apple Interested'].map(tier => {
-                const cfg = TIER_CFG[tier]
-                const count = tier === 'T1 - Ecosystem Enthusiast' ? d.summary.t1 : tier === 'T2 - Aspirational Buyer' ? d.summary.t2 : d.summary.t3
+              <button onClick={exportCsv}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                Exportar CSV ({d.contacts.length})
+              </button>
+            </div>
+
+            {/* Cards por tier */}
+            <div className="grid gap-4 md:grid-cols-3">
+              {TIERS.map(t => {
+                const m = tierMetrics(t.key)
                 return (
-                  <div key={tier} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5`}>
-                    <p className={`text-xs font-semibold uppercase tracking-wide ${cfg.text}`}>{cfg.short}</p>
-                    <p className="mt-1 text-3xl font-bold text-slate-900">{count.toLocaleString('pt-BR')}</p>
-                    <p className={`mt-1 text-xs ${cfg.text}`}>{tier.split(' - ')[1]}</p>
+                  <div key={t.key} className={`rounded-2xl border ${t.border} ${t.bg} p-6`}>
+                    <div className="flex items-start justify-between">
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${t.badge}`}>{t.short}</span>
+                      <span className="text-3xl font-bold text-slate-900">{t.count().toLocaleString('pt-BR')}</span>
+                    </div>
+                    <p className={`mt-3 text-base font-semibold ${t.text}`}>{t.name}</p>
+                    <p className="mt-1 text-xs text-slate-500">{t.desc}</p>
+
+                    <ul className="mt-3 space-y-1">
+                      {t.criteria.map((c, i) => (
+                        <li key={i} className={`text-xs ${t.text}`}>{c}</li>
+                      ))}
+                    </ul>
+
+                    <div className="mt-4 border-t border-current/10 pt-4 grid grid-cols-3 gap-2">
+                      <div>
+                        <p className="text-xs text-slate-400">Receita Apple</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{formatCurrency(m.totalSpend)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Ticket Médio</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{m.avgTicket > 0 ? formatCurrency(m.avgTicket) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Disp. Apple</p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{m.pctDevice}%</p>
+                      </div>
+                    </div>
                   </div>
                 )
               })}
-            </div>
-
-            {/* Filtro + tabela */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
-                  {[{k:'todos',l:'Todos'}, {k:'T1 - Ecosystem Enthusiast',l:'T1'}, {k:'T2 - Aspirational Buyer',l:'T2'}, {k:'T3 - Apple Interested',l:'T3'}].map(({k,l}) => (
-                    <button key={k} onClick={() => setAppleLoverTierFilter(k)}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${appleLoverTierFilter === k ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                      {l} {k !== 'todos' && <span className="ml-1 opacity-60">({k === 'T1 - Ecosystem Enthusiast' ? d.summary.t1 : k === 'T2 - Aspirational Buyer' ? d.summary.t2 : d.summary.t3})</span>}
-                    </button>
-                  ))}
-                </div>
-                <button onClick={exportCsv}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                  Exportar CSV ({visibleContacts.length})
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left text-slate-500">
-                      <th className="pb-2 pr-3 font-medium">Tier</th>
-                      <th className="pb-2 pr-3 font-medium">Score</th>
-                      <th className="pb-2 pr-3 font-medium">Contact ID</th>
-                      <th className="pb-2 pr-3 font-medium">CPF</th>
-                      <th className="pb-2 pr-3 font-medium text-right">Pedidos Apple</th>
-                      <th className="pb-2 pr-3 font-medium text-right">Categorias</th>
-                      <th className="pb-2 pr-3 font-medium text-right">Receita Apple</th>
-                      <th className="pb-2 pr-3 font-medium">Última Compra</th>
-                      <th className="pb-2 pr-3 font-medium text-right">Ticket Médio</th>
-                      <th className="pb-2 pr-3 font-medium">Disp. Apple</th>
-                      <th className="pb-2 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleContacts.slice(0, 500).map((c, i) => {
-                      const cfg = TIER_CFG[c.apple_lover_tier] ?? TIER_CFG['T3 - Apple Interested']
-                      return (
-                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                          <td className="py-1.5 pr-3">
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.bg} ${cfg.text} border ${cfg.border}`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />{cfg.short}
-                            </span>
-                          </td>
-                          <td className="py-1.5 pr-3 font-semibold text-slate-800">{c.apple_lover_score}</td>
-                          <td className="py-1.5 pr-3 text-slate-500">{c.contact_id}</td>
-                          <td className="py-1.5 pr-3 text-slate-700">{c.external_id || '—'}</td>
-                          <td className="py-1.5 pr-3 text-right">{c.qtd_apple_purchases}</td>
-                          <td className="py-1.5 pr-3 text-right">{c.qtd_apple_categories_bought}</td>
-                          <td className="py-1.5 pr-3 text-right font-semibold">{formatCurrency(c.total_apple_spend)}</td>
-                          <td className="py-1.5 pr-3 text-slate-500">{c.last_apple_purchase_date || '—'}</td>
-                          <td className="py-1.5 pr-3 text-right">{formatCurrency(c.average_order_value)}</td>
-                          <td className="py-1.5 pr-3">{c.uses_apple_device ? '✓' : ''}</td>
-                          <td className="py-1.5 text-slate-500">{c.buyer_status}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                {visibleContacts.length > 500 && (
-                  <p className="mt-2 text-xs text-slate-400">Mostrando 500 de {visibleContacts.length} contatos. Use Exportar CSV para ver todos.</p>
-                )}
-              </div>
             </div>
           </>
         )}
