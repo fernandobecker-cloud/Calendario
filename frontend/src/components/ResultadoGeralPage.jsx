@@ -443,9 +443,21 @@ function DailyRevenueChart({ items }) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Receita dia a dia
-      </h2>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Receita dia a dia
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">Total iPlace</p>
+            <p className="mt-0.5 text-base font-bold text-slate-900">{formatCurrency(totalIplace)}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Atribuída</p>
+            <p className="mt-0.5 text-base font-bold text-slate-900">{formatCurrency(totalAtribuida)}</p>
+          </div>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -482,17 +494,6 @@ function DailyRevenueChart({ items }) {
           />
         </LineChart>
       </ResponsiveContainer>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
-        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">Total iPlace</p>
-          <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(totalIplace)}</p>
-        </div>
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Atribuída</p>
-          <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(totalAtribuida)}</p>
-        </div>
-      </div>
     </section>
   )
 }
