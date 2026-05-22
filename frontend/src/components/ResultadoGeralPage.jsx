@@ -207,6 +207,7 @@ export default function ResultadoGeralPage({ currentRole }) {
 
   const [executivoData, setExecutivoData] = useState(null)
   const [atribuidaData, setAtribuidaData] = useState(null)
+  const [atribuidaByChannel, setAtribuidaByChannel] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
   const [influenciadaData, setInfluenciadaData] = useState(null)
   const [canalBreakdownData, setCanalBreakdownData] = useState(null)
@@ -267,7 +268,10 @@ export default function ResultadoGeralPage({ currentRole }) {
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-        const res = await fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`)
+        const [res, monthlyRes] = await Promise.all([
+          fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
+          fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
+        ])
         if (!res.ok) {
           setError('Falha ao carregar dados de receita atribuída.')
           return
@@ -277,6 +281,7 @@ export default function ResultadoGeralPage({ currentRole }) {
           totais: res.data?.totais ?? null,
           resumoPorCategoria: res.data?.resumo_por_categoria ?? [],
         })
+        setAtribuidaByChannel(monthlyRes.ok ? monthlyRes.data : null)
       } else if (activeView === 'direta') {
         setDiretaRefreshKey((k) => k + 1)
       } else if (activeView === 'influenciada') {
@@ -380,6 +385,7 @@ export default function ResultadoGeralPage({ currentRole }) {
               loading={loading}
               filtroCategoria={filtroCategoria}
               setFiltroCategoria={setFiltroCategoria}
+              byChannel={atribuidaByChannel}
             />
           )}
           {activeView === 'direta' && (
@@ -723,66 +729,13 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
     return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
   }
 
-  const { atribuida, direta, dailyRevenue } = data
-  const monthRow = atribuida?.items?.[0] ?? null
-  const byChannel = atribuida?.by_channel ?? []
+  const { direta, dailyRevenue } = data
 
   return (
     <div className="flex flex-col gap-4">
       <DailyRevenueChart items={dailyRevenue} />
 
       {conversao7Dias && <ConversaoCurvaChart state={conversao7Dias} />}
-
-      {/* Receita Atribuída */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Receita Atribuída
-        </h2>
-
-        {atribuida ? (
-          <>
-            <p className="text-4xl font-bold text-slate-900">
-              {formatCurrency(atribuida.total_receita_atribuida)}
-            </p>
-            {monthRow && (
-              <p className="mt-1 text-sm text-slate-500">
-                {monthRow.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
-                {' · '}
-                {monthRow.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
-              </p>
-            )}
-            {byChannel.length > 0 && (
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {byChannel.map((ch) => {
-                  const cfg = CHANNEL_CONFIG[ch.canal] ?? {
-                    label: ch.canal,
-                    color: 'text-slate-600',
-                    bg: 'bg-slate-50',
-                    border: 'border-slate-200',
-                  }
-                  return (
-                    <article key={ch.canal} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}>
-                      <h3 className={`text-xs font-semibold uppercase tracking-wide ${cfg.color}`}>
-                        {cfg.label}
-                      </h3>
-                      <p className="mt-2 text-xl font-bold text-slate-900">
-                        {formatCurrency(ch.receita_atribuida)}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {ch.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
-                        {' · '}
-                        {ch.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
-                      </p>
-                    </article>
-                  )
-                })}
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-slate-500">Dados não disponíveis.</p>
-        )}
-      </section>
 
       {/* Canal da Receita Atribuída */}
       {canalLoading ? (
@@ -831,7 +784,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   )
 }
 
-function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCategoria }) {
+function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCategoria, byChannel }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -864,8 +817,56 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
     ? items
     : items.filter((r) => r.categoria === filtroCategoria)
 
+  const monthRow = byChannel?.items?.[0] ?? null
+  const channels = byChannel?.by_channel ?? []
+
   return (
     <div className="flex flex-col gap-4">
+      {byChannel && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Receita Atribuída
+          </h2>
+          <p className="text-4xl font-bold text-slate-900">
+            {formatCurrency(byChannel.total_receita_atribuida)}
+          </p>
+          {monthRow && (
+            <p className="mt-1 text-sm text-slate-500">
+              {monthRow.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
+              {' · '}
+              {monthRow.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
+            </p>
+          )}
+          {channels.length > 0 && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {channels.map((ch) => {
+                const cfg = CHANNEL_CONFIG[ch.canal] ?? {
+                  label: ch.canal,
+                  color: 'text-slate-600',
+                  bg: 'bg-slate-50',
+                  border: 'border-slate-200',
+                }
+                return (
+                  <article key={ch.canal} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}>
+                    <h3 className={`text-xs font-semibold uppercase tracking-wide ${cfg.color}`}>
+                      {cfg.label}
+                    </h3>
+                    <p className="mt-2 text-xl font-bold text-slate-900">
+                      {formatCurrency(ch.receita_atribuida)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {ch.pedidos_atribuidos.toLocaleString('pt-BR')} pedidos
+                      {' · '}
+                      {ch.compradores_unicos.toLocaleString('pt-BR')} compradores únicos
+                    </p>
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       {totais && (
         <ResumoAtribuicao totais={totais} resumoPorCategoria={resumoPorCategoria} />
       )}
