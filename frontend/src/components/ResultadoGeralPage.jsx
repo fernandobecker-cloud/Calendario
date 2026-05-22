@@ -753,27 +753,20 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
   const { items, totais, resumoPorCategoria } = data
   const canalLabel = (v) => CANAL_LABELS[v] ?? v ?? '-'
 
-  const campanhaCols = [
-    { key: 'categoria',          label: 'Tipo',              format: (v) => <CategoriaBadge categoria={v} /> },
-    { key: 'canal',              label: 'Canal',             format: canalLabel },
+  const top5Email = items
+    .filter((r) => r.categoria === 'marketing' && r.canal === 'email')
+    .slice(0, 5)
+
+  const top5Sms = items
+    .filter((r) => r.categoria === 'marketing' && r.canal === 'sms')
+    .slice(0, 5)
+
+  const topCols = [
     { key: 'nome_campanha',      label: 'Campanha' },
-    { key: 'campaign_id',        label: 'ID' },
     { key: 'pedidos_atribuidos', label: 'Pedidos',           right: true },
     { key: 'compradores_unicos', label: 'Compradores',       right: true },
     { key: 'receita_atribuida',  label: 'Receita Atribuída', right: true, format: formatCurrency },
   ]
-
-  const categorias = [
-    { key: 'todos',       label: 'Todos' },
-    { key: 'marketing',   label: 'Marketing' },
-    { key: 'transacional', label: 'Transacional' },
-    { key: 'nps',         label: 'NPS / Pesquisa' },
-    { key: 'servico',     label: 'Serviço / AT' },
-  ]
-
-  const campanhasFiltradas = filtroCategoria === 'todos'
-    ? items
-    : items.filter((r) => r.categoria === filtroCategoria)
 
   const monthRow = byChannel?.items?.[0] ?? null
   const channels = byChannel?.by_channel ?? []
@@ -837,44 +830,27 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <div className="mb-3 flex items-center gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Receita por Campanha
-          </h2>
-          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
-            {items.length}
-          </span>
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Top Campanhas Marketing
+        </h2>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-600">Email</p>
+            <Table
+              columns={topCols}
+              rows={top5Email}
+              emptyText="Sem dados de Email no período."
+            />
+          </div>
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-orange-600">SMS</p>
+            <Table
+              columns={topCols}
+              rows={top5Sms}
+              emptyText="Sem dados de SMS no período."
+            />
+          </div>
         </div>
-        <p className="mb-4 text-xs text-slate-400">
-          Receita atribuída agrupada por campanha e canal, ordenada por maior receita. Top 200.
-        </p>
-
-        <div className="mb-4 flex flex-wrap gap-2">
-          {categorias.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setFiltroCategoria(c.key)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                filtroCategoria === c.key
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {c.label}
-              {c.key !== 'todos' && items.filter((r) => r.categoria === c.key).length > 0 && (
-                <span className="ml-1 opacity-60">
-                  ({items.filter((r) => r.categoria === c.key).length})
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <Table
-          columns={campanhaCols}
-          rows={campanhasFiltradas}
-          emptyText="Nenhuma campanha com receita atribuída no período."
-        />
       </section>
     </div>
   )
