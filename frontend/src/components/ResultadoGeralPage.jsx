@@ -515,7 +515,11 @@ function ConversaoCurvaChart({ state }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Curva de Conversão — Janela de 7 Dias</h2>
-      <p className="mb-4 text-xs text-slate-400">Pedidos atribuídos ao CRM agrupados por dias entre o gatilho e a compra</p>
+      <p className="mb-4 text-xs text-slate-400">
+        Pedidos atribuídos ao CRM (SMS/Email) agrupados por dias entre o gatilho e a compra
+        {' · '}<span className="font-medium text-slate-500">{total.toLocaleString('pt-BR')} pedidos com gatilho identificado</span>
+        {' · '}pedidos WhatsApp e sem gatilho rastreável não entram no gráfico
+      </p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={state.data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />

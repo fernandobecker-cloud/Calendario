@@ -4606,14 +4606,15 @@ def conversao_7dias(
 
         sql = f"""
 WITH
-attributed AS (
+-- Todos os treatments atribuídos, sem QUALIFY — um pedido pode ter SMS e email
+all_treatments AS (
   SELECT
     r.order_id,
     r.contact_id,
-    DATE(r.event_time, '{tz}')        AS purchase_date,
-    CAST(t.campaign_id AS STRING)     AS campaign_id,
-    LOWER(t.channel)                  AS channel,
-    ROUND(t.attributed_amount, 2)     AS attributed_amount
+    DATE(r.event_time, '{tz}')    AS purchase_date,
+    CAST(t.campaign_id AS STRING) AS campaign_id,
+    LOWER(t.channel)              AS channel,
+    ROUND(t.attributed_amount, 2) AS attributed_amount
   FROM `{project_id}.{dataset}.{rev_table}` r
   CROSS JOIN UNNEST(r.treatments) AS t
   WHERE ARRAY_LENGTH(r.treatments) > 0
@@ -4621,13 +4622,27 @@ attributed AS (
     AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
     AND r.order_id IS NOT NULL
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.order_id ORDER BY t.attributed_amount DESC) = 1
+    AND LOWER(t.channel) IN ('sms', 'email')
 ),
+-- Receita total por pedido (soma todos os treatments)
+order_receita AS (
+  SELECT r.order_id,
+    MAX(DATE(r.event_time, '{tz}'))               AS purchase_date,
+    MAX(r.contact_id)                              AS contact_id,
+    ROUND(SUM(t.attributed_amount), 2)             AS attributed_amount
+  FROM `{project_id}.{dataset}.{rev_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+    AND r.order_id IS NOT NULL
+  GROUP BY r.order_id
+),
+-- Melhor gatilho SMS por (pedido, campanha): mais recente dentro de 1-7 dias
 sms_trigger AS (
-  SELECT
-    a.order_id,
-    MAX(DATE(ss.event_time)) AS trigger_date
-  FROM attributed a
+  SELECT a.order_id, MAX(DATE(ss.event_time)) AS trigger_date
+  FROM all_treatments a
   JOIN `{project_id}.{dataset}.{sms_table}` ss
     ON ss.contact_id = a.contact_id
     AND CAST(ss.campaign_id AS STRING) = a.campaign_id
@@ -4638,11 +4653,10 @@ sms_trigger AS (
             AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
   GROUP BY a.order_id
 ),
+-- Melhor gatilho email por pedido
 email_trigger AS (
-  SELECT
-    a.order_id,
-    MAX(DATE(eo.event_time)) AS trigger_date
-  FROM attributed a
+  SELECT a.order_id, MAX(DATE(eo.event_time)) AS trigger_date
+  FROM all_treatments a
   JOIN `{project_id}.{dataset}.{email_table}` eo
     ON eo.contact_id = a.contact_id
     AND CAST(eo.campaign_id AS STRING) = a.campaign_id
@@ -4654,13 +4668,13 @@ email_trigger AS (
   GROUP BY a.order_id
 )
 SELECT
-  DATE_DIFF(a.purchase_date,
+  DATE_DIFF(o.purchase_date,
             COALESCE(st.trigger_date, et.trigger_date), DAY) AS dia,
-  COUNT(DISTINCT a.order_id)                                  AS pedidos,
-  ROUND(SUM(a.attributed_amount), 2)                          AS receita
-FROM attributed a
-LEFT JOIN sms_trigger   st ON st.order_id = a.order_id
-LEFT JOIN email_trigger et ON et.order_id = a.order_id
+  COUNT(DISTINCT o.order_id)                                  AS pedidos,
+  ROUND(SUM(o.attributed_amount), 2)                          AS receita
+FROM order_receita o
+LEFT JOIN sms_trigger   st ON st.order_id = o.order_id
+LEFT JOIN email_trigger et ON et.order_id = o.order_id
 WHERE COALESCE(st.trigger_date, et.trigger_date) IS NOT NULL
 GROUP BY dia
 HAVING dia BETWEEN 1 AND 7
