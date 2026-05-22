@@ -2509,18 +2509,18 @@ export default function App({ mode = 'campanhas' }) {
                       ))}
                     </ul>
 
-                    <div className="mt-4 border-t border-current/10 pt-4 grid grid-cols-3 gap-2">
-                      <div>
-                        <p className="text-xs text-slate-400">Receita Apple</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{formatCurrency(m.totalSpend)}</p>
+                    <div className="mt-4 space-y-2 border-t border-current/10 pt-4">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Receita Apple</span>
+                        <span className="font-semibold text-slate-800">{formatCurrency(m.totalSpend)}</span>
                       </div>
-                      <div>
-                        <p className="text-xs text-slate-400">Ticket Médio</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{m.avgTicket > 0 ? formatCurrency(m.avgTicket) : '—'}</p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Ticket Médio</span>
+                        <span className="font-semibold text-slate-800">{m.avgTicket > 0 ? formatCurrency(m.avgTicket) : '—'}</span>
                       </div>
-                      <div>
-                        <p className="text-xs text-slate-400">Disp. Apple</p>
-                        <p className="mt-0.5 text-sm font-semibold text-slate-800">{m.pctDevice}%</p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Disp. Apple</span>
+                        <span className="font-semibold text-slate-800">{m.pctDevice}%</span>
                       </div>
                     </div>
                   </div>
