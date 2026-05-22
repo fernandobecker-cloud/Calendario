@@ -166,6 +166,7 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [executivoData, setExecutivoData] = useState(null)
   const [atribuidaData, setAtribuidaData] = useState(null)
   const [atribuidaByChannel, setAtribuidaByChannel] = useState(null)
+  const [atribuidaTopProdutos, setAtribuidaTopProdutos] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
   const [influenciadaData, setInfluenciadaData] = useState(null)
   const [canalBreakdownData, setCanalBreakdownData] = useState(null)
@@ -226,9 +227,10 @@ export default function ResultadoGeralPage({ currentRole }) {
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-        const [res, monthlyRes] = await Promise.all([
+        const [res, monthlyRes, topProdRes] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
+          fetchJson(`/api/open-data/emarsys/atribuida-top-produtos?${params}`),
         ])
         if (!res.ok) {
           setError('Falha ao carregar dados de receita atribuída.')
@@ -240,6 +242,7 @@ export default function ResultadoGeralPage({ currentRole }) {
           resumoPorCategoria: res.data?.resumo_por_categoria ?? [],
         })
         setAtribuidaByChannel(monthlyRes.ok ? monthlyRes.data : null)
+        setAtribuidaTopProdutos(topProdRes.ok ? topProdRes.data : null)
       } else if (activeView === 'direta') {
         setDiretaRefreshKey((k) => k + 1)
       } else if (activeView === 'influenciada') {
@@ -344,6 +347,7 @@ export default function ResultadoGeralPage({ currentRole }) {
               filtroCategoria={filtroCategoria}
               setFiltroCategoria={setFiltroCategoria}
               byChannel={atribuidaByChannel}
+              topProdutos={atribuidaTopProdutos}
             />
           )}
           {activeView === 'direta' && (
@@ -742,7 +746,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   )
 }
 
-function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCategoria, byChannel }) {
+function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCategoria, byChannel, topProdutos }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -826,6 +830,36 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
             </div>
           )}
 
+        </section>
+      )}
+
+      {topProdutos?.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Top Produtos — Pedidos Atribuídos
+          </h2>
+          <div className="overflow-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-slate-500">
+                  <th className="pb-2 pr-3 font-medium">#</th>
+                  <th className="pb-2 pr-3 font-medium">Produto</th>
+                  <th className="pb-2 text-right font-medium">Pedidos</th>
+                  <th className="pb-2 pl-4 text-right font-medium">Receita</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProdutos.map((row, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                    <td className="py-1.5 pr-3 text-slate-400">{i + 1}</td>
+                    <td className="py-1.5 pr-3 text-slate-700">{row.produto}</td>
+                    <td className="py-1.5 text-right font-semibold text-slate-800">{row.pedidos.toLocaleString('pt-BR')}</td>
+                    <td className="py-1.5 pl-4 text-right text-slate-600">{formatCurrency(row.receita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

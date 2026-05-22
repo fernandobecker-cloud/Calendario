@@ -4303,6 +4303,66 @@ def perfil_cliente(
 
 
 # ---------------------------------------------------------------------------
+# Top Produtos — Pedidos atribuídos
+# ---------------------------------------------------------------------------
+
+def _build_atribuida_top_produtos_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    tz = EMARSYS_TZ
+    return f"""
+WITH attributed AS (
+  SELECT DISTINCT r.order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 1 DAY)
+                                   AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
+    AND r.order_id IS NOT NULL
+)
+SELECT
+  COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS produto,
+  COUNT(DISTINCT p.order_id)                             AS pedidos,
+  ROUND(SUM(p.sales_amount), 2)                         AS receita
+FROM `{project_id}.{dataset}.{purchases_table}` p
+INNER JOIN attributed a ON a.order_id = p.order_id
+WHERE p.sales_amount > 0
+GROUP BY 1
+ORDER BY pedidos DESC
+LIMIT 15
+""".strip()
+
+
+@router.get("/emarsys/atribuida-top-produtos")
+def atribuida_top_produtos(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> list[dict]:
+    start_date = _validate_optional_iso_date(start) or str(date.today())
+    end_date = _validate_optional_iso_date(end) or start_date
+    try:
+        sql = _build_atribuida_top_produtos_sql(start_date, end_date)
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=40,
+        )
+        return [
+            {
+                "produto": str(r.get("produto") or ""),
+                "pedidos": int(r.get("pedidos") or 0),
+                "receita": float(r.get("receita") or 0),
+            }
+            for r in records
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar top produtos atribuídos: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # Receita Atribuída × Canal (Base Vendas via CPF)
 # ---------------------------------------------------------------------------
 
