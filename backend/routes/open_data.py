@@ -4401,15 +4401,29 @@ def receita_atribuida_canal(
             location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
         )
 
-        # Step 3: join Python — atribui o attributed_amount do Emarsys a cada canal/filial
+        # Step 3: agrupa candidatos por order_id (pode ter >1 linha quando mesmo número
+        # existe em filiais/canais diferentes) e desambigua pelo valor mais próximo
+        from collections import defaultdict
+        candidates: dict[str, list[dict]] = defaultdict(list)
+        for r in bv_records:
+            oid = str(r.get("order_id") or "")
+            if not oid:
+                continue
+            candidates[oid].append({
+                "canal": str(r.get("canal") or "(sem canal)").strip() or "(sem canal)",
+                "filial": str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)",
+                "vlr_captados": float(r.get("vlr_captados") or 0),
+            })
+
         canal_groups: dict[str, dict[str, Any]] = {}
         filial_groups: dict[str, dict[str, Any]] = {}
         matched_order_ids: set[str] = set()
-        for r in bv_records:
-            order_id = str(r.get("order_id") or "")
-            canal = str(r.get("canal") or "(sem canal)").strip() or "(sem canal)"
-            filial = str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)"
+
+        for order_id, cands in candidates.items():
             amount = order_amounts.get(order_id, 0.0)
+            best = cands[0] if len(cands) == 1 else min(cands, key=lambda c: abs(c["vlr_captados"] - amount))
+            canal = best["canal"]
+            filial = best["filial"]
             matched_order_ids.add(order_id)
 
             if canal not in canal_groups:
@@ -4431,6 +4445,21 @@ def receita_atribuida_canal(
                 }
             filial_groups[filial_key]["linhas"] += 1
             filial_groups[filial_key]["receita"] += amount
+
+        # Pedidos sem match em vendas_iplace: soma em canal/filial "desconhecido"
+        for order_id, amount in order_amounts.items():
+            if order_id in matched_order_ids:
+                continue
+            canal_groups.setdefault("(sem canal)", {"canal": "(sem canal)", "linhas": 0, "receita": 0.0})
+            canal_groups["(sem canal)"]["linhas"] += 1
+            canal_groups["(sem canal)"]["receita"] += amount
+            fk = "(sem canal)|(sem filial)"
+            if fk not in filial_groups:
+                filial_groups[fk] = {"canal": "(sem canal)", "codigo_filial": "(sem filial)",
+                                     "centro_sap": "", "nome": "", "regional": "Outros",
+                                     "linhas": 0, "receita": 0.0}
+            filial_groups[fk]["linhas"] += 1
+            filial_groups[fk]["receita"] += amount
 
         canal_list = sorted(
             [{"canal": g["canal"], "linhas": g["linhas"], "receita": round(g["receita"], 2)}
@@ -4535,7 +4564,7 @@ GROUP BY r.order_id
 
 
 def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
-    """Um canal/filial por Numero_Pedido (deduplicado) — vendas_iplace tem N linhas por pedido."""
+    """Canal/filial+vlr por (Numero_Pedido, Cod_Filial, Canal) para desambiguação por valor."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -4546,13 +4575,14 @@ def _build_vendas_canal_filial_sql(order_ids: set[str]) -> str:
     return f"""
 SELECT
   Numero_Pedido AS order_id,
-  COALESCE(NULLIF(TRIM(ANY_VALUE(Canal)), ''), '(sem canal)') AS canal,
-  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(ANY_VALUE(Cod_Filial), ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial
+  COALESCE(NULLIF(TRIM(Canal), ''), '(sem canal)') AS canal,
+  CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
+  ROUND(SUM(COALESCE(SAFE_CAST(REGEXP_REPLACE(COALESCE(TRIM(Vlr_Pedidos_Captados), ''), r'[^0-9.]', '') AS FLOAT64), 0)), 2) AS vlr_captados
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
   AND TRIM(Numero_Pedido) != ''
-GROUP BY Numero_Pedido
+GROUP BY Numero_Pedido, Cod_Filial, Canal
 """.strip()
 
 
