@@ -672,6 +672,8 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
 
   return (
     <div className="flex flex-col gap-4">
+      <DailyRevenueChart items={dailyRevenue} />
+
       {/* Receita Atribuída */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -766,7 +768,6 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
         </div>
       </section>
 
-      <DailyRevenueChart items={dailyRevenue} />
     </div>
   )
 }
