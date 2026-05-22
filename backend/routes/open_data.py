@@ -4303,17 +4303,15 @@ def perfil_cliente(
 
 
 # ---------------------------------------------------------------------------
-# Top Produtos — Pedidos atribuídos
+# Top Produtos e Categorias — Pedidos atribuídos
 # ---------------------------------------------------------------------------
 
-def _build_atribuida_top_produtos_sql(start_date: str, end_date: str) -> str:
+def _attributed_orders_cte(start_date: str, end_date: str) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     tz = EMARSYS_TZ
-    return f"""
-WITH attributed AS (
+    return f"""attributed AS (
   SELECT DISTINCT r.order_id
   FROM `{project_id}.{dataset}.{revenue_table}` r
   WHERE ARRAY_LENGTH(r.treatments) > 0
@@ -4321,7 +4319,16 @@ WITH attributed AS (
     AND DATE(r.partitiontime) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 1 DAY)
                                    AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
     AND r.order_id IS NOT NULL
-)
+)"""
+
+
+def _build_atribuida_top_produtos_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    cte = _attributed_orders_cte(start_date, end_date)
+    return f"""
+WITH {cte}
 SELECT
   COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS produto,
   COUNT(DISTINCT p.order_id)                             AS pedidos,
@@ -4330,8 +4337,45 @@ FROM `{project_id}.{dataset}.{purchases_table}` p
 INNER JOIN attributed a ON a.order_id = p.order_id
 WHERE p.sales_amount > 0
 GROUP BY 1
-ORDER BY pedidos DESC
+ORDER BY receita DESC
 LIMIT 15
+""".strip()
+
+
+def _build_atribuida_top_categorias_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    cte = _attributed_orders_cte(start_date, end_date)
+    return f"""
+WITH
+{cte},
+categorized AS (
+  SELECT
+    CASE
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPHONE')                        THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPAD')                          THEN 'iPad'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'APPLE WATCH')                   THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'AIRPOD')                        THEN 'AirPods'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'APPLE TV|APPLETV|HOMEPOD')      THEN 'Apple TV / HomePod'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'SAMSUNG')                       THEN 'Samsung'
+      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'XIAOMI|MOTOROLA|LG |SONY|PHILIPS|BOSE|BEATS|JABRA|JBL') THEN 'Outras Marcas'
+      ELSE 'Acessórios / Outros'
+    END AS categoria,
+    p.order_id,
+    p.sales_amount
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  INNER JOIN attributed a ON a.order_id = p.order_id
+  WHERE p.sales_amount > 0
+)
+SELECT
+  categoria,
+  COUNT(DISTINCT order_id) AS pedidos,
+  ROUND(SUM(sales_amount), 2) AS receita
+FROM categorized
+GROUP BY 1
+ORDER BY receita DESC
 """.strip()
 
 
@@ -4349,17 +4393,36 @@ def atribuida_top_produtos(
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=40,
         )
         return [
-            {
-                "produto": str(r.get("produto") or ""),
-                "pedidos": int(r.get("pedidos") or 0),
-                "receita": float(r.get("receita") or 0),
-            }
+            {"produto": str(r.get("produto") or ""), "pedidos": int(r.get("pedidos") or 0), "receita": float(r.get("receita") or 0)}
             for r in records
         ]
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao carregar top produtos atribuídos: {exc}") from exc
+
+
+@router.get("/emarsys/atribuida-top-categorias")
+def atribuida_top_categorias(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> list[dict]:
+    start_date = _validate_optional_iso_date(start) or str(date.today())
+    end_date = _validate_optional_iso_date(end) or start_date
+    try:
+        sql = _build_atribuida_top_categorias_sql(start_date, end_date)
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=40,
+        )
+        return [
+            {"categoria": str(r.get("categoria") or ""), "pedidos": int(r.get("pedidos") or 0), "receita": float(r.get("receita") or 0)}
+            for r in records
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao carregar top categorias atribuídas: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

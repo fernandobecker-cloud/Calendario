@@ -96,8 +96,6 @@ const CATEGORIA_CONFIG = {
   servico:      { label: 'Serviço / AT',   bg: 'bg-slate-50',   text: 'text-slate-600',   border: 'border-slate-200',   dot: 'bg-slate-400'   },
 }
 
-const CANAL_LABELS = { email: 'Email', sms: 'SMS', whatsapp: 'WhatsApp' }
-
 async function fetchJson(url) {
   const res = await fetch(url)
   const json = await res.json().catch(() => null)
@@ -105,15 +103,6 @@ async function fetchJson(url) {
   return { ok: true, data: json }
 }
 
-function CategoriaBadge({ categoria }) {
-  const cfg = CATEGORIA_CONFIG[categoria] ?? CATEGORIA_CONFIG.marketing
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.text}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}
-    </span>
-  )
-}
 
 function Table({ columns, rows, emptyText = 'Nenhum resultado.' }) {
   if (!rows || rows.length === 0) {
@@ -161,12 +150,12 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [endDate, setEndDate] = useState(defaults.end)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [filtroCategoria, setFiltroCategoria] = useState('todos')
 
   const [executivoData, setExecutivoData] = useState(null)
   const [atribuidaData, setAtribuidaData] = useState(null)
   const [atribuidaByChannel, setAtribuidaByChannel] = useState(null)
   const [atribuidaTopProdutos, setAtribuidaTopProdutos] = useState(null)
+  const [atribuidaTopCategorias, setAtribuidaTopCategorias] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
   const [influenciadaData, setInfluenciadaData] = useState(null)
   const [canalBreakdownData, setCanalBreakdownData] = useState(null)
@@ -227,10 +216,11 @@ export default function ResultadoGeralPage({ currentRole }) {
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-        const [res, monthlyRes, topProdRes] = await Promise.all([
+        const [res, monthlyRes, topProdRes, topCatRes] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
           fetchJson(`/api/open-data/emarsys/atribuida-top-produtos?${params}`),
+          fetchJson(`/api/open-data/emarsys/atribuida-top-categorias?${params}`),
         ])
         if (!res.ok) {
           setError('Falha ao carregar dados de receita atribuída.')
@@ -243,6 +233,7 @@ export default function ResultadoGeralPage({ currentRole }) {
         })
         setAtribuidaByChannel(monthlyRes.ok ? monthlyRes.data : null)
         setAtribuidaTopProdutos(topProdRes.ok ? topProdRes.data : null)
+        setAtribuidaTopCategorias(topCatRes.ok ? topCatRes.data : null)
       } else if (activeView === 'direta') {
         setDiretaRefreshKey((k) => k + 1)
       } else if (activeView === 'influenciada') {
@@ -344,10 +335,9 @@ export default function ResultadoGeralPage({ currentRole }) {
             <AtribuidaDetalhadaView
               data={atribuidaData}
               loading={loading}
-              filtroCategoria={filtroCategoria}
-              setFiltroCategoria={setFiltroCategoria}
               byChannel={atribuidaByChannel}
               topProdutos={atribuidaTopProdutos}
+              topCategorias={atribuidaTopCategorias}
             />
           )}
           {activeView === 'direta' && (
@@ -746,7 +736,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   )
 }
 
-function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCategoria, byChannel, topProdutos }) {
+function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCategorias }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -754,8 +744,7 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
     return <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
   }
 
-  const { items, totais, resumoPorCategoria } = data
-  const canalLabel = (v) => CANAL_LABELS[v] ?? v ?? '-'
+  const { items, totais } = data
 
   const top5Email = items
     .filter((r) => r.categoria === 'marketing' && r.canal === 'email')
@@ -772,8 +761,11 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
     { key: 'receita_atribuida',  label: 'Receita Atribuída', right: true, format: formatCurrency },
   ]
 
-  const monthRow = byChannel?.items?.[0] ?? null
   const channels = byChannel?.by_channel ?? []
+  const prodByReceita = topProdutos ? [...topProdutos].sort((a, b) => b.receita - a.receita) : []
+  const prodByPedidos = topProdutos ? [...topProdutos].sort((a, b) => b.pedidos - a.pedidos) : []
+  const catByReceita = topCategorias ? [...topCategorias].sort((a, b) => b.receita - a.receita) : []
+  const catByPedidos = topCategorias ? [...topCategorias].sort((a, b) => b.pedidos - a.pedidos) : []
 
   return (
     <div className="flex flex-col gap-4">
@@ -833,32 +825,107 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
         </section>
       )}
 
-      {topProdutos?.length > 0 && (
+      {(topProdutos?.length > 0 || topCategorias?.length > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Top Produtos — Pedidos Atribuídos
+            Top Produtos e Categorias
           </h2>
-          <div className="overflow-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-slate-500">
-                  <th className="pb-2 pr-3 font-medium">#</th>
-                  <th className="pb-2 pr-3 font-medium">Produto</th>
-                  <th className="pb-2 text-right font-medium">Pedidos</th>
-                  <th className="pb-2 pl-4 text-right font-medium">Receita</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topProdutos.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="py-1.5 pr-3 text-slate-400">{i + 1}</td>
-                    <td className="py-1.5 pr-3 text-slate-700">{row.produto}</td>
-                    <td className="py-1.5 text-right font-semibold text-slate-800">{row.pedidos.toLocaleString('pt-BR')}</td>
-                    <td className="py-1.5 pl-4 text-right text-slate-600">{formatCurrency(row.receita)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-6 md:grid-cols-2">
+            {prodByReceita.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Top Produtos — Receita</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-slate-500">
+                      <th className="pb-1.5 pr-2 font-medium">#</th>
+                      <th className="pb-1.5 pr-2 font-medium">Produto</th>
+                      <th className="pb-1.5 text-right font-medium">Receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {prodByReceita.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-1.5 pr-2 text-slate-400">{i + 1}</td>
+                        <td className="py-1.5 pr-2 text-slate-700">{row.produto}</td>
+                        <td className="py-1.5 text-right font-semibold text-slate-800">{formatCurrency(row.receita)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {prodByPedidos.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Top Produtos — Quantidade</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-slate-500">
+                      <th className="pb-1.5 pr-2 font-medium">#</th>
+                      <th className="pb-1.5 pr-2 font-medium">Produto</th>
+                      <th className="pb-1.5 text-right font-medium">Pedidos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {prodByPedidos.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-1.5 pr-2 text-slate-400">{i + 1}</td>
+                        <td className="py-1.5 pr-2 text-slate-700">{row.produto}</td>
+                        <td className="py-1.5 text-right font-semibold text-slate-800">{row.pedidos.toLocaleString('pt-BR')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {catByReceita.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Top Categorias — Receita</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-slate-500">
+                      <th className="pb-1.5 pr-2 font-medium">#</th>
+                      <th className="pb-1.5 pr-2 font-medium">Categoria</th>
+                      <th className="pb-1.5 text-right font-medium">Receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catByReceita.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-1.5 pr-2 text-slate-400">{i + 1}</td>
+                        <td className="py-1.5 pr-2 text-slate-700">{row.categoria}</td>
+                        <td className="py-1.5 text-right font-semibold text-slate-800">{formatCurrency(row.receita)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {catByPedidos.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Top Categorias — Quantidade</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-slate-500">
+                      <th className="pb-1.5 pr-2 font-medium">#</th>
+                      <th className="pb-1.5 pr-2 font-medium">Categoria</th>
+                      <th className="pb-1.5 text-right font-medium">Pedidos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catByPedidos.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-1.5 pr-2 text-slate-400">{i + 1}</td>
+                        <td className="py-1.5 pr-2 text-slate-700">{row.categoria}</td>
+                        <td className="py-1.5 text-right font-semibold text-slate-800">{row.pedidos.toLocaleString('pt-BR')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </section>
       )}
