@@ -5517,6 +5517,212 @@ def apple_lover_summary(
         raise HTTPException(status_code=502, detail=f"Falha ao calcular Apple Lover: {exc}") from exc
 
 
+def _build_apple_lover_tiers_sql(start_date: str, end_date: str) -> str:
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    contacts = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    session_cat = _quote_identifier(EMARSYS_OPEN_DATA_SESSION_CATEGORIES_TABLE)
+    client_upd = _quote_identifier(EMARSYS_OPEN_DATA_CLIENT_UPDATES_TABLE)
+
+    return f"""
+WITH
+
+-- Compras Apple no período: categorias distintas, pedidos, receita e última data
+apple_purchases AS (
+  SELECT
+    c.contact_id,
+    COUNT(DISTINCT p.order_id) AS qtd_pedidos,
+    COUNT(DISTINCT
+      CASE
+        WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPHONE')        THEN 'iPhone'
+        WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPAD')          THEN 'iPad'
+        WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+        WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'APPLE WATCH')   THEN 'Apple Watch'
+        WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'AIRPOD')        THEN 'AirPods'
+        ELSE 'Outros'
+      END
+    ) AS qtd_categorias_compradas,
+    ROUND(SUM(SAFE_CAST(p.sales_amount AS NUMERIC)), 2) AS total_apple_spend,
+    MAX(DATE(p.purchase_date)) AS last_apple_purchase_date
+  FROM `{project}.{dataset}.{purchases}` p
+  JOIN `{project}.{dataset}.{contacts}` c ON c.si_contact_id = p.si_contact_id
+  WHERE c.contact_id IS NOT NULL
+    AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND {_APPLE_PRODUCT_FILTER}
+  GROUP BY c.contact_id
+),
+
+-- Categorias Apple visitadas no site no período
+apple_sessions AS (
+  SELECT
+    contact_id,
+    TRUE AS visited_apple_category,
+    COUNT(DISTINCT
+      CASE
+        WHEN STARTS_WITH(category, 'iPhone') THEN 'iPhone'
+        WHEN STARTS_WITH(category, 'iPad')   THEN 'iPad'
+        WHEN STARTS_WITH(category, 'Mac')    THEN 'Mac'
+        WHEN STARTS_WITH(category, 'AirPod') THEN 'AirPods'
+        WHEN STARTS_WITH(category, 'Watch') OR STARTS_WITH(category, 'Apple Watch') THEN 'Watch'
+        ELSE NULL
+      END
+    ) AS qtd_categorias_visitadas
+  FROM `{project}.{dataset}.{session_cat}`
+  WHERE contact_id IS NOT NULL
+    AND {_APPLE_CATEGORY_FILTER}
+    AND DATE(partitiontime) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 1 DAY)
+                                 AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
+  GROUP BY contact_id
+),
+
+-- Dispositivos iOS por contact_id (client_updates)
+ios_contacts AS (
+  SELECT DISTINCT contact_id
+  FROM `{project}.{dataset}.{client_upd}`
+  WHERE contact_id IS NOT NULL
+    AND LOWER(COALESCE(platform, '')) = 'ios'
+),
+
+-- Perfil base dos contatos (ticket médio, spend futuro, status)
+base_contacts AS (
+  SELECT
+    contact_id,
+    external_id,
+    SAFE_CAST(average_order_value AS NUMERIC) AS average_order_value,
+    SAFE_CAST(average_future_spend AS NUMERIC) AS average_future_spend,
+    buyer_status
+  FROM `{project}.{dataset}.{contacts}`
+  WHERE contact_id IS NOT NULL
+),
+
+-- Pontuação e união de todas as fontes
+scored AS (
+  SELECT
+    bc.contact_id,
+    bc.external_id,
+    COALESCE(ap.qtd_pedidos,              0) AS qtd_apple_purchases,
+    COALESCE(ap.qtd_categorias_compradas, 0) AS qtd_apple_categories_bought,
+    COALESCE(ap.total_apple_spend,        0) AS total_apple_spend,
+    ap.last_apple_purchase_date,
+    COALESCE(s.visited_apple_category,    FALSE) AS visited_apple_category,
+    COALESCE(s.qtd_categorias_visitadas,  0) AS qtd_apple_categories_visited,
+    (ios.contact_id IS NOT NULL) AS uses_ios_device,
+    bc.average_order_value,
+    bc.average_future_spend,
+    bc.buyer_status,
+    -- Score 0-5
+    (
+      CASE WHEN COALESCE(ap.qtd_categorias_compradas, 0) >= 2 THEN 2 ELSE 0 END
+      + CASE WHEN COALESCE(ap.qtd_pedidos, 0)              >= 2 THEN 1 ELSE 0 END
+      + CASE WHEN ios.contact_id IS NOT NULL                     THEN 1 ELSE 0 END
+      + CASE WHEN SAFE_CAST(bc.average_order_value AS NUMERIC) >= 2000 THEN 1 ELSE 0 END
+    ) AS apple_lover_score
+  FROM base_contacts bc
+  LEFT JOIN apple_purchases ap ON ap.contact_id = bc.contact_id
+  LEFT JOIN apple_sessions   s  ON s.contact_id  = bc.contact_id
+  LEFT JOIN ios_contacts     ios ON ios.contact_id = bc.contact_id
+  WHERE ap.contact_id IS NOT NULL
+     OR s.contact_id IS NOT NULL
+     OR ios.contact_id IS NOT NULL
+)
+
+-- Classificação final por tier
+SELECT
+  contact_id,
+  COALESCE(external_id, '') AS external_id,
+  CASE
+    WHEN qtd_apple_categories_bought >= 2
+         AND qtd_apple_purchases      >= 2
+         AND uses_ios_device
+    THEN 'T1 - Ecosystem Enthusiast'
+    WHEN (
+      CASE WHEN qtd_apple_purchases          >= 1    THEN 1 ELSE 0 END
+      + CASE WHEN COALESCE(average_order_value, 0)  >= 2000 THEN 1 ELSE 0 END
+      + CASE WHEN qtd_apple_categories_visited >= 2          THEN 1 ELSE 0 END
+    ) >= 2
+    THEN 'T2 - Aspirational Buyer'
+    WHEN visited_apple_category OR uses_ios_device
+    THEN 'T3 - Apple Interested'
+  END AS apple_lover_tier,
+  apple_lover_score,
+  qtd_apple_purchases,
+  qtd_apple_categories_bought,
+  ROUND(total_apple_spend, 2)      AS total_apple_spend,
+  last_apple_purchase_date,
+  visited_apple_category,
+  qtd_apple_categories_visited,
+  uses_ios_device,
+  ROUND(COALESCE(average_order_value, 0), 2)   AS average_order_value,
+  ROUND(COALESCE(average_future_spend, 0), 2)  AS average_future_spend,
+  COALESCE(buyer_status, '') AS buyer_status
+FROM scored
+WHERE (
+    qtd_apple_categories_bought >= 2 AND qtd_apple_purchases >= 2 AND uses_ios_device
+    OR (
+      CASE WHEN qtd_apple_purchases >= 1 THEN 1 ELSE 0 END
+      + CASE WHEN COALESCE(average_order_value, 0) >= 2000 THEN 1 ELSE 0 END
+      + CASE WHEN qtd_apple_categories_visited >= 2 THEN 1 ELSE 0 END
+    ) >= 2
+    OR visited_apple_category
+    OR uses_ios_device
+)
+ORDER BY apple_lover_score DESC, total_apple_spend DESC
+LIMIT 1000
+""".strip()
+
+
+@router.get("/apple-lover/tiers")
+def apple_lover_tiers(
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end:   str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    today = date.today()
+    start_date = _validate_optional_iso_date(start) or str(today.replace(day=1))
+    end_date   = _validate_optional_iso_date(end)   or str(today)
+    try:
+        sql = _build_apple_lover_tiers_sql(start_date, end_date)
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=180,
+        )
+
+        contacts = []
+        t1 = t2 = t3 = 0
+        for r in records:
+            tier = str(r.get("apple_lover_tier") or "")
+            if tier == "T1 - Ecosystem Enthusiast":   t1 += 1
+            elif tier == "T2 - Aspirational Buyer":   t2 += 1
+            elif tier == "T3 - Apple Interested":     t3 += 1
+            contacts.append({
+                "contact_id":                 str(r.get("contact_id") or ""),
+                "external_id":                str(r.get("external_id") or ""),
+                "apple_lover_tier":           tier,
+                "apple_lover_score":          int(r.get("apple_lover_score") or 0),
+                "qtd_apple_purchases":        int(r.get("qtd_apple_purchases") or 0),
+                "qtd_apple_categories_bought":int(r.get("qtd_apple_categories_bought") or 0),
+                "total_apple_spend":          float(r.get("total_apple_spend") or 0),
+                "last_apple_purchase_date":   str(r.get("last_apple_purchase_date") or ""),
+                "visited_apple_category":     bool(r.get("visited_apple_category") or False),
+                "qtd_apple_categories_visited":int(r.get("qtd_apple_categories_visited") or 0),
+                "uses_ios_device":            bool(r.get("uses_ios_device") or False),
+                "average_order_value":        float(r.get("average_order_value") or 0),
+                "average_future_spend":       float(r.get("average_future_spend") or 0),
+                "buyer_status":               str(r.get("buyer_status") or ""),
+            })
+
+        return {
+            "start_date": start_date,
+            "end_date":   end_date,
+            "summary":    {"t1": t1, "t2": t2, "t3": t3, "total": t1 + t2 + t3},
+            "contacts":   contacts,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular Apple Lover tiers: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Auditoria de Receita CRM — cruzamento revenue_attribution × si_purchases
 # ---------------------------------------------------------------------------

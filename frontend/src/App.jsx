@@ -333,7 +333,13 @@ export default function App({ mode = 'campanhas' }) {
   const [appleLoverData, setAppleLoverData] = useState(null)
   const [appleLoverLoading, setAppleLoverLoading] = useState(false)
   const [appleLoverError, setAppleLoverError] = useState('')
-  const [appleLoverLookback, setAppleLoverLookback] = useState(90)
+  const [appleLoverStart, setAppleLoverStart] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`
+  })
+  const [appleLoverEnd, setAppleLoverEnd] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  })
+  const [appleLoverTierFilter, setAppleLoverTierFilter] = useState('todos')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -926,15 +932,12 @@ export default function App({ mode = 'campanhas' }) {
     setAppleLoverLoading(true)
     setAppleLoverError('')
     try {
-      const params = new URLSearchParams({ lookback_days: String(appleLoverLookback) })
-      const res = await fetch(`/api/open-data/apple-lover/summary?${params}`)
+      const params = new URLSearchParams({ start: appleLoverStart, end: appleLoverEnd })
+      const res = await fetch(`/api/open-data/apple-lover/tiers?${params}`)
       const text = await res.text()
       let payload = null
       try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
-      if (!res.ok) {
-        const detail = payload?.detail || `HTTP ${res.status}`
-        throw new Error(detail)
-      }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
       if (!payload) throw new Error('A API nao retornou dados.')
       setAppleLoverData(payload)
     } catch (err) {
@@ -943,7 +946,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setAppleLoverLoading(false)
     }
-  }, [appleLoverLookback])
+  }, [appleLoverStart, appleLoverEnd])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -2379,34 +2382,51 @@ export default function App({ mode = 'campanhas' }) {
 
   const renderAppleLoverView = () => {
     const d = appleLoverData
+    const TIER_CFG = {
+      'T1 - Ecosystem Enthusiast': { label: 'T1 — Ecosystem Enthusiast', short: 'T1', bg: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700', dot: 'bg-violet-500' },
+      'T2 - Aspirational Buyer':   { label: 'T2 — Aspirational Buyer',   short: 'T2', bg: 'bg-blue-50',   border: 'border-blue-200',   text: 'text-blue-700',   dot: 'bg-blue-500'   },
+      'T3 - Apple Interested':     { label: 'T3 — Apple Interested',     short: 'T3', bg: 'bg-slate-50',  border: 'border-slate-200',  text: 'text-slate-600',  dot: 'bg-slate-400'  },
+    }
+
+    const visibleContacts = d
+      ? (appleLoverTierFilter === 'todos'
+          ? d.contacts
+          : d.contacts.filter(c => c.apple_lover_tier === appleLoverTierFilter))
+      : []
+
+    const exportCsv = () => {
+      if (!d?.contacts?.length) return
+      const cols = ['contact_id','external_id','apple_lover_tier','apple_lover_score','qtd_apple_purchases','qtd_apple_categories_bought','total_apple_spend','last_apple_purchase_date','visited_apple_category','qtd_apple_categories_visited','uses_ios_device','average_order_value','average_future_spend','buyer_status']
+      const esc = v => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s }
+      const csv = [cols.join(','), ...visibleContacts.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      a.download = `apple_lover_${appleLoverStart}_${appleLoverEnd}.csv`; a.click()
+    }
+
     return (
       <section className="space-y-5">
+        {/* Header */}
         <section className="rounded-2xl bg-gradient-to-r from-slate-800 to-slate-700 p-6 text-white shadow-soft md:p-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl"> Apple Lover</h1>
-              <p className="mt-2 text-sm text-slate-300 md:text-base">
-                Contatos com afinidade Apple: compradores (si_purchases), visitantes de categorias Apple (session_categories) e dispositivos iOS (client_updates).
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Apple Lover</h1>
+              <p className="mt-2 text-sm text-slate-300">
+                Classificação de contatos por afinidade Apple: T1 Ecosystem Enthusiast · T2 Aspirational Buyer · T3 Apple Interested
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-sm text-white/90">
-                Janela (dias)
-                <input
-                  type="number"
-                  min="7"
-                  max="365"
-                  value={appleLoverLookback}
-                  onChange={(e) => setAppleLoverLookback(Number(e.target.value || 90))}
-                  className="w-24 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
+                Início
+                <input type="date" value={appleLoverStart} onChange={e => setAppleLoverStart(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
               </label>
-              <button
-                type="button"
-                onClick={loadAppleLover}
-                disabled={appleLoverLoading}
-                className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60"
-              >
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input type="date" value={appleLoverEnd} onChange={e => setAppleLoverEnd(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+              <button type="button" onClick={loadAppleLover} disabled={appleLoverLoading}
+                className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60">
                 {appleLoverLoading ? 'Consultando...' : 'Consultar'}
               </button>
             </div>
@@ -2414,65 +2434,103 @@ export default function App({ mode = 'campanhas' }) {
         </section>
 
         {appleLoverError && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {appleLoverError}
-          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{appleLoverError}</div>
         )}
-
         {!d && !appleLoverLoading && !appleLoverError && (
           <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400">
-            Clique em "Consultar" para carregar os dados Apple Lover.
+            Selecione o período e clique em "Consultar".
           </div>
         )}
-
         {appleLoverLoading && (
           <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400">
-            Consultando BigQuery... isso pode levar alguns segundos.
+            Consultando BigQuery… isso pode levar alguns instantes.
           </div>
         )}
 
         {d && !appleLoverLoading && (
           <>
+            {/* Resumo por tier */}
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-5">
                 <p className="text-xs text-slate-500">Total Apple Lovers</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{d.total_apple_lovers?.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-slate-400">comprador OU visitante (últimos {d.lookback_days}d)</p>
+                <p className="mt-1 text-3xl font-bold text-slate-900">{d.summary.total.toLocaleString('pt-BR')}</p>
+                <p className="mt-1 text-xs text-slate-400">{d.start_date} → {d.end_date}</p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Compradores Apple</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{d.buyers_count?.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-slate-400">critério 1 — si_purchases</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Visitantes Apple</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{d.visitors_count?.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-slate-400">critério 2 — session_categories</p>
-              </div>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-                <p className="text-xs text-emerald-700">Sobreposição</p>
-                <p className="mt-1 text-3xl font-bold text-emerald-800">{d.both_count?.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-emerald-600">comprador E visitante</p>
-              </div>
+              {['T1 - Ecosystem Enthusiast','T2 - Aspirational Buyer','T3 - Apple Interested'].map(tier => {
+                const cfg = TIER_CFG[tier]
+                const count = tier === 'T1 - Ecosystem Enthusiast' ? d.summary.t1 : tier === 'T2 - Aspirational Buyer' ? d.summary.t2 : d.summary.t3
+                return (
+                  <div key={tier} className={`rounded-xl border ${cfg.border} ${cfg.bg} p-5`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide ${cfg.text}`}>{cfg.short}</p>
+                    <p className="mt-1 text-3xl font-bold text-slate-900">{count.toLocaleString('pt-BR')}</p>
+                    <p className={`mt-1 text-xs ${cfg.text}`}>{tier.split(' - ')[1]}</p>
+                  </div>
+                )
+              })}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Receita Apple (período)</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(d.total_apple_spend)}</p>
-                <p className="mt-1 text-xs text-slate-400">{d.pedidos_apple?.toLocaleString('pt-BR')} pedidos</p>
+            {/* Filtro + tabela */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {[{k:'todos',l:'Todos'}, {k:'T1 - Ecosystem Enthusiast',l:'T1'}, {k:'T2 - Aspirational Buyer',l:'T2'}, {k:'T3 - Apple Interested',l:'T3'}].map(({k,l}) => (
+                    <button key={k} onClick={() => setAppleLoverTierFilter(k)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${appleLoverTierFilter === k ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                      {l} {k !== 'todos' && <span className="ml-1 opacity-60">({k === 'T1 - Ecosystem Enthusiast' ? d.summary.t1 : k === 'T2 - Aspirational Buyer' ? d.summary.t2 : d.summary.t3})</span>}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={exportCsv}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                  Exportar CSV ({visibleContacts.length})
+                </button>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Ticket Médio Apple</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(d.avg_ticket)}</p>
-                <p className="mt-1 text-xs text-slate-400">receita ÷ compradores</p>
-              </div>
-              <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-5">
-                <p className="text-xs text-slate-500">Dispositivos iOS (critério 3)</p>
-                <p className="mt-1 text-3xl font-bold text-slate-900">{d.ios_devices_count?.toLocaleString('pt-BR')}</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  client_updates com platform = "ios" · sem vínculo direto a contact_id
-                </p>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="pb-2 pr-3 font-medium">Tier</th>
+                      <th className="pb-2 pr-3 font-medium">Score</th>
+                      <th className="pb-2 pr-3 font-medium">Contact ID</th>
+                      <th className="pb-2 pr-3 font-medium">CPF</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Pedidos Apple</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Categorias</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Receita Apple</th>
+                      <th className="pb-2 pr-3 font-medium">Última Compra</th>
+                      <th className="pb-2 pr-3 font-medium text-right">Ticket Médio</th>
+                      <th className="pb-2 pr-3 font-medium">iOS</th>
+                      <th className="pb-2 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleContacts.slice(0, 500).map((c, i) => {
+                      const cfg = TIER_CFG[c.apple_lover_tier] ?? TIER_CFG['T3 - Apple Interested']
+                      return (
+                        <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                          <td className="py-1.5 pr-3">
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.bg} ${cfg.text} border ${cfg.border}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />{cfg.short}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-3 font-semibold text-slate-800">{c.apple_lover_score}</td>
+                          <td className="py-1.5 pr-3 text-slate-500">{c.contact_id}</td>
+                          <td className="py-1.5 pr-3 text-slate-700">{c.external_id || '—'}</td>
+                          <td className="py-1.5 pr-3 text-right">{c.qtd_apple_purchases}</td>
+                          <td className="py-1.5 pr-3 text-right">{c.qtd_apple_categories_bought}</td>
+                          <td className="py-1.5 pr-3 text-right font-semibold">{formatCurrency(c.total_apple_spend)}</td>
+                          <td className="py-1.5 pr-3 text-slate-500">{c.last_apple_purchase_date || '—'}</td>
+                          <td className="py-1.5 pr-3 text-right">{formatCurrency(c.average_order_value)}</td>
+                          <td className="py-1.5 pr-3">{c.uses_ios_device ? '✓' : ''}</td>
+                          <td className="py-1.5 text-slate-500">{c.buyer_status}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {visibleContacts.length > 500 && (
+                  <p className="mt-2 text-xs text-slate-400">Mostrando 500 de {visibleContacts.length} contatos. Use Exportar CSV para ver todos.</p>
+                )}
               </div>
             </div>
           </>
