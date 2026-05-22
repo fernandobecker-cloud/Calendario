@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   ResponsiveContainer, LineChart, Line,
-  BarChart, Bar,
+  BarChart, Bar, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts'
 
@@ -512,40 +512,32 @@ function ConversaoCurvaChart({ state }) {
 
   const total = state.data.reduce((s, d) => s + d.pedidos, 0)
 
+  const dataWithPct = state.data.map((d) => ({
+    ...d,
+    pct: total > 0 ? ((d.pedidos / total) * 100).toFixed(0) + '%' : '—',
+  }))
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Curva de Conversão — Janela de 7 Dias</h2>
-      <p className="mb-4 text-xs text-slate-400">
-        Pedidos atribuídos ao CRM (SMS/Email) agrupados por dias entre o gatilho e a compra
-        {' · '}<span className="font-medium text-slate-500">{total.toLocaleString('pt-BR')} pedidos com gatilho identificado</span>
-        {' · '}pedidos WhatsApp e sem gatilho rastreável não entram no gráfico
-      </p>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={state.data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Curva de Conversão — Janela de 7 Dias</h2>
+      <ResponsiveContainer width="100%" height={240}>
+        <BarChart data={dataWithPct} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <YAxis hide />
           <Tooltip
-            formatter={(v, name) => [v.toLocaleString('pt-BR'), name]}
+            formatter={(v, name) => [`${((v / total) * 100).toFixed(0)}%`, name]}
             labelFormatter={(l) => l}
             contentStyle={{ fontSize: 12 }}
           />
           <Bar dataKey="pedidos" name="Pedidos" radius={[4, 4, 0, 0]}>
-            {state.data.map((_, i) => (
+            {dataWithPct.map((_, i) => (
               <Cell key={i} fill={CONVERSAO_COLORS[i % CONVERSAO_COLORS.length]} />
             ))}
+            <LabelList dataKey="pct" position="top" style={{ fontSize: 12, fontWeight: 600, fill: '#475569' }} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-      <div className="mt-4 grid grid-cols-7 gap-1 border-t border-slate-100 pt-4">
-        {state.data.map((d) => (
-          <div key={d.dia} className="text-center">
-            <p className="text-xs font-semibold text-slate-700">{d.pedidos.toLocaleString('pt-BR')}</p>
-            <p className="text-xs text-slate-400">{total > 0 ? `${((d.pedidos / total) * 100).toFixed(0)}%` : '—'}</p>
-            <p className="text-xs text-slate-400">{d.label}</p>
-          </div>
-        ))}
-      </div>
     </section>
   )
 }
