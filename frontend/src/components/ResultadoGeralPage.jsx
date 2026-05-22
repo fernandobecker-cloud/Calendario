@@ -825,6 +825,30 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
         </section>
       )}
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Top Campanhas Marketing
+        </h2>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-600">Email</p>
+            <Table
+              columns={topCols}
+              rows={top5Email}
+              emptyText="Sem dados de Email no período."
+            />
+          </div>
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-orange-600">SMS</p>
+            <Table
+              columns={topCols}
+              rows={top5Sms}
+              emptyText="Sem dados de SMS no período."
+            />
+          </div>
+        </div>
+      </section>
+
       {(topProdutos?.length > 0 || topCategorias?.length > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -930,29 +954,6 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Top Campanhas Marketing
-        </h2>
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-600">Email</p>
-            <Table
-              columns={topCols}
-              rows={top5Email}
-              emptyText="Sem dados de Email no período."
-            />
-          </div>
-          <div>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-orange-600">SMS</p>
-            <Table
-              columns={topCols}
-              rows={top5Sms}
-              emptyText="Sem dados de SMS no período."
-            />
-          </div>
-        </div>
-      </section>
     </div>
   )
 }

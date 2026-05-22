@@ -4338,7 +4338,7 @@ INNER JOIN attributed a ON a.order_id = p.order_id
 WHERE p.sales_amount > 0
 GROUP BY 1
 ORDER BY receita DESC
-LIMIT 15
+LIMIT 10
 """.strip()
 
 
