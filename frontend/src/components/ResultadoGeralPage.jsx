@@ -359,6 +359,8 @@ export default function ResultadoGeralPage({ currentRole }) {
               canalAtribuida={canalAtribuidaState.data}
               canalLoading={canalAtribuidaState.loading}
               canalError={canalAtribuidaState.error}
+              startDate={startDate}
+              endDate={endDate}
             />
           )}
           {activeView === 'atribuida' && (
@@ -484,9 +486,29 @@ function DailyRevenueChart({ items }) {
   )
 }
 
-function CanalAtribuidaCard({ data }) {
+function CanalAtribuidaCard({ data, startDate, endDate }) {
   const [expandedRegionals, setExpandedRegionals] = useState(new Set())
   const [showRegional, setShowRegional] = useState(false)
+  const [exportLoading, setExportLoading] = useState(false)
+
+  const exportSemCanal = async () => {
+    if (!startDate) return
+    setExportLoading(true)
+    try {
+      const params = new URLSearchParams({ start: startDate, end: endDate || startDate })
+      const res = await fetch(`/api/open-data/emarsys/receita-atribuida-canal/sem-canal?${params}`)
+      if (!res.ok) throw new Error(await res.text())
+      const rows = await res.json()
+      if (!rows.length) { alert('Nenhum pedido sem canal no período.'); return }
+      const cols = ['order_id', 'contact_id', 'external_id', 'purchase_date', 'attributed_amount', 'channels', 'campaign_ids']
+      const esc = v => { if (v == null) return ''; const s = String(v); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s }
+      const csv = [cols.join(','), ...rows.map(r => cols.map(k => esc(r[k])).join(','))].join('\n')
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      const a = document.createElement('a'); a.href = url; a.download = `sem-canal-${startDate}.csv`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) { alert(`Erro: ${e.message}`) }
+    finally { setExportLoading(false) }
+  }
 
   const toggleRegional = r => setExpandedRegionals(prev => {
     const next = new Set(prev)
@@ -532,9 +554,17 @@ function CanalAtribuidaCard({ data }) {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Canal da Receita Atribuída
         </h2>
-        <span className="text-xs text-slate-400">
-          {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos cruzados · {(data.total_pedidos_crm || 0).toLocaleString('pt-BR')} atribuídos
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400">
+            {(data.matched_rows || 0).toLocaleString('pt-BR')} pedidos cruzados · {(data.total_pedidos_crm || 0).toLocaleString('pt-BR')} atribuídos
+          </span>
+          {(data.total_pedidos_crm || 0) > (data.matched_rows || 0) && (
+            <button onClick={exportSemCanal} disabled={exportLoading}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              {exportLoading ? '…' : `Exportar sem canal (${(data.total_pedidos_crm - data.matched_rows).toLocaleString('pt-BR')})`}
+            </button>
+          )}
+        </div>
       </div>
       <p className="mb-4 text-xs text-slate-400">
         Receita real por canal — cruzamento direto por número de pedido (vendas_iplace)
@@ -628,7 +658,7 @@ function CanalAtribuidaCard({ data }) {
   )
 }
 
-function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError }) {
+function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError, startDate, endDate }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -703,7 +733,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
           <p className="text-sm text-rose-700">{canalError}</p>
         </section>
       ) : canalAtribuida?.canal?.length > 0 ? (
-        <CanalAtribuidaCard data={canalAtribuida} />
+        <CanalAtribuidaCard data={canalAtribuida} startDate={startDate} endDate={endDate} />
       ) : null}
 
       {/* Receita Direta */}

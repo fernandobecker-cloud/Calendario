@@ -4485,6 +4485,106 @@ def receita_atribuida_canal(
         raise HTTPException(status_code=502, detail=f"Falha ao calcular canal da receita atribuida: {exc}") from exc
 
 
+@router.get("/emarsys/receita-atribuida-canal/sem-canal")
+def receita_atribuida_sem_canal(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> list[dict[str, Any]]:
+    """Pedidos atribuídos no período que não encontraram match em vendas_iplace."""
+    start_date = _validate_optional_iso_date(start)
+    end_date = _validate_optional_iso_date(end)
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
+    try:
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+        contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+        tz = EMARSYS_TZ
+
+        # Step 1: busca pedidos atribuídos com dados completos + external_id via si_contacts
+        detail_sql = f"""
+WITH attr_orders AS (
+  SELECT
+    r.order_id,
+    r.contact_id,
+    DATE(r.event_time, '{tz}')               AS purchase_date,
+    ROUND(SUM(t.attributed_amount), 2)       AS attributed_amount,
+    STRING_AGG(DISTINCT LOWER(t.channel)
+      ORDER BY LOWER(t.channel))             AS channels,
+    STRING_AGG(DISTINCT CAST(t.campaign_id AS STRING)
+      ORDER BY CAST(t.campaign_id AS STRING)) AS campaign_ids
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+    AND r.order_id IS NOT NULL
+  GROUP BY r.order_id, r.contact_id
+),
+contacts AS (
+  SELECT contact_id, ANY_VALUE(external_id) AS external_id
+  FROM `{project_id}.{dataset}.{contacts_table}`
+  WHERE contact_id IS NOT NULL
+  GROUP BY contact_id
+)
+SELECT
+  ao.order_id,
+  ao.contact_id,
+  c.external_id,
+  ao.purchase_date,
+  ao.attributed_amount,
+  ao.channels,
+  ao.campaign_ids
+FROM attr_orders ao
+LEFT JOIN contacts c ON c.contact_id = ao.contact_id
+ORDER BY ao.attributed_amount DESC
+""".strip()
+
+        detail_records = run_bigquery_records(
+            detail_sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=35,
+        )
+
+        # Step 2: quais order_ids têm match em vendas_iplace?
+        all_order_ids = {str(r["order_id"]) for r in detail_records if r.get("order_id")}
+        if not all_order_ids:
+            return []
+
+        bv_sql = _build_vendas_canal_filial_sql(all_order_ids)
+        bv_records = run_bigquery_records(
+            bv_sql, BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None, timeout=30,
+        )
+        matched_ids = {str(r["order_id"]) for r in bv_records if r.get("order_id")}
+
+        # Step 3: retorna apenas os sem match
+        result = []
+        for r in detail_records:
+            oid = str(r.get("order_id") or "")
+            if oid in matched_ids:
+                continue
+            result.append({
+                "order_id":         oid,
+                "contact_id":       r.get("contact_id"),
+                "external_id":      r.get("external_id"),
+                "purchase_date":    str(r.get("purchase_date") or ""),
+                "attributed_amount": float(r.get("attributed_amount") or 0),
+                "channels":         r.get("channels"),
+                "campaign_ids":     r.get("campaign_ids"),
+            })
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar sem-canal: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Filial → Regional mapping (from Filiais e numero sap iPlace lojas.csv)
 # Key = codigo_filial as stored in Base Vendas (LJ number without leading zeros)
