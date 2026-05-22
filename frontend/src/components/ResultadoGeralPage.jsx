@@ -786,8 +786,27 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
             Receita Atribuída
           </h2>
 
+          {totais && (
+            <div className="mb-5 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
+                <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.total_crm ?? 0)}</p>
+                <p className="mt-0.5 text-xs text-violet-600">todas as compras com CPF</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
+                <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.reportado)}</p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {(totais.total_crm ?? 0) > 0
+                    ? `${((totais.reportado / totais.total_crm) * 100).toFixed(1)}% do total iPlace`
+                    : 'conforme Emarsys'}
+                </p>
+              </div>
+            </div>
+          )}
+
           {channels.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className={`grid gap-3 sm:grid-cols-3 ${totais ? 'border-t border-slate-100 pt-5' : ''}`}>
               {channels.map((ch) => {
                 const cfg = CHANNEL_CONFIG[ch.canal] ?? {
                   label: ch.canal,
@@ -812,27 +831,6 @@ function AtribuidaDetalhadaView({ data, loading, filtroCategoria, setFiltroCateg
                 )
               })}
             </div>
-          )}
-
-          {totais && (
-            <>
-              <div className={`grid gap-4 sm:grid-cols-2 ${channels.length > 0 ? 'mt-5 border-t border-slate-100 pt-5' : ''}`}>
-                <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Total iPlace</p>
-                  <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.total_crm ?? 0)}</p>
-                  <p className="mt-0.5 text-xs text-violet-600">todas as compras com CPF</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Atribuída CRM</p>
-                  <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(totais.reportado)}</p>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {(totais.total_crm ?? 0) > 0
-                      ? `${((totais.reportado / totais.total_crm) * 100).toFixed(1)}% do total iPlace`
-                      : 'conforme Emarsys'}
-                  </p>
-                </div>
-              </div>
-            </>
           )}
 
         </section>
