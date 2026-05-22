@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   ResponsiveContainer, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts'
 
 function formatCurrency(value) {
@@ -210,6 +211,7 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [influenciadaData, setInfluenciadaData] = useState(null)
   const [canalBreakdownData, setCanalBreakdownData] = useState(null)
   const [canalAtribuidaState, setCanalAtribuidaState] = useState({ data: null, loading: false, error: null })
+  const [conversao7Dias, setConversao7Dias] = useState({ data: null, loading: false })
 
   const handleAtualizar = useCallback(async () => {
     if (!startDate) return
@@ -223,7 +225,7 @@ export default function ResultadoGeralPage({ currentRole }) {
         const dailyParams = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
         const canalParams = new URLSearchParams({ start: startDate, end: endDate || startDate })
 
-        // Canal carrega em paralelo com estado próprio (pode ser lento — não bloqueia o restante)
+        // Canal e curva de conversão carregam em paralelo (podem ser lentos — não bloqueiam)
         setCanalAtribuidaState({ data: null, loading: true, error: null })
         fetch(`/api/open-data/emarsys/receita-atribuida-canal?${canalParams}`)
           .then(async res => {
@@ -235,6 +237,14 @@ export default function ResultadoGeralPage({ currentRole }) {
             }
           })
           .catch(err => setCanalAtribuidaState({ data: null, loading: false, error: String(err) }))
+
+        setConversao7Dias({ data: null, loading: true })
+        fetch(`/api/open-data/emarsys/conversao-7dias?${canalParams}`)
+          .then(async res => {
+            const json = await res.json().catch(() => null)
+            setConversao7Dias({ data: res.ok ? json : null, loading: false })
+          })
+          .catch(() => setConversao7Dias({ data: null, loading: false }))
 
         const [atribuida, ga4, abandoned, daily] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
@@ -361,6 +371,7 @@ export default function ResultadoGeralPage({ currentRole }) {
               canalError={canalAtribuidaState.error}
               startDate={startDate}
               endDate={endDate}
+              conversao7Dias={conversao7Dias}
             />
           )}
           {activeView === 'atribuida' && (
@@ -481,6 +492,55 @@ function DailyRevenueChart({ items }) {
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Atribuída</p>
           <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(totalAtribuida)}</p>
         </div>
+      </div>
+    </section>
+  )
+}
+
+const CONVERSAO_COLORS = ['#6366f1','#818cf8','#a5b4fc','#c7d2fe','#e0e7ff','#eef2ff','#f5f3ff']
+
+function ConversaoCurvaChart({ state }) {
+  if (state.loading) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Curva de Conversão — Janela de 7 Dias</h2>
+        <p className="text-sm text-slate-400">Carregando…</p>
+      </section>
+    )
+  }
+  if (!state.data?.length) return null
+
+  const total = state.data.reduce((s, d) => s + d.pedidos, 0)
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Curva de Conversão — Janela de 7 Dias</h2>
+      <p className="mb-4 text-xs text-slate-400">Pedidos atribuídos ao CRM agrupados por dias entre o gatilho e a compra</p>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={state.data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <Tooltip
+            formatter={(v, name) => [v.toLocaleString('pt-BR'), name]}
+            labelFormatter={(l) => l}
+            contentStyle={{ fontSize: 12 }}
+          />
+          <Bar dataKey="pedidos" name="Pedidos" radius={[4, 4, 0, 0]}>
+            {state.data.map((_, i) => (
+              <Cell key={i} fill={CONVERSAO_COLORS[i % CONVERSAO_COLORS.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="mt-4 grid grid-cols-7 gap-1 border-t border-slate-100 pt-4">
+        {state.data.map((d) => (
+          <div key={d.dia} className="text-center">
+            <p className="text-xs font-semibold text-slate-700">{d.pedidos.toLocaleString('pt-BR')}</p>
+            <p className="text-xs text-slate-400">{total > 0 ? `${((d.pedidos / total) * 100).toFixed(0)}%` : '—'}</p>
+            <p className="text-xs text-slate-400">{d.label}</p>
+          </div>
+        ))}
       </div>
     </section>
   )
@@ -658,7 +718,7 @@ function CanalAtribuidaCard({ data, startDate, endDate }) {
   )
 }
 
-function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError, startDate, endDate }) {
+function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError, startDate, endDate, conversao7Dias }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -673,6 +733,8 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   return (
     <div className="flex flex-col gap-4">
       <DailyRevenueChart items={dailyRevenue} />
+
+      {conversao7Dias && <ConversaoCurvaChart state={conversao7Dias} />}
 
       {/* Receita Atribuída */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">

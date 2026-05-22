@@ -4585,6 +4585,111 @@ ORDER BY ao.attributed_amount DESC
         raise HTTPException(status_code=502, detail=f"Falha ao exportar sem-canal: {exc}") from exc
 
 
+@router.get("/emarsys/conversao-7dias")
+def conversao_7dias(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> list[dict[str, Any]]:
+    """Curva de conversão: pedidos atribuídos agrupados por dias após o gatilho CRM (1-7)."""
+    start_date = _validate_optional_iso_date(start)
+    end_date = _validate_optional_iso_date(end)
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="Informe data de inicio e fim.")
+
+    try:
+        project_id   = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset      = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        rev_table    = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+        sms_table    = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+        email_table  = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+        tz           = EMARSYS_TZ
+
+        sql = f"""
+WITH
+attributed AS (
+  SELECT
+    r.order_id,
+    r.contact_id,
+    DATE(r.event_time, '{tz}')        AS purchase_date,
+    CAST(t.campaign_id AS STRING)     AS campaign_id,
+    LOWER(t.channel)                  AS channel,
+    ROUND(t.attributed_amount, 2)     AS attributed_amount
+  FROM `{project_id}.{dataset}.{rev_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND DATE(r.partitiontime) BETWEEN DATE('{start_date}') AND CURRENT_DATE()
+    AND r.order_id IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.order_id ORDER BY t.attributed_amount DESC) = 1
+),
+sms_trigger AS (
+  SELECT
+    a.order_id,
+    MAX(DATE(ss.event_time)) AS trigger_date
+  FROM attributed a
+  JOIN `{project_id}.{dataset}.{sms_table}` ss
+    ON ss.contact_id = a.contact_id
+    AND CAST(ss.campaign_id AS STRING) = a.campaign_id
+    AND a.channel = 'sms'
+    AND DATE_DIFF(a.purchase_date, DATE(ss.event_time), DAY) BETWEEN 1 AND 7
+    AND DATE(ss.partitiontime)
+        BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 8 DAY)
+            AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
+  GROUP BY a.order_id
+),
+email_trigger AS (
+  SELECT
+    a.order_id,
+    MAX(DATE(eo.event_time)) AS trigger_date
+  FROM attributed a
+  JOIN `{project_id}.{dataset}.{email_table}` eo
+    ON eo.contact_id = a.contact_id
+    AND CAST(eo.campaign_id AS STRING) = a.campaign_id
+    AND a.channel = 'email'
+    AND DATE_DIFF(a.purchase_date, DATE(eo.event_time), DAY) BETWEEN 1 AND 7
+    AND DATE(eo.partitiontime)
+        BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 8 DAY)
+            AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
+  GROUP BY a.order_id
+)
+SELECT
+  DATE_DIFF(a.purchase_date,
+            COALESCE(st.trigger_date, et.trigger_date), DAY) AS dia,
+  COUNT(DISTINCT a.order_id)                                  AS pedidos,
+  ROUND(SUM(a.attributed_amount), 2)                          AS receita
+FROM attributed a
+LEFT JOIN sms_trigger   st ON st.order_id = a.order_id
+LEFT JOIN email_trigger et ON et.order_id = a.order_id
+WHERE COALESCE(st.trigger_date, et.trigger_date) IS NOT NULL
+GROUP BY dia
+HAVING dia BETWEEN 1 AND 7
+ORDER BY dia
+""".strip()
+
+        records = run_bigquery_records(
+            sql, EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=45,
+        )
+
+        # Garante todos os dias 1-7, mesmo sem pedidos
+        by_dia = {int(r["dia"]): r for r in records if r.get("dia")}
+        return [
+            {
+                "dia":     d,
+                "label":   f"Dia {d}",
+                "pedidos": int(by_dia[d]["pedidos"]) if d in by_dia else 0,
+                "receita": float(by_dia[d]["receita"]) if d in by_dia else 0.0,
+            }
+            for d in range(1, 8)
+        ]
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular conversao 7 dias: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Filial → Regional mapping (from Filiais e numero sap iPlace lojas.csv)
 # Key = codigo_filial as stored in Base Vendas (LJ number without leading zeros)
