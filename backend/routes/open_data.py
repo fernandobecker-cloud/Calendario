@@ -4511,7 +4511,7 @@ WITH attr_orders AS (
   SELECT
     r.order_id,
     r.contact_id,
-    DATE(r.event_time, '{tz}')               AS purchase_date,
+    MIN(DATE(r.event_time, '{tz}'))          AS purchase_date,
     ROUND(SUM(t.attributed_amount), 2)       AS attributed_amount,
     STRING_AGG(DISTINCT LOWER(t.channel)
       ORDER BY LOWER(t.channel))             AS channels,
