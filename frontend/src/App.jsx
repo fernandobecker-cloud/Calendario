@@ -310,13 +310,10 @@ export default function App({ mode = 'campanhas' }) {
   const [comparativoCRMStart, setComparativoCRMStart] = useState(currentMonthRange.start)
   const [comparativoCRMEnd, setComparativoCRMEnd] = useState(currentMonthRange.end)
   const [smsApuracaoNome, setSmsApuracaoNome] = useState('')
-  const [smsApuracaoDate, setSmsApuracaoDate] = useState(currentMonthRange.start)
   const [smsApuracaoData, setSmsApuracaoData] = useState(null)
   const [smsApuracaoLoading, setSmsApuracaoLoading] = useState(false)
   const [smsApuracaoError, setSmsApuracaoError] = useState('')
   const [emailApuracaoNome, setEmailApuracaoNome] = useState('')
-  const [emailApuracaoStart, setEmailApuracaoStart] = useState(currentMonthRange.start)
-  const [emailApuracaoEnd, setEmailApuracaoEnd] = useState(currentMonthRange.end)
   const [emailApuracaoData, setEmailApuracaoData] = useState(null)
   const [emailApuracaoLoading, setEmailApuracaoLoading] = useState(false)
   const [emailApuracaoError, setEmailApuracaoError] = useState('')
@@ -821,11 +818,11 @@ export default function App({ mode = 'campanhas' }) {
 
 
   const loadSmsApuracao = useCallback(async () => {
-    if (!smsApuracaoNome.trim() || smsApuracaoNome.trim().length < 2 || !smsApuracaoDate) return
+    if (smsApuracaoNome.trim().length < 2) return
     setSmsApuracaoLoading(true)
     setSmsApuracaoError('')
     try {
-      const params = new URLSearchParams({ nome: smsApuracaoNome.trim(), date: smsApuracaoDate })
+      const params = new URLSearchParams({ nome: smsApuracaoNome.trim() })
       const res = await fetch(`/api/open-data/sms-apuracao?${params}`)
       const payload = await res.json()
       if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar SMS.')
@@ -836,14 +833,14 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setSmsApuracaoLoading(false)
     }
-  }, [smsApuracaoNome, smsApuracaoDate])
+  }, [smsApuracaoNome])
 
   const loadEmailApuracao = useCallback(async () => {
-    if (!emailApuracaoNome.trim() || emailApuracaoNome.trim().length < 2 || !emailApuracaoStart || !emailApuracaoEnd) return
+    if (emailApuracaoNome.trim().length < 2) return
     setEmailApuracaoLoading(true)
     setEmailApuracaoError('')
     try {
-      const params = new URLSearchParams({ nome: emailApuracaoNome.trim(), start: emailApuracaoStart, end: emailApuracaoEnd })
+      const params = new URLSearchParams({ nome: emailApuracaoNome.trim() })
       const res = await fetch(`/api/open-data/email-apuracao?${params}`)
       const payload = await res.json()
       if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar e-mail.')
@@ -854,7 +851,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setEmailApuracaoLoading(false)
     }
-  }, [emailApuracaoNome, emailApuracaoStart, emailApuracaoEnd])
+  }, [emailApuracaoNome])
 
   const toggleSmsRegional = useCallback(async (campaignId, dispatchDate) => {
     setSmsRegional(prev => {
@@ -2539,23 +2536,10 @@ export default function App({ mode = 'campanhas' }) {
       {/* ── Bloco SMS ── */}
       <section className="space-y-4">
         <section className="rounded-2xl bg-gradient-to-r from-orange-600 to-amber-500 p-6 text-white shadow-soft md:p-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao SMS</h2>
-              <p className="mt-1 text-sm text-orange-100">
-                Informe a data de disparo. A apuracao considera compras nos 7 dias seguintes ao envio.
-              </p>
-            </div>
-            <label className="flex flex-col gap-1 text-sm text-white/90">
-              Data de disparo
-              <input
-                type="date"
-                value={smsApuracaoDate}
-                onChange={(e) => setSmsApuracaoDate(e.target.value)}
-                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-          </div>
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao SMS</h2>
+          <p className="mt-1 text-sm text-orange-100">
+            Busca campanhas SMS pelo nome nos últimos 180 dias. A receita considera compras nos 7 dias seguintes ao envio.
+          </p>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -2570,7 +2554,7 @@ export default function App({ mode = 'campanhas' }) {
             />
             <button
               type="submit"
-              disabled={smsApuracaoLoading || smsApuracaoNome.trim().length < 2 || !smsApuracaoDate}
+              disabled={smsApuracaoLoading || smsApuracaoNome.trim().length < 2}
               className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
             >
               {smsApuracaoLoading ? 'Buscando...' : 'Buscar'}
@@ -2656,34 +2640,10 @@ export default function App({ mode = 'campanhas' }) {
       {/* ── Bloco E-mail ── */}
       <section className="space-y-4">
         <section className="rounded-2xl bg-gradient-to-r from-blue-700 to-cyan-600 p-6 text-white shadow-soft md:p-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao E-mail</h2>
-              <p className="mt-1 text-sm text-blue-100">
-                Informe o periodo de envio. A receita influenciada considera compras nos 7 dias apos a abertura.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Inicio
-                <input
-                  type="date"
-                  value={emailApuracaoStart}
-                  onChange={(e) => setEmailApuracaoStart(e.target.value)}
-                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Fim
-                <input
-                  type="date"
-                  value={emailApuracaoEnd}
-                  onChange={(e) => setEmailApuracaoEnd(e.target.value)}
-                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-            </div>
-          </div>
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuracao E-mail</h2>
+          <p className="mt-1 text-sm text-blue-100">
+            Busca campanhas de e-mail pelo nome nos últimos 180 dias. A receita considera compras nos 7 dias após a abertura.
+          </p>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
@@ -2698,7 +2658,7 @@ export default function App({ mode = 'campanhas' }) {
             />
             <button
               type="submit"
-              disabled={emailApuracaoLoading || emailApuracaoNome.trim().length < 2 || !emailApuracaoStart || !emailApuracaoEnd}
+              disabled={emailApuracaoLoading || emailApuracaoNome.trim().length < 2}
               className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
             >
               {emailApuracaoLoading ? 'Buscando...' : 'Buscar'}
@@ -2723,7 +2683,7 @@ export default function App({ mode = 'campanhas' }) {
                 Resultados para &ldquo;{emailApuracaoData.nome}&rdquo;
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                {emailApuracaoData.total} campanha(s) — {emailApuracaoData.start_date} a {emailApuracaoData.end_date}
+                {emailApuracaoData.total} campanha(s) encontrada(s)
               </p>
             </div>
             {emailApuracaoData.total === 0 ? (

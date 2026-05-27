@@ -3651,7 +3651,7 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, ac.nome_campanha
 """.strip()
 
 
-def _build_sms_apuracao_sql(nome: str, dispatch_date: str) -> str:
+def _build_sms_apuracao_sql(nome: str) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
@@ -3660,7 +3660,6 @@ def _build_sms_apuracao_sql(nome: str, dispatch_date: str) -> str:
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     safe_nome = _sanitize_campanha_nome(nome)
-    d = dispatch_date  # already validated ISO date
 
     return f"""
 WITH
@@ -3681,9 +3680,7 @@ sms_sends_camp AS (
     DATE(ss.event_time) AS send_date
   FROM `{project_id}.{dataset}.{sms_sends_table}` ss
   INNER JOIN sms_camp sc ON CAST(ss.campaign_id AS STRING) = sc.campaign_id
-  WHERE DATE(ss.event_time) = DATE('{d}')
-    AND DATE(ss.partitiontime) BETWEEN DATE_SUB(DATE('{d}'), INTERVAL 1 DAY)
-                                   AND DATE_ADD(DATE('{d}'), INTERVAL 1 DAY)
+  WHERE DATE(ss.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 sms_sends_agg AS (
   SELECT campaign_id, COUNT(DISTINCT contact_id) AS enviados
@@ -3699,8 +3696,7 @@ attr_base AS (
   CROSS JOIN UNNEST(r.treatments) AS t
   WHERE ARRAY_LENGTH(r.treatments) > 0
     AND t.attributed_amount > 0
-    AND DATE(r.event_time) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
-    AND DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+    AND DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 attr_agg AS (
   SELECT
@@ -3715,7 +3711,7 @@ post_send_orders AS (
   FROM sms_sends_camp ssc
   INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = ssc.contact_id
     AND DATE(r.event_time) BETWEEN ssc.send_date AND DATE_ADD(ssc.send_date, INTERVAL 7 DAY)
-  WHERE DATE(r.partitiontime) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 8 DAY)
+  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 influencia_agg AS (
   SELECT
@@ -3724,7 +3720,7 @@ influencia_agg AS (
     ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita_influenciada
   FROM post_send_orders pso
   LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = pso.order_id
-    AND DATE(p.purchase_date) BETWEEN DATE('{d}') AND DATE_ADD(DATE('{d}'), INTERVAL 7 DAY)
+    AND DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
   GROUP BY 1
 )
 SELECT
@@ -3743,7 +3739,7 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, sc.nome_campanha
 """.strip()
 
 
-def _build_email_apuracao_sql(nome: str, start_date: str, end_date: str) -> str:
+def _build_email_apuracao_sql(nome: str) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     email_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
@@ -3753,7 +3749,6 @@ def _build_email_apuracao_sql(nome: str, start_date: str, end_date: str) -> str:
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     safe_nome = _sanitize_campanha_nome(nome)
-    s, e = start_date, end_date  # already validated ISO dates
 
     return f"""
 WITH
@@ -3770,14 +3765,14 @@ email_camp AS (
 email_sends_agg AS (
   SELECT CAST(campaign_id AS STRING) AS campaign_id, COUNT(DISTINCT message_id) AS enviados
   FROM `{project_id}.{dataset}.{email_sends_table}`
-  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL AND message_id IS NOT NULL
   GROUP BY 1
 ),
 email_opens_agg AS (
   SELECT CAST(campaign_id AS STRING) AS campaign_id, COUNT(DISTINCT message_id) AS aberturas
   FROM `{project_id}.{dataset}.{email_opens_table}`
-  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL AND message_id IS NOT NULL
   GROUP BY 1
 ),
@@ -3790,8 +3785,7 @@ attr_base AS (
   CROSS JOIN UNNEST(r.treatments) AS t
   WHERE ARRAY_LENGTH(r.treatments) > 0
     AND t.attributed_amount > 0
-    AND DATE(r.event_time) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
-    AND DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+    AND DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 attr_agg AS (
   SELECT
@@ -3810,7 +3804,7 @@ items_pre AS (
     SUM(p.sales_amount) OVER (PARTITION BY ab.campaign_id, p.order_id) AS total_order_sales
   FROM attr_base ab
   INNER JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = ab.order_id
-  WHERE DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  WHERE DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
     AND p.sales_amount > 0
 ),
 items_agg AS (
@@ -3842,7 +3836,7 @@ opens_contacts AS (
     contact_id,
     DATE(event_time) AS open_date
   FROM `{project_id}.{dataset}.{email_opens_table}`
-  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL AND contact_id IS NOT NULL
 ),
 post_open_orders AS (
@@ -3850,7 +3844,7 @@ post_open_orders AS (
   FROM opens_contacts oc
   INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = oc.contact_id
     AND DATE(r.event_time) BETWEEN oc.open_date AND DATE_ADD(oc.open_date, INTERVAL 7 DAY)
-  WHERE DATE(r.partitiontime) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 influencia_agg AS (
   SELECT
@@ -3859,7 +3853,7 @@ influencia_agg AS (
     ROUND(COALESCE(SUM(p.sales_amount), 0), 2) AS receita_influenciada
   FROM post_open_orders poo
   LEFT JOIN `{project_id}.{dataset}.{si_purchases_table}` p ON p.order_id = poo.order_id
-    AND DATE(p.purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+    AND DATE(p.purchase_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
   GROUP BY 1
 )
 SELECT
@@ -3894,13 +3888,9 @@ ORDER BY aa.receita_atribuida DESC NULLS LAST, ec.nome_campanha
 @router.get("/sms-apuracao")
 def sms_apuracao(
     nome: str = Query(..., min_length=2, max_length=200),
-    date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        dispatch_date = _validate_optional_iso_date(date)
-        if not dispatch_date:
-            raise HTTPException(status_code=422, detail="Data de disparo invalida.")
-        sql = _build_sms_apuracao_sql(nome, dispatch_date)
+        sql = _build_sms_apuracao_sql(nome)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = [
             {
@@ -3913,8 +3903,7 @@ def sms_apuracao(
             }
             for row in records
         ]
-
-        return {"items": items, "total": len(items), "nome": nome, "dispatch_date": dispatch_date}
+        return {"items": items, "total": len(items), "nome": nome}
     except HTTPException:
         raise
     except Exception as exc:
@@ -3924,15 +3913,9 @@ def sms_apuracao(
 @router.get("/email-apuracao")
 def email_apuracao(
     nome: str = Query(..., min_length=2, max_length=200),
-    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
     try:
-        start_date = _validate_optional_iso_date(start)
-        end_date = _validate_optional_iso_date(end)
-        if not start_date or not end_date:
-            raise HTTPException(status_code=422, detail="Datas invalidas.")
-        sql = _build_email_apuracao_sql(nome, start_date, end_date)
+        sql = _build_email_apuracao_sql(nome)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = [
             {
@@ -3953,7 +3936,7 @@ def email_apuracao(
             for row in records
         ]
 
-        return {"items": items, "total": len(items), "nome": nome, "start_date": start_date, "end_date": end_date}
+        return {"items": items, "total": len(items), "nome": nome}
     except HTTPException:
         raise
     except Exception as exc:
