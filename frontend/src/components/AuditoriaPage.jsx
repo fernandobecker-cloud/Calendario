@@ -946,144 +946,13 @@ function AuditoriaCruzamento({ cruzamento }) {
   )
 }
 
-function AntigaAuditoriaContent({ startDate, setStartDate, endDate, setEndDate }) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [data, setData] = useState(null)
-
-  const handleAtualizar = useCallback(async () => {
-    if (!startDate) return
-    setLoading(true)
-    setError('')
-    setData(null)
-
-    try {
-      const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
-      const [discrepancia, cruzamento, atribuicaoPorDia] = await Promise.all([
-        fetchJson(`/api/open-data/emarsys/audit-discrepancia?${params}`),
-        fetchJson(`/api/open-data/emarsys/audit-cruzamento?${params}`),
-        fetchJson(`/api/open-data/emarsys/audit-attribution-by-day?${params}`),
-      ])
-
-      if (!discrepancia.ok || !cruzamento.ok) {
-        const msg = (!discrepancia.ok && discrepancia.error) || (!cruzamento.ok && cruzamento.error)
-        setError(msg || 'Falha ao carregar dados de auditoria.')
-        return
-      }
-
-      setData({
-        discrepancia: discrepancia.data?.items ?? [],
-        cruzamento: cruzamento.data?.totais ?? null,
-        atribuicaoPorDia: atribuicaoPorDia.data?.items ?? [],
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar dados.')
-    } finally {
-      setLoading(false)
-    }
-  }, [startDate, endDate])
-
-  const canalLabel = (v) => CANAL_LABELS[v] ?? v ?? '-'
-
-  const discrepanciaCols = [
-    { key: 'data_pedido', label: 'Data' },
-    { key: 'canal', label: 'Canal', format: canalLabel },
-    { key: 'campaign_id', label: 'Campanha ID' },
-    { key: 'tipo_engajamento', label: 'Engajamento' },
-    { key: 'valor_pedido', label: 'Valor Pedido', right: true, format: formatCurrency },
-    { key: 'valor_atribuido', label: 'Valor Atribuído', right: true, format: formatCurrency },
-  ]
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Filtro de período */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Data inicial
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Data final
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <button
-            onClick={handleAtualizar}
-            disabled={loading}
-            className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
-          >
-            {loading ? 'Carregando...' : 'Atualizar'}
-          </button>
-        </div>
-      </section>
-
-      {error && (
-        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
-        </p>
-      )}
-
-      {!data && !loading && (
-        <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
-      )}
-
-      {data && (
-        <div className="flex flex-col gap-6">
-          {data.cruzamento && (
-            <AuditoriaCruzamento cruzamento={data.cruzamento} />
-          )}
-
-          {data.atribuicaoPorDia?.length > 0 && (
-            <AttributionByDayChart items={data.atribuicaoPorDia} />
-          )}
-
-          {data.cruzamento && (
-            <DetalheDeviaAtribuir startDate={startDate} endDate={endDate} />
-          )}
-
-          <CruzamentoOrderId startDate={startDate} endDate={endDate} />
-
-          <SchemaDiagnostico />
-
-          <SemTreatmentDiagnostico />
-
-          <SectionCard
-            title="Atribuição sem Valor"
-            badge={data.discrepancia.length}
-            description="Pedidos com tratamento registrado pelo Emarsys mas com valor atribuído igual a zero. Podem indicar registros incompletos ou falha de atribuição."
-          >
-            <Table
-              columns={discrepanciaCols}
-              rows={data.discrepancia}
-              emptyText="Nenhum caso encontrado no período."
-            />
-          </SectionCard>
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function AuditoriaPage() {
-  const defaults = getDefaultDates()
-  const [startDate, setStartDate] = useState(defaults.start)
-  const [endDate, setEndDate] = useState(defaults.end)
   const [auditView, setAuditView] = useState('nova')
 
   const NAV = [
     { key: 'nova',          label: 'Nova' },
     { key: 'nao-atribuidos', label: 'Não Atribuídos' },
-    { key: 'antiga',        label: 'Antiga' },
   ]
 
   return (
@@ -1117,14 +986,6 @@ export default function AuditoriaPage() {
           )}
           {auditView === 'nao-atribuidos' && (
             <AuditoriaNaoAtribuidosPage />
-          )}
-          {auditView === 'antiga' && (
-            <AntigaAuditoriaContent
-              startDate={startDate}
-              setStartDate={setStartDate}
-              endDate={endDate}
-              setEndDate={setEndDate}
-            />
           )}
         </div>
       </div>
