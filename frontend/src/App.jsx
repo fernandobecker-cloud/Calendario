@@ -49,10 +49,8 @@ const ADM_MENU_ITEMS = [
   { key: 'open-data', label: 'Open Data Emarsys' },
   { key: 'automation-results', label: 'Resultados de Automacoes' },
   { key: 'open-data-explorer', label: 'Explorador de Tabelas' },
-  { key: 'receita-teste', label: 'Receita Teste' },
   { key: 'comparativo-crm', label: 'Comparativo CRM' },
   { key: 'campanha-detalhe', label: 'Apuracao de Campanhas' },
-  { key: 'unidade-venda', label: 'Unidade de Venda' },
   { key: 'perfil-cliente', label: 'Perfil do Cliente' },
   { key: 'apple-lover', label: 'Apple Lover' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
@@ -299,11 +297,6 @@ export default function App({ mode = 'campanhas' }) {
   const [permissoesSaving, setPermissoesSaving] = useState(false)
   const [permissoesError, setPermissoesError] = useState('')
   const [permissoesSuccess, setPermissoesSuccess] = useState('')
-  const [receitaTesteData, setReceitaTesteData] = useState(null)
-  const [receitaTesteLoading, setReceitaTesteLoading] = useState(false)
-  const [receitaTesteError, setReceitaTesteError] = useState('')
-  const [receitaTesteStart, setReceitaTesteStart] = useState(currentMonthRange.start)
-  const [receitaTesteEnd, setReceitaTesteEnd] = useState(currentMonthRange.end)
   const [comparativoCRMData, setComparativoCRMData] = useState(null)
   const [comparativoCRMLoading, setComparativoCRMLoading] = useState(false)
   const [comparativoCRMError, setComparativoCRMError] = useState('')
@@ -319,14 +312,6 @@ export default function App({ mode = 'campanhas' }) {
   const [emailApuracaoError, setEmailApuracaoError] = useState('')
   const [smsRegional, setSmsRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [emailRegional, setEmailRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
-  const [unidadeVendaData, setUnidadeVendaData] = useState(null)
-  const [unidadeVendaLoading, setUnidadeVendaLoading] = useState(false)
-  const [unidadeVendaError, setUnidadeVendaError] = useState('')
-  const [unidadeVendaHasRequested, setUnidadeVendaHasRequested] = useState(false)
-  const [unidadeVendaMaxDocuments, setUnidadeVendaMaxDocuments] = useState(5000)
-  const [unidadeVendaSampleLimit, setUnidadeVendaSampleLimit] = useState(200)
-  const [unidadeVendaStart, setUnidadeVendaStart] = useState(() => getMonthDateRange(now.getFullYear(), now.getMonth() + 1).start)
-  const [unidadeVendaEnd, setUnidadeVendaEnd] = useState(getLocalIsoDate(now))
   const [appleLoverData, setAppleLoverData] = useState(null)
   const [appleLoverLoading, setAppleLoverLoading] = useState(false)
   const [appleLoverError, setAppleLoverError] = useState('')
@@ -779,25 +764,6 @@ export default function App({ mode = 'campanhas' }) {
       .catch(() => setPermissoesError('Nao foi possivel carregar as permissoes.'))
   }, [activeView])
 
-  const loadReceitaTeste = useCallback(async () => {
-    if (!receitaTesteStart || !receitaTesteEnd) return
-    setReceitaTesteLoading(true)
-    setReceitaTesteError('')
-    try {
-      const params = new URLSearchParams({ start: receitaTesteStart, end: receitaTesteEnd })
-      const res = await fetch(`/api/open-data/receita-teste?${params}`)
-      const payload = await res.json()
-      if (!res.ok) throw new Error(payload?.detail || 'Erro ao calcular receita teste.')
-      setReceitaTesteData(payload)
-    } catch (err) {
-      setReceitaTesteError(err instanceof Error ? err.message : 'Erro inesperado.')
-      setReceitaTesteData(null)
-    } finally {
-      setReceitaTesteLoading(false)
-    }
-  }, [receitaTesteStart, receitaTesteEnd])
-
-
   const loadComparativoCRM = useCallback(async () => {
     if (!comparativoCRMStart || !comparativoCRMEnd) return
     setComparativoCRMLoading(true)
@@ -894,36 +860,6 @@ export default function App({ mode = 'campanhas' }) {
       return prev
     })
   }, [])
-
-  const loadUnidadeVenda = useCallback(async () => {
-    setUnidadeVendaHasRequested(true)
-    setUnidadeVendaLoading(true)
-    setUnidadeVendaError('')
-    try {
-      const params = new URLSearchParams({
-        max_documents: String(unidadeVendaMaxDocuments),
-        sample_limit: String(unidadeVendaSampleLimit),
-        start: unidadeVendaStart,
-        end: unidadeVendaEnd
-      })
-      const res = await fetch(`/api/open-data/unidade-venda/contacts-match?${params}`)
-      const text = await res.text()
-      let payload = null
-      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
-      if (!res.ok) {
-        const detail = payload?.detail || (text ? `HTTP ${res.status}: ${text.slice(0, 200)}` : `HTTP ${res.status}`)
-        console.error('[Unidade de Venda] erro da API:', res.status, text)
-        throw new Error(detail)
-      }
-      if (!payload) throw new Error('A API nao retornou dados para o cruzamento.')
-      setUnidadeVendaData(payload)
-    } catch (err) {
-      setUnidadeVendaError(err instanceof Error ? err.message : 'Erro inesperado.')
-      setUnidadeVendaData(null)
-    } finally {
-      setUnidadeVendaLoading(false)
-    }
-  }, [unidadeVendaEnd, unidadeVendaMaxDocuments, unidadeVendaSampleLimit, unidadeVendaStart])
 
   const loadAppleLover = useCallback(async () => {
     setAppleLoverLoading(true)
@@ -2152,231 +2088,6 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
-  const renderUnidadeVendaView = () => {
-    const summary = unidadeVendaData?.summary || {}
-    const items = Array.isArray(unidadeVendaData?.items) ? unidadeVendaData.items : []
-    const statusLabel = {
-      bateu: 'Bateu',
-      nao_bateu: 'Nao bateu',
-      sem_documento: 'Sem documento',
-      nao_consultado: 'Nao consultado'
-    }
-    const statusClass = {
-      bateu: 'bg-emerald-50 text-emerald-700',
-      nao_bateu: 'bg-rose-50 text-rose-700',
-      sem_documento: 'bg-slate-100 text-slate-600',
-      nao_consultado: 'bg-amber-50 text-amber-700'
-    }
-
-    return (
-      <section className="space-y-5">
-        <section className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white shadow-soft md:p-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Unidade de Venda</h1>
-              <p className="mt-2 text-sm text-emerald-50 md:text-base">
-                Vendas do periodo em si_purchases, contato em si_contacts e external_id contra Documento Cliente.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Inicio
-                <input
-                  type="date"
-                  value={unidadeVendaStart}
-                  onChange={(event) => setUnidadeVendaStart(event.target.value)}
-                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Fim
-                <input
-                  type="date"
-                  value={unidadeVendaEnd}
-                  onChange={(event) => setUnidadeVendaEnd(event.target.value)}
-                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Docs consultados
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  value={unidadeVendaMaxDocuments}
-                  onChange={(event) => setUnidadeVendaMaxDocuments(Number(event.target.value || 5000))}
-                  className="w-36 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm text-white/90">
-                Amostra
-                <input
-                  type="number"
-                  min="1"
-                  max="1000"
-                  value={unidadeVendaSampleLimit}
-                  onChange={(event) => setUnidadeVendaSampleLimit(Number(event.target.value || 200))}
-                  className="w-28 rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={loadUnidadeVenda}
-                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-slate-100"
-              >
-                Atualizar
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {unidadeVendaError && (
-          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {unidadeVendaError}
-          </section>
-        )}
-
-        {unidadeVendaData?.warning && (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {unidadeVendaData.warning}
-          </section>
-        )}
-
-        {unidadeVendaLoading ? (
-          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-            <p className="text-sm text-slate-500">Cruzando Base Vendas com compras e contatos...</p>
-          </section>
-        ) : !unidadeVendaHasRequested ? (
-          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-            <p className="text-sm text-slate-500">Escolha o periodo e clique em Atualizar para carregar o cruzamento.</p>
-          </section>
-        ) : unidadeVendaData && (
-          <>
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Linhas validas</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.documents_with_value || 0).toLocaleString('pt-BR')}</p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Docs unicos</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.unique_documents || 0).toLocaleString('pt-BR')}</p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Consultados</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.documents_checked || 0).toLocaleString('pt-BR')}</p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bateram</p>
-                <p className="mt-2 text-2xl font-semibold text-emerald-700">{Number(summary.matched_documents || 0).toLocaleString('pt-BR')}</p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Taxa de match</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {Number(summary.match_rate || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
-                </p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pedidos periodo</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{Number(summary.matched_orders_period || 0).toLocaleString('pt-BR')}</p>
-              </article>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Amostra do cruzamento</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Planilha {unidadeVendaData.sheet_name}, documento em {unidadeVendaData.document_column}
-                  {unidadeVendaData.date_column ? `, data em ${unidadeVendaData.date_column}` : ''}, contra {unidadeVendaData.purchases_table} e {unidadeVendaData.contacts_table}.
-                </p>
-              </div>
-
-              {items.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-500">Nenhuma linha retornada na amostra.</p>
-              ) : (
-                <div className="mt-4 overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead>
-                      <tr className="text-left text-slate-600">
-                        <th className="px-3 py-2 font-semibold">Linha</th>
-                        <th className="px-3 py-2 font-semibold">Documento Cliente</th>
-                        <th className="px-3 py-2 font-semibold">Status</th>
-                        {unidadeVendaData.canal_column && <th className="px-3 py-2 font-semibold">Canal</th>}
-                        {unidadeVendaData.unidade_negocio_column && <th className="px-3 py-2 font-semibold">Unidade de Negócio</th>}
-                        {unidadeVendaData.codigo_filial_column && <th className="px-3 py-2 font-semibold">Cód. Filial</th>}
-                        <th className="px-3 py-2 font-semibold">Pedidos periodo</th>
-                        <th className="px-3 py-2 font-semibold">Receita periodo</th>
-                        <th className="px-3 py-2 font-semibold">si_contact_id</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {items.map((item) => (
-                        <tr key={`${item.row_index}-${item.normalized_documento}`} className="align-top">
-                          <td className="px-3 py-3 text-slate-700">{item.row_index}</td>
-                          <td className="px-3 py-3 text-slate-900">{formatOpenDataValue(item.documento_cliente)}</td>
-                          <td className="px-3 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass[item.status] || statusClass.sem_documento}`}>
-                              {statusLabel[item.status] || item.status}
-                            </span>
-                          </td>
-                          {unidadeVendaData.canal_column && <td className="px-3 py-3 text-slate-700">{item.canal || '-'}</td>}
-                          {unidadeVendaData.unidade_negocio_column && <td className="px-3 py-3 text-slate-700">{item.unidade_negocio || '-'}</td>}
-                          {unidadeVendaData.codigo_filial_column && <td className="px-3 py-3 text-slate-700">{item.codigo_filial || '-'}</td>}
-                          <td className="px-3 py-3 text-slate-700">{Number(item.pedidos_periodo || 0).toLocaleString('pt-BR')}</td>
-                          <td className="px-3 py-3 text-slate-700">{formatCurrency(item.receita_periodo)}</td>
-                          <td className="max-w-[240px] px-3 py-3 text-slate-700">
-                            {(item.si_contact_ids || []).length > 0 ? item.si_contact_ids.join(', ') : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            {/* Breakdowns por dimensão */}
-            {(['canal', 'unidade_negocio', 'codigo_filial']).map((field) => {
-              const colKey = `${field}_column`
-              const dataKey = `breakdown_${field}`
-              const labels = { canal: 'Canal', unidade_negocio: 'Unidade de Negócio', codigo_filial: 'Código Filial' }
-              const rows = unidadeVendaData[dataKey]
-              if (!unidadeVendaData[colKey] || !rows || rows.length === 0) return null
-              return (
-                <section key={field} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-                  <h2 className="mb-4 text-lg font-semibold text-slate-900">Receita CRM por {labels[field]}</h2>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
-                      <thead>
-                        <tr className="text-left text-slate-600">
-                          <th className="px-3 py-2 font-semibold">{labels[field]}</th>
-                          <th className="px-3 py-2 text-right font-semibold">Clientes CRM</th>
-                          <th className="px-3 py-2 text-right font-semibold">Linhas</th>
-                          <th className="px-3 py-2 text-right font-semibold">Pedidos Open Data</th>
-                          <th className="px-3 py-2 text-right font-semibold">Receita Open Data</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {rows.map((r) => (
-                          <tr key={r.dimension} className="hover:bg-slate-50">
-                            <td className="px-3 py-3 font-medium text-slate-900">{r.dimension}</td>
-                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.unique_docs).toLocaleString('pt-BR')}</td>
-                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.linhas).toLocaleString('pt-BR')}</td>
-                            <td className="px-3 py-3 text-right text-slate-700">{Number(r.pedidos_periodo).toLocaleString('pt-BR')}</td>
-                            <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatCurrency(r.receita_periodo)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )
-            })}
-          </>
-        )}
-      </section>
-    )
-  }
-
   const renderAppleLoverView = () => {
     const d = appleLoverData
 
@@ -2883,119 +2594,6 @@ export default function App({ mode = 'campanhas' }) {
     </section>
   )
 
-  const renderReceitaTesteView = () => (
-    <section className="space-y-5">
-      <section className="rounded-2xl bg-gradient-to-r from-violet-600 to-purple-700 p-6 text-white shadow-soft md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Receita Teste</h1>
-            <p className="mt-2 text-sm text-violet-100 md:text-base">
-              Pedidos de contatos que abriram um e-mail de marketing ou receberam SMS nos 7 dias antes da compra.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-sm text-white/90">
-              Inicio
-              <input
-                type="date"
-                value={receitaTesteStart}
-                onChange={(e) => setReceitaTesteStart(e.target.value)}
-                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-white/90">
-              Fim
-              <input
-                type="date"
-                value={receitaTesteEnd}
-                onChange={(e) => setReceitaTesteEnd(e.target.value)}
-                className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={loadReceitaTeste}
-              className="self-end rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold transition hover:bg-white/25"
-            >
-              Atualizar
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {receitaTesteError && (
-        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {receitaTesteError}
-        </section>
-      )}
-
-      {receitaTesteLoading ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-          <p className="text-sm text-slate-500">Calculando receita atribuida... Isso pode levar alguns segundos.</p>
-        </section>
-      ) : receitaTesteData && (
-        <>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl bg-violet-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Receita Atribuida</p>
-                <p className="mt-1 text-2xl font-bold text-violet-900">{formatCurrency(receitaTesteData.receita_atribuida)}</p>
-                <p className="mt-1 text-sm text-violet-700">Valor dos pedidos: {formatCurrency(receitaTesteData.valor_dos_pedidos)}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Atribuidos</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900">{Number(receitaTesteData.pedidos_atribuidos).toLocaleString('pt-BR')}</p>
-              </div>
-              <div className="rounded-xl bg-rose-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600">Receita Desconsiderada</p>
-                <p className="mt-1 text-2xl font-bold text-rose-900">{formatCurrency(receitaTesteData.receita_desconsiderada)}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pedidos Desconsiderados</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900">{Number(receitaTesteData.pedidos_desconsiderados).toLocaleString('pt-BR')}</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Criterio: abertura de e-mail de marketing OU recebimento de SMS nos 7 dias anteriores a compra.
-              Excluidos: transacional_, 0_token-, token-, 00000000_pedido_, fraudes, contrato-assinado,
-              0_at_, 0_cartaopresente, 0_lrautomatica, 0_produto_transito, pesquisanps.
-            </p>
-          </section>
-
-          <div className="grid gap-5 md:grid-cols-2">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-              <h2 className="text-base font-semibold text-slate-900">Campanhas Consideradas</h2>
-              <p className="mt-0.5 mb-3 text-xs text-slate-500">{receitaTesteData.campanhas_incluidas.length} campanhas</p>
-              {receitaTesteData.campanhas_incluidas.length === 0 ? (
-                <p className="text-sm text-slate-400">Nenhuma campanha encontrada.</p>
-              ) : (
-                <ul className="max-h-96 overflow-y-auto divide-y divide-slate-100">
-                  {receitaTesteData.campanhas_incluidas.map((name) => (
-                    <li key={name} className="py-1.5 text-sm text-slate-700">{name}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-              <h2 className="text-base font-semibold text-slate-900">Campanhas Desconsideradas</h2>
-              <p className="mt-0.5 mb-3 text-xs text-slate-500">{receitaTesteData.campanhas_excluidas.length} campanhas</p>
-              {receitaTesteData.campanhas_excluidas.length === 0 ? (
-                <p className="text-sm text-slate-400">Nenhuma campanha excluida.</p>
-              ) : (
-                <ul className="max-h-96 overflow-y-auto divide-y divide-slate-100">
-                  {receitaTesteData.campanhas_excluidas.map((name) => (
-                    <li key={name} className="py-1.5 text-sm text-rose-700">{name}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        </>
-      )}
-    </section>
-  )
-
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
       <div className="grid gap-4 md:grid-cols-[260px_1fr]">
@@ -3028,10 +2626,8 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'utm' && renderUtmView()}
           {activeView === 'users' && userManagementEnabled && renderUsersView()}
           {activeView === 'permissoes' && renderPermissoesView()}
-          {activeView === 'receita-teste' && renderReceitaTesteView()}
           {activeView === 'comparativo-crm' && renderComparativoCRMView()}
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
-          {activeView === 'unidade-venda' && renderUnidadeVendaView()}
           {activeView === 'perfil-cliente' && <PerfilClientePage />}
           {activeView === 'apple-lover' && renderAppleLoverView()}
         </div>
