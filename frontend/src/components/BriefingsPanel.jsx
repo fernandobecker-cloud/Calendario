@@ -96,7 +96,7 @@ export default function BriefingsPanel({ events, onEdit }) {
   const allRows = useMemo(() =>
     (events || [])
       .map((e) => buildRow(e, today))
-      .filter((r) => r && r.status.toLowerCase() !== 'finalizada')
+      .filter((r) => r && !['finalizada', 'cancelada'].includes(r.status.toLowerCase()))
       .sort((a, b) => a.campaignDate.getTime() - b.campaignDate.getTime()),
   [events, today])
 
