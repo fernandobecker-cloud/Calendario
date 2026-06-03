@@ -4467,6 +4467,31 @@ WHERE cpf_normalized IS NOT NULL AND cpf_normalized != ''
 """.strip()
 
 
+@router.get("/emarsys/data-delay")
+def emarsys_data_delay() -> dict[str, Any]:
+    """Retorna a última data de evento disponível no BigQuery (para exibir aviso de delay)."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    tz = EMARSYS_TZ
+    sql = f"""
+SELECT
+  MAX(DATE(partitiontime))                        AS ultima_carga,
+  MAX(DATE(event_time, '{tz}'))                   AS ultimo_evento
+FROM `{project_id}.{dataset}.{revenue_table}`
+WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL 5 DAY)
+""".strip()
+    try:
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=15)
+        row = records[0] if records else {}
+        return {
+            "ultima_carga": str(row.get("ultima_carga") or ""),
+            "ultimo_evento": str(row.get("ultimo_evento") or ""),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao verificar delay: {exc}") from exc
+
+
 @router.get("/emarsys/receita-atribuida-canal")
 def receita_atribuida_canal(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
