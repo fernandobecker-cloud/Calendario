@@ -2712,7 +2712,6 @@ export default function App({ mode = 'campanhas' }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
           role="dialog"
           aria-modal="true"
-          onClick={() => setEventFormOpen(false)}
         >
           <div
             className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
