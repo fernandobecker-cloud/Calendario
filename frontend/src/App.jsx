@@ -19,6 +19,17 @@ const CHANNEL_SOFT = {
   other:    { bg: '#F8FAFC', text: '#475569', border: '#E2E8F0', label: 'Outro' },
 }
 
+const STATUS_SOFT = {
+  'Cancelada':  { bg: '#FEF2F2', text: '#B91C1C', border: '#FECACA' },
+  'Finalizada': { bg: '#F1F5F9', text: '#64748B', border: '#CBD5E1' },
+}
+
+function getEventStyle(channelKey, status) {
+  const statusOverride = STATUS_SOFT[status]
+  if (statusOverride) return statusOverride
+  return CHANNEL_SOFT[channelKey] || CHANNEL_SOFT.other
+}
+
 function StatusIcon({ status, size = 11 }) {
   const props = {
     width: size, height: size, viewBox: '0 0 24 24',
@@ -1280,7 +1291,7 @@ export default function App({ mode = 'campanhas' }) {
             eventContent={(info) => {
               const key = info.event.extendedProps?.channelKey || 'other'
               const status = info.event.extendedProps?.status || ''
-              const soft = CHANNEL_SOFT[key] || CHANNEL_SOFT.other
+              const soft = getEventStyle(key, status)
               return (
                 <div
                   title={`${info.event.title} · ${status}`}
