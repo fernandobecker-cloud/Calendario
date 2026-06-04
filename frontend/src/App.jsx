@@ -19,15 +19,9 @@ const CHANNEL_SOFT = {
   other:    { bg: '#F8FAFC', text: '#475569', border: '#E2E8F0', label: 'Outro' },
 }
 
-const STATUS_SOFT = {
-  'Cancelada':  { bg: '#FEF2F2', text: '#B91C1C', border: '#FECACA' },
-  'Finalizada': { bg: '#F1F5F9', text: '#64748B', border: '#CBD5E1' },
-}
-
-function getEventStyle(channelKey, status) {
-  const statusOverride = STATUS_SOFT[status]
-  if (statusOverride) return statusOverride
-  return CHANNEL_SOFT[channelKey] || CHANNEL_SOFT.other
+const STATUS_ICON_COLOR = {
+  'Cancelada':  '#DC2626',
+  'Finalizada': '#16A34A',
 }
 
 function StatusIcon({ status, size = 11 }) {
@@ -1291,7 +1285,8 @@ export default function App({ mode = 'campanhas' }) {
             eventContent={(info) => {
               const key = info.event.extendedProps?.channelKey || 'other'
               const status = info.event.extendedProps?.status || ''
-              const soft = getEventStyle(key, status)
+              const soft = CHANNEL_SOFT[key] || CHANNEL_SOFT.other
+              const iconColor = STATUS_ICON_COLOR[status] ?? soft.text
               return (
                 <div
                   title={`${info.event.title} · ${status}`}
@@ -1311,7 +1306,9 @@ export default function App({ mode = 'campanhas' }) {
                     cursor: 'pointer',
                   }}
                 >
-                  <StatusIcon status={status} />
+                  <span style={{ color: iconColor, display: 'flex', flexShrink: 0 }}>
+                    <StatusIcon status={status} />
+                  </span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {soft.label}
                   </span>
