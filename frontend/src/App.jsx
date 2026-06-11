@@ -59,6 +59,7 @@ const ADM_MENU_ITEMS = [
   { key: 'perfil-cliente', label: 'Perfil do Cliente' },
   { key: 'apple-lover', label: 'Apple Lover' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
+  { key: 'cupom', label: 'Consulta por Cupom' },
 ]
 
 const TAB_PERMISSION_OPTIONS = [
@@ -327,6 +328,12 @@ export default function App({ mode = 'campanhas' }) {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   })
 
+  const [cupomQuery, setCupomQuery] = useState('')
+  const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
+  const [cupomEnd, setCupomEnd] = useState(currentMonthRange.end)
+  const [cupomData, setCupomData] = useState(null)
+  const [cupomLoading, setCupomLoading] = useState(false)
+  const [cupomError, setCupomError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -885,6 +892,29 @@ export default function App({ mode = 'campanhas' }) {
       setAppleLoverLoading(false)
     }
   }, [appleLoverStart, appleLoverEnd])
+
+  const loadCupom = useCallback(async () => {
+    const codes = cupomQuery.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean)
+    if (!codes.length) return
+    setCupomLoading(true)
+    setCupomError('')
+    setCupomData(null)
+    try {
+      const params = new URLSearchParams({ start: cupomStart, end: cupomEnd })
+      codes.forEach((c) => params.append('coupon', c))
+      const res = await fetch(`/api/ga4/coupon-orders?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!payload) throw new Error('A API nao retornou dados.')
+      setCupomData(payload)
+    } catch (err) {
+      setCupomError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setCupomLoading(false)
+    }
+  }, [cupomQuery, cupomStart, cupomEnd])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -2485,6 +2515,161 @@ export default function App({ mode = 'campanhas' }) {
     </section>
   )
 
+  const renderCupomView = () => {
+    const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
+    const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
+
+    const exportCsv = () => {
+      if (!cupomData?.by_coupon?.length) return
+      const cols = ['cupom', 'pedidos', 'receita', 'ticket_medio']
+      const esc = (v) => { const s = String(v ?? ''); return s.includes(',') ? `"${s}"` : s }
+      const rows = cupomData.by_coupon.map((r) =>
+        [r.coupon, r.transactions, r.purchaseRevenue, r.transactions > 0 ? (r.purchaseRevenue / r.transactions).toFixed(2) : '0'].map(esc).join(',')
+      )
+      const csv = [cols.join(','), ...rows].join('\n')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      a.download = `cupom_${cupomStart}_${cupomEnd}.csv`
+      a.click()
+    }
+
+    return (
+      <section className="space-y-5">
+        {/* Header */}
+        <section className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Consulta por Cupom</h1>
+              <p className="mt-2 text-sm text-emerald-100">
+                Pedidos e receita por cupom no período selecionado (dados GA4)
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Início
+                <input type="date" value={cupomStart} onChange={(e) => setCupomStart(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input type="date" value={cupomEnd} onChange={(e) => setCupomEnd(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        {/* Search */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <form onSubmit={(e) => { e.preventDefault(); loadCupom() }} className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Código do cupom (ex: BLACKFRIDAY, VOLTA10)..."
+              value={cupomQuery}
+              onChange={(e) => setCupomQuery(e.target.value)}
+              className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+            />
+            <button
+              type="submit"
+              disabled={cupomLoading || !cupomQuery.trim()}
+              className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {cupomLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </form>
+          <p className="mt-2 text-xs text-slate-400">Para buscar mais de um cupom, separe por vírgula ou espaço.</p>
+        </section>
+
+        {/* Error */}
+        {cupomError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {cupomError}
+          </section>
+        )}
+
+        {/* Loading */}
+        {cupomLoading && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando GA4...</p>
+          </section>
+        )}
+
+        {/* Results */}
+        {!cupomLoading && cupomData && (
+          <>
+            {/* Summary cards */}
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {[
+                { label: 'Total de Pedidos', value: fmtN(cupomData.transactions) },
+                { label: 'Receita Total', value: fmt(cupomData.purchaseRevenue) },
+                { label: 'Ticket Médio', value: fmt(cupomData.average_ticket) },
+              ].map((card) => (
+                <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900">{card.value}</p>
+                </div>
+              ))}
+            </section>
+
+            {/* Breakdown table */}
+            {cupomData.transactions === 0 ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+                <p className="text-sm text-slate-400">Nenhum pedido encontrado para o cupom no período.</p>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Breakdown por Cupom</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {cupomData.start_date} a {cupomData.end_date}
+                    </p>
+                  </div>
+                  <button
+                    onClick={exportCsv}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">Cupom</th>
+                        <th className="px-5 py-3 text-right">Pedidos</th>
+                        <th className="px-5 py-3 text-right">Receita</th>
+                        <th className="px-5 py-3 text-right">Ticket Médio</th>
+                        <th className="px-5 py-3 text-right">% Pedidos</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {cupomData.by_coupon.map((row) => (
+                        <tr key={row.coupon} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 font-mono text-xs font-semibold text-slate-800">{row.coupon || '(sem cupom)'}</td>
+                          <td className="px-5 py-3 text-right text-slate-700">{fmtN(row.transactions)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-slate-900">{fmt(row.purchaseRevenue)}</td>
+                          <td className="px-5 py-3 text-right text-slate-700">
+                            {fmt(row.transactions > 0 ? row.purchaseRevenue / row.transactions : 0)}
+                          </td>
+                          <td className="px-5 py-3 text-right text-slate-500">
+                            {cupomData.transactions > 0
+                              ? `${((row.transactions / cupomData.transactions) * 100).toFixed(1)}%`
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </section>
+    )
+  }
+
   const renderComparativoCRMView = () => (
     <section className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-r from-indigo-700 to-blue-600 p-6 text-white shadow-soft md:p-8">
@@ -2638,6 +2823,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
           {activeView === 'perfil-cliente' && <PerfilClientePage />}
           {activeView === 'apple-lover' && renderAppleLoverView()}
+          {activeView === 'cupom' && renderCupomView()}
         </div>
       </div>
 
