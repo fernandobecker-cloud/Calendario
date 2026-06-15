@@ -2425,17 +2425,24 @@ export default function App({ mode = 'campanhas' }) {
           <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
             <p className="text-sm text-slate-500">Consultando campanhas de e-mail...</p>
           </section>
-        ) : emailApuracaoData && (
+        ) : emailApuracaoData && (() => {
+          const emailItems = (emailApuracaoData.items || []).filter(i => i.enviados >= 10)
+          const topApple = emailApuracaoData.top_apple || []
+          const topNaoApple = emailApuracaoData.top_nao_apple || []
+          const fmtC = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
+          return (
+          <>
           <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
             <div className="border-b border-slate-100 px-5 py-4">
               <h3 className="text-base font-semibold text-slate-900">
                 Resultados para &ldquo;{emailApuracaoData.nome}&rdquo;
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                {emailApuracaoData.total} campanha(s) encontrada(s)
+                {emailItems.length} campanha(s) encontrada(s)
+                {emailApuracaoData.total > emailItems.length && ` (${emailApuracaoData.total - emailItems.length} teste(s) oculto(s))`}
               </p>
             </div>
-            {emailApuracaoData.total === 0 ? (
+            {emailItems.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhuma campanha de e-mail encontrada.</p>
             ) : (
               <div className="overflow-x-auto">
@@ -2457,7 +2464,7 @@ export default function App({ mode = 'campanhas' }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {emailApuracaoData.items.map((item) => {
+                    {emailItems.map((item) => {
                       const reg = emailRegional[item.campaign_id] || {}
                       return (
                         <Fragment key={item.campaign_id}>
@@ -2509,7 +2516,47 @@ export default function App({ mode = 'campanhas' }) {
               </div>
             )}
           </section>
-        )}
+
+          {/* Top produtos Apple / Não-Apple */}
+          {(topApple.length > 0 || topNaoApple.length > 0) && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {[
+                { titulo: 'Top Produtos Apple', cor: 'text-slate-700', dados: topApple },
+                { titulo: 'Top Produtos Não-Apple', cor: 'text-slate-700', dados: topNaoApple },
+              ].map(({ titulo, dados }) => (
+                <section key={titulo} className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                  <div className="border-b border-slate-100 px-5 py-3">
+                    <h4 className="text-sm font-semibold text-slate-800">{titulo}</h4>
+                  </div>
+                  {dados.length === 0 ? (
+                    <p className="px-5 py-6 text-center text-xs text-slate-400">Sem dados.</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-4 py-2">Produto</th>
+                          <th className="px-4 py-2 text-right">Qtd</th>
+                          <th className="px-4 py-2 text-right">Receita</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {dados.map((p, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="px-4 py-2 text-xs text-slate-800">{p.nome}</td>
+                            <td className="px-4 py-2 text-right text-xs text-slate-700">{(p.qtd || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-2 text-right text-xs font-medium text-slate-900">{fmtC(p.receita)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
+          </>
+          )
+        })()}
       </section>
 
     </section>

@@ -3830,6 +3830,38 @@ items_agg AS (
   FROM items_pre
   GROUP BY 1
 ),
+apple_prod AS (
+  SELECT
+    COALESCE(NULLIF(TRIM(ip.product_name), ''), 'Sem nome') AS nome,
+    COUNT(*)                                                 AS qtd,
+    ROUND(SUM(ip.sales_amount), 2)                          AS receita
+  FROM items_pre ip
+  INNER JOIN email_camp ec ON ec.campaign_id = ip.campaign_id
+  WHERE LOWER(COALESCE(ip.product_name, '')) LIKE '%apple%'
+  GROUP BY 1
+),
+nao_apple_prod AS (
+  SELECT
+    COALESCE(NULLIF(TRIM(ip.product_name), ''), 'Sem nome') AS nome,
+    COUNT(*)                                                 AS qtd,
+    ROUND(SUM(ip.sales_amount), 2)                          AS receita
+  FROM items_pre ip
+  INNER JOIN email_camp ec ON ec.campaign_id = ip.campaign_id
+  WHERE LOWER(COALESCE(ip.product_name, '')) NOT LIKE '%apple%'
+  GROUP BY 1
+),
+top_apple_json_cte AS (
+  SELECT TO_JSON_STRING(
+    ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)
+  ) AS top_apple
+  FROM apple_prod
+),
+top_nao_apple_json_cte AS (
+  SELECT TO_JSON_STRING(
+    ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)
+  ) AS top_nao_apple
+  FROM nao_apple_prod
+),
 opens_contacts AS (
   SELECT DISTINCT
     CAST(campaign_id AS STRING) AS campaign_id,
@@ -3873,7 +3905,9 @@ SELECT
   COALESCE(itm.itens_apple, 0)         AS itens_apple,
   COALESCE(itm.itens_nao_apple, 0)     AS itens_nao_apple,
   COALESCE(itm.receita_apple, 0)       AS receita_apple,
-  COALESCE(itm.receita_nao_apple, 0)   AS receita_nao_apple
+  COALESCE(itm.receita_nao_apple, 0)   AS receita_nao_apple,
+  (SELECT top_apple    FROM top_apple_json_cte)     AS top_apple_json,
+  (SELECT top_nao_apple FROM top_nao_apple_json_cte) AS top_nao_apple_json
 FROM email_camp ec
 LEFT JOIN email_sends_agg es  ON ec.campaign_id = es.campaign_id
 LEFT JOIN email_opens_agg eo  ON ec.campaign_id = eo.campaign_id
@@ -3915,6 +3949,7 @@ def email_apuracao(
     nome: str = Query(..., min_length=2, max_length=200),
 ) -> dict[str, Any]:
     try:
+        import json as _json
         sql = _build_email_apuracao_sql(nome)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         items = [
@@ -3936,7 +3971,11 @@ def email_apuracao(
             for row in records
         ]
 
-        return {"items": items, "total": len(items), "nome": nome}
+        first = records[0] if records else {}
+        top_apple = _json.loads(first.get("top_apple_json") or "[]")
+        top_nao_apple = _json.loads(first.get("top_nao_apple_json") or "[]")
+
+        return {"items": items, "total": len(items), "nome": nome, "top_apple": top_apple, "top_nao_apple": top_nao_apple}
     except HTTPException:
         raise
     except Exception as exc:
