@@ -6248,14 +6248,30 @@ ORDER BY valor_real DESC
     }
 
 
-def _build_acessorios_matriz_sql(start_date: str, end_date: str) -> str:
+def _build_acessorios_matriz_sql(start_date: str, end_date: str, canal: str = "") -> str:
     """Retorna attach rate por linha Apple × categoria de acessório (apple e parceiro) + pool de oportunidade."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     pt = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
 
+    canal_cte = ""
+    canal_join = ""
+    if canal and BASE_VENDAS_BQ_PROJECT:
+        safe_canal = canal.upper().replace("'", "''")
+        vp = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+        vd = _quote_identifier(VENDAS_BQ_DATASET)
+        vt = _quote_identifier(VENDAS_BQ_TABLE)
+        canal_cte = f"""
+canal_pedidos AS (
+  SELECT DISTINCT CAST(Numero_Pedido AS STRING) AS order_id
+  FROM `{vp}.{vd}.{vt}`
+  WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
+    AND Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+),"""
+        canal_join = "INNER JOIN canal_pedidos cp ON cp.order_id = CAST(order_id AS STRING)"
+
     return f"""
-WITH
+WITH{canal_cte}
 -- Dispositivos Apple comprados no período (denominador)
 apple_devices AS (
   SELECT
@@ -6269,6 +6285,7 @@ apple_devices AS (
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'APPLE WATCH')                              THEN 'Apple Watch'
     END AS linha_apple
   FROM `{project_id}.{dataset}.{pt}`
+  {canal_join}
   WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     AND sales_amount > 0
     AND REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')),
@@ -6477,7 +6494,7 @@ ORDER BY linha_apple, grupo, categoria
 """.strip()
 
 
-def _build_acessorios_marcas_sql(start_date: str, end_date: str) -> str:
+def _build_acessorios_marcas_sql(start_date: str, end_date: str, canal: str = "") -> str:
     """Retorna cards de marca (JBL/Logitech/Originais iPlace) com CRM e top produtos."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
@@ -6485,8 +6502,24 @@ def _build_acessorios_marcas_sql(start_date: str, end_date: str) -> str:
     rt = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
 
+    canal_cte = ""
+    canal_join = ""
+    if canal and BASE_VENDAS_BQ_PROJECT:
+        safe_canal = canal.upper().replace("'", "''")
+        vp = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+        vd = _quote_identifier(VENDAS_BQ_DATASET)
+        vt = _quote_identifier(VENDAS_BQ_TABLE)
+        canal_cte = f"""
+canal_pedidos AS (
+  SELECT DISTINCT CAST(Numero_Pedido AS STRING) AS order_id
+  FROM `{vp}.{vd}.{vt}`
+  WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
+    AND Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+),"""
+        canal_join = "INNER JOIN canal_pedidos cp ON cp.order_id = CAST(order_id AS STRING)"
+
     return f"""
-WITH
+WITH{canal_cte}
 brand_items AS (
   SELECT
     CAST(order_id AS STRING)      AS order_id,
@@ -6499,6 +6532,7 @@ brand_items AS (
       WHEN UPPER(product_name) LIKE '%ORIGINAIS IPLACE%' THEN 'Originais iPlace'
     END AS marca
   FROM `{project_id}.{dataset}.{pt}`
+  {canal_join}
   WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     AND sales_amount > 0
     AND (
@@ -6556,15 +6590,17 @@ ORDER BY pm.receita DESC
 def acessorios(
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> dict[str, Any]:
     import json as _json
     try:
         s = _validate_optional_iso_date(start) or start
         e = _validate_optional_iso_date(end) or end
+        canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
 
         # Run both queries
-        sql_matriz = _build_acessorios_matriz_sql(s, e)
-        sql_marcas = _build_acessorios_marcas_sql(s, e)
+        sql_matriz = _build_acessorios_matriz_sql(s, e, canal_filter)
+        sql_marcas = _build_acessorios_marcas_sql(s, e, canal_filter)
         matriz_records = run_bigquery_records(sql_matriz, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         marcas_records = run_bigquery_records(sql_marcas, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
 

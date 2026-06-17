@@ -337,6 +337,7 @@ export default function App({ mode = 'campanhas' }) {
   const [acessoriosModo, setAcessoriosModo] = useState('mesmo_pedido')
   const [acessoriosTopSort, setAcessoriosTopSort] = useState('qtd')
   const [acessoriosExportLoading, setAcessoriosExportLoading] = useState(false)
+  const [acessoriosCanal, setAcessoriosCanal] = useState('')
 
   const [cupomQuery, setCupomQuery] = useState('')
   const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
@@ -903,12 +904,14 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [appleLoverStart, appleLoverEnd])
 
-  const loadAcessorios = useCallback(async () => {
+  const loadAcessorios = useCallback(async (canalOverride) => {
     setAcessoriosLoading(true)
     setAcessoriosError('')
     setAcessoriosData(null)
     try {
+      const canal = canalOverride !== undefined ? canalOverride : acessoriosCanal
       const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
+      if (canal) params.set('canal', canal)
       const res = await fetch(`/api/open-data/acessorios?${params}`)
       const text = await res.text()
       let payload = null
@@ -921,7 +924,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setAcessoriosLoading(false)
     }
-  }, [acessoriosStart, acessoriosEnd])
+  }, [acessoriosStart, acessoriosEnd, acessoriosCanal])
 
   const loadCupom = useCallback(async () => {
     const codes = cupomQuery.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean)
@@ -2750,6 +2753,33 @@ export default function App({ mode = 'campanhas' }) {
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
+              {/* Canal filter */}
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-white/70">Canal</span>
+                <div className="flex rounded-lg overflow-hidden border border-white/30">
+                  {[
+                    { value: '',          label: 'Todos' },
+                    { value: 'VAREJO',    label: 'Varejo' },
+                    { value: 'ECOMMERCE', label: 'E-comm' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setAcessoriosCanal(opt.value)
+                        loadAcessorios(opt.value)
+                      }}
+                      className={`px-3 py-2 text-xs font-semibold transition ${
+                        acessoriosCanal === opt.value
+                          ? 'bg-white text-slate-800'
+                          : 'bg-white/10 text-white hover:bg-white/20'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="flex flex-col gap-1 text-sm text-white/90">
                 Início
                 <input type="date" value={acessoriosStart} onChange={(e) => setAcessoriosStart(e.target.value)}
@@ -2760,7 +2790,7 @@ export default function App({ mode = 'campanhas' }) {
                 <input type="date" value={acessoriosEnd} onChange={(e) => setAcessoriosEnd(e.target.value)}
                   className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
               </label>
-              <button type="button" onClick={loadAcessorios} disabled={acessoriosLoading}
+              <button type="button" onClick={() => loadAcessorios()} disabled={acessoriosLoading}
                 className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60">
                 {acessoriosLoading ? 'Consultando...' : 'Consultar'}
               </button>
