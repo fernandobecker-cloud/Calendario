@@ -60,6 +60,7 @@ const ADM_MENU_ITEMS = [
   { key: 'apple-lover', label: 'Apple Lover' },
   { key: 'permissoes', label: 'Permissoes de Acesso' },
   { key: 'cupom', label: 'Consulta por Cupom' },
+  { key: 'acessorios', label: 'Acessórios' },
 ]
 
 const TAB_PERMISSION_OPTIONS = [
@@ -327,6 +328,12 @@ export default function App({ mode = 'campanhas' }) {
   const [appleLoverEnd, setAppleLoverEnd] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   })
+
+  const [acessoriosData, setAcessoriosData] = useState(null)
+  const [acessoriosLoading, setAcessoriosLoading] = useState(false)
+  const [acessoriosError, setAcessoriosError] = useState('')
+  const [acessoriosStart, setAcessoriosStart] = useState(currentMonthRange.start)
+  const [acessoriosEnd, setAcessoriosEnd] = useState(currentMonthRange.end)
 
   const [cupomQuery, setCupomQuery] = useState('')
   const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
@@ -892,6 +899,26 @@ export default function App({ mode = 'campanhas' }) {
       setAppleLoverLoading(false)
     }
   }, [appleLoverStart, appleLoverEnd])
+
+  const loadAcessorios = useCallback(async () => {
+    setAcessoriosLoading(true)
+    setAcessoriosError('')
+    setAcessoriosData(null)
+    try {
+      const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
+      const res = await fetch(`/api/open-data/acessorios?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!payload) throw new Error('A API nao retornou dados.')
+      setAcessoriosData(payload)
+    } catch (err) {
+      setAcessoriosError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setAcessoriosLoading(false)
+    }
+  }, [acessoriosStart, acessoriosEnd])
 
   const loadCupom = useCallback(async () => {
     const codes = cupomQuery.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean)
@@ -2562,6 +2589,174 @@ export default function App({ mode = 'campanhas' }) {
     </section>
   )
 
+  const renderAcessoriosView = () => {
+    const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
+    const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
+    const d = acessoriosData
+
+    const MARCA_CONFIG = {
+      JBL:      { bg: 'from-orange-600 to-amber-500',  badge: 'bg-orange-100 text-orange-700' },
+      Logitech: { bg: 'from-blue-700 to-blue-500',     badge: 'bg-blue-100 text-blue-700' },
+    }
+
+    const TopProdutosTable = ({ titulo, dados }) => (
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+        <div className="border-b border-slate-100 px-5 py-3">
+          <h4 className="text-sm font-semibold text-slate-800">{titulo}</h4>
+        </div>
+        {!dados?.length ? (
+          <p className="px-5 py-6 text-center text-xs text-slate-400">Sem dados no período.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-2">Produto</th>
+                <th className="px-4 py-2 text-right">Qtd</th>
+                <th className="px-4 py-2 text-right">Receita</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {dados.map((p, i) => (
+                <tr key={i} className="hover:bg-slate-50">
+                  <td className="px-4 py-2 text-xs text-slate-800">{p.nome}</td>
+                  <td className="px-4 py-2 text-right text-xs text-slate-700">{fmtN(p.qtd)}</td>
+                  <td className="px-4 py-2 text-right text-xs font-medium text-slate-900">{fmt(p.receita)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    )
+
+    return (
+      <section className="space-y-5">
+        {/* Header */}
+        <section className="rounded-2xl bg-gradient-to-r from-slate-700 to-slate-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Acessórios</h1>
+              <p className="mt-2 text-sm text-slate-300">Desempenho de JBL e Logitech — vendas, atribuição CRM e cross-sell com Apple</p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Início
+                <input type="date" value={acessoriosStart} onChange={(e) => setAcessoriosStart(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input type="date" value={acessoriosEnd} onChange={(e) => setAcessoriosEnd(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+              <button type="button" onClick={loadAcessorios} disabled={acessoriosLoading}
+                className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60">
+                {acessoriosLoading ? 'Consultando...' : 'Consultar'}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Error */}
+        {acessoriosError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {acessoriosError}
+          </section>
+        )}
+
+        {/* Loading */}
+        {acessoriosLoading && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando BigQuery...</p>
+          </section>
+        )}
+
+        {/* Results */}
+        {!acessoriosLoading && d && (
+          <>
+            {/* Cards por marca */}
+            {d.por_marca.length === 0 ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+                <p className="text-sm text-slate-400">Nenhum dado encontrado para JBL ou Logitech no período.</p>
+              </section>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {d.por_marca.map((m) => {
+                  const cfg = MARCA_CONFIG[m.marca] || { bg: 'from-slate-600 to-slate-500', badge: 'bg-slate-100 text-slate-700' }
+                  const pctCrm = m.pedidos > 0 ? Math.round((m.pedidos_crm / m.pedidos) * 100) : 0
+                  return (
+                    <section key={m.marca} className={`rounded-2xl bg-gradient-to-r ${cfg.bg} p-5 text-white shadow-soft`}>
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-xl font-bold">{m.marca}</h3>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.badge}`}>
+                          {pctCrm}% via CRM
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[
+                          { label: 'Pedidos', value: fmtN(m.pedidos) },
+                          { label: 'Receita', value: fmt(m.receita) },
+                          { label: 'Itens', value: fmtN(m.itens) },
+                        ].map((c) => (
+                          <div key={c.label}>
+                            <p className="text-xs text-white/70">{c.label}</p>
+                            <p className="text-base font-semibold">{c.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 rounded-xl bg-black/20 p-3">
+                        <p className="mb-1 text-xs font-semibold text-white/80 uppercase tracking-wide">Atribuição CRM</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-xs text-white/70">Pedidos</p>
+                            <p className="font-semibold">{fmtN(m.pedidos_crm)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-white/70">Receita</p>
+                            <p className="font-semibold">{fmt(m.receita_crm)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Cross-sell Apple */}
+            {d.cross_sell && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <h3 className="mb-1 text-base font-semibold text-slate-900">Cross-sell com Apple</h3>
+                <p className="mb-4 text-xs text-slate-500">
+                  Clientes que compraram JBL ou Logitech E também compraram produto Apple no mesmo período
+                </p>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {[
+                    { label: 'Clientes cross-sell', value: fmtN(d.cross_sell.clientes) },
+                    { label: '% dos compradores', value: `${d.cross_sell.pct}%` },
+                    { label: 'Pedidos acessório', value: fmtN(d.cross_sell.pedidos) },
+                    { label: 'Receita acessório', value: fmt(d.cross_sell.receita) },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl bg-slate-50 p-4">
+                      <p className="text-xs text-slate-500">{c.label}</p>
+                      <p className="mt-1 text-xl font-bold text-slate-900">{c.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Top produtos */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <TopProdutosTable titulo="Top 10 Produtos JBL" dados={d.top_jbl} />
+              <TopProdutosTable titulo="Top 10 Produtos Logitech" dados={d.top_logitech} />
+            </div>
+          </>
+        )}
+      </section>
+    )
+  }
+
   const renderCupomView = () => {
     const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
     const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
@@ -2870,6 +3065,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'campanha-detalhe' && renderCampanhaDetalheView()}
           {activeView === 'perfil-cliente' && <PerfilClientePage />}
           {activeView === 'apple-lover' && renderAppleLoverView()}
+          {activeView === 'acessorios' && renderAcessoriosView()}
           {activeView === 'cupom' && renderCupomView()}
         </div>
       </div>

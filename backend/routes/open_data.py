@@ -6246,3 +6246,159 @@ ORDER BY valor_real DESC
         "end_date": end_date,
         "source": "bigquery_emarsys_open_data",
     }
+
+
+def _build_acessorios_sql(start_date: str, end_date: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    return f"""
+WITH
+period_purchases AS (
+  SELECT
+    CAST(order_id AS STRING)       AS order_id,
+    CAST(si_contact_id AS STRING)  AS si_contact_id,
+    product_name,
+    sales_amount
+  FROM `{project_id}.{dataset}.{purchases_table}`
+  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND sales_amount > 0
+    AND product_name IS NOT NULL
+),
+acessorios AS (
+  SELECT
+    order_id,
+    si_contact_id,
+    COALESCE(NULLIF(TRIM(product_name), ''), 'Sem nome') AS product_name,
+    sales_amount,
+    CASE
+      WHEN UPPER(product_name) LIKE '%JBL%'      THEN 'JBL'
+      WHEN UPPER(product_name) LIKE '%LOGITECH%' THEN 'Logitech'
+    END AS marca
+  FROM period_purchases
+  WHERE UPPER(product_name) LIKE '%JBL%' OR UPPER(product_name) LIKE '%LOGITECH%'
+),
+por_marca AS (
+  SELECT
+    marca,
+    COUNT(DISTINCT order_id)  AS pedidos,
+    COUNT(*)                  AS itens,
+    ROUND(SUM(sales_amount), 2) AS receita
+  FROM acessorios
+  GROUP BY marca
+),
+attr_orders AS (
+  SELECT DISTINCT CAST(r.order_id AS STRING) AS order_id
+  FROM `{project_id}.{dataset}.{revenue_table}` r
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+    AND t.attributed_amount > 0
+    AND DATE(r.event_time, 'America/Sao_Paulo') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+),
+crm_por_marca AS (
+  SELECT
+    a.marca,
+    COUNT(DISTINCT a.order_id)    AS pedidos_crm,
+    ROUND(SUM(a.sales_amount), 2) AS receita_crm
+  FROM acessorios a
+  INNER JOIN attr_orders ao ON ao.order_id = a.order_id
+  GROUP BY a.marca
+),
+apple_contacts AS (
+  SELECT DISTINCT si_contact_id
+  FROM period_purchases
+  WHERE UPPER(product_name) LIKE '%APPLE%'
+),
+cross_sell_agg AS (
+  SELECT
+    COUNT(DISTINCT a.si_contact_id)  AS clientes,
+    COUNT(DISTINCT a.order_id)       AS pedidos,
+    ROUND(SUM(a.sales_amount), 2)    AS receita
+  FROM acessorios a
+  INNER JOIN apple_contacts ac ON ac.si_contact_id = a.si_contact_id
+),
+total_clientes_agg AS (
+  SELECT COUNT(DISTINCT si_contact_id) AS total FROM acessorios
+),
+top_jbl_raw AS (
+  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount), 2) AS receita
+  FROM acessorios WHERE marca = 'JBL'
+  GROUP BY 1
+),
+top_log_raw AS (
+  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount), 2) AS receita
+  FROM acessorios WHERE marca = 'Logitech'
+  GROUP BY 1
+)
+SELECT
+  pm.marca,
+  pm.pedidos,
+  pm.itens,
+  pm.receita,
+  COALESCE(cpm.pedidos_crm, 0)  AS pedidos_crm,
+  COALESCE(cpm.receita_crm, 0)  AS receita_crm,
+  (SELECT clientes FROM cross_sell_agg) AS cross_sell_clientes,
+  (SELECT pedidos  FROM cross_sell_agg) AS cross_sell_pedidos,
+  (SELECT receita  FROM cross_sell_agg) AS cross_sell_receita,
+  (SELECT total    FROM total_clientes_agg) AS total_clientes,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_jbl_raw) AS top_jbl_json,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_log_raw) AS top_logitech_json
+FROM por_marca pm
+LEFT JOIN crm_por_marca cpm ON cpm.marca = pm.marca
+ORDER BY pm.receita DESC
+""".strip()
+
+
+@router.get("/acessorios")
+def acessorios(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    import json as _json
+    try:
+        s = _validate_iso_date(start)
+        e = _validate_iso_date(end)
+        sql = _build_acessorios_sql(s, e)
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+
+        por_marca = [
+            {
+                "marca": str(row.get("marca") or ""),
+                "pedidos": int(row.get("pedidos") or 0),
+                "itens": int(row.get("itens") or 0),
+                "receita": float(row.get("receita") or 0),
+                "pedidos_crm": int(row.get("pedidos_crm") or 0),
+                "receita_crm": float(row.get("receita_crm") or 0),
+            }
+            for row in records
+        ]
+
+        first = records[0] if records else {}
+        cross_sell_clientes = int(first.get("cross_sell_clientes") or 0)
+        cross_sell_pedidos = int(first.get("cross_sell_pedidos") or 0)
+        cross_sell_receita = float(first.get("cross_sell_receita") or 0)
+        total_clientes = int(first.get("total_clientes") or 0)
+        top_jbl = _json.loads(first.get("top_jbl_json") or "[]")
+        top_logitech = _json.loads(first.get("top_logitech_json") or "[]")
+
+        return {
+            "por_marca": por_marca,
+            "cross_sell": {
+                "clientes": cross_sell_clientes,
+                "pedidos": cross_sell_pedidos,
+                "receita": cross_sell_receita,
+                "total_clientes": total_clientes,
+                "pct": round(cross_sell_clientes / total_clientes * 100, 1) if total_clientes > 0 else 0.0,
+            },
+            "top_jbl": top_jbl,
+            "top_logitech": top_logitech,
+            "start_date": s,
+            "end_date": e,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar acessórios: {exc}") from exc
