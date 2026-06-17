@@ -2828,6 +2828,55 @@ export default function App({ mode = 'campanhas' }) {
               />
             )}
 
+            {/* Tabela de segmentos */}
+            {d.segmentos?.length > 0 && (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft overflow-hidden">
+                <div className="border-b border-slate-100 px-5 py-3 flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-slate-800 flex-1">Composição de clientes no período</h4>
+                  <span className="text-xs text-slate-400">janela 30 dias — % sobre total de clientes únicos com alguma compra relevante</span>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-5 py-2">Segmento</th>
+                      <th className="px-5 py-2 text-right">Clientes</th>
+                      <th className="px-5 py-2 text-right w-48">% do total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {d.segmentos.map((seg) => {
+                      const isDevice = seg.segmento.startsWith('Device')
+                      const bgClass = isDevice ? 'bg-blue-50/40' : ''
+                      return (
+                        <tr key={seg.segmento} className={`hover:bg-slate-50 ${bgClass}`}>
+                          <td className="px-5 py-2.5 text-slate-800">{seg.segmento}</td>
+                          <td className="px-5 py-2.5 text-right font-semibold text-slate-900">{fmtN(seg.clientes)}</td>
+                          <td className="px-5 py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="h-2 w-32 rounded-full bg-slate-100 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${isDevice ? 'bg-blue-400' : 'bg-slate-300'}`}
+                                  style={{ width: `${Math.min(seg.pct, 100)}%` }}
+                                />
+                              </div>
+                              <span className="w-12 text-right text-slate-700">{fmtPct(seg.pct)}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="border-t-2 border-slate-200 bg-slate-50">
+                      <td className="px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</td>
+                      <td className="px-5 py-2.5 text-right font-bold text-slate-900">
+                        {fmtN(d.segmentos[0]?.total ?? 0)}
+                      </td>
+                      <td className="px-5 py-2.5 text-right text-slate-500">100%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            )}
+
             {/* Pool de Oportunidade */}
             {d.oportunidade?.length > 0 && (
               <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-soft">

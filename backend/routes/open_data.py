@@ -6406,8 +6406,45 @@ oportunidade AS (
   LEFT JOIN todos_acc_contatos tac ON tac.si_contact_id = apc.si_contact_id
   WHERE tac.si_contact_id IS NULL
   GROUP BY 1
+),
+-- Segmentos: flags por contato (janela 30 dias)
+all_relevant_contacts AS (
+  SELECT DISTINCT si_contact_id FROM apple_por_contato
+  UNION DISTINCT
+  SELECT si_contact_id FROM apple_acc WHERE categoria IS NOT NULL
+  UNION DISTINCT
+  SELECT si_contact_id FROM partner_acc
+),
+contact_flags AS (
+  SELECT
+    c.si_contact_id,
+    CASE WHEN d.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_device,
+    CASE WHEN a.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_apple_acc,
+    CASE WHEN p.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_partner_acc
+  FROM all_relevant_contacts c
+  LEFT JOIN (SELECT DISTINCT si_contact_id FROM apple_por_contato) d ON d.si_contact_id = c.si_contact_id
+  LEFT JOIN (SELECT DISTINCT si_contact_id FROM apple_acc WHERE categoria IS NOT NULL) a ON a.si_contact_id = c.si_contact_id
+  LEFT JOIN (SELECT DISTINCT si_contact_id FROM partner_acc) p ON p.si_contact_id = c.si_contact_id
+),
+segmentos_agg AS (
+  SELECT
+    CASE
+      WHEN has_device=1 AND has_apple_acc=0 AND has_partner_acc=0 THEN 'Device Apple + Sem acessório'
+      WHEN has_device=0 AND has_apple_acc=1 AND has_partner_acc=0 THEN 'Somente acess. Apple (sem device)'
+      WHEN has_device=0 AND has_apple_acc=0 AND has_partner_acc=1 THEN 'Somente acess. parceiros (sem device)'
+      WHEN has_device=1 AND has_apple_acc=1 AND has_partner_acc=0 THEN 'Device Apple + Acess. Apple'
+      WHEN has_device=1 AND has_apple_acc=0 AND has_partner_acc=1 THEN 'Device Apple + Acess. parceiros'
+      WHEN has_device=1 AND has_apple_acc=1 AND has_partner_acc=1 THEN 'Device Apple + Acess. Apple + Parceiros'
+      WHEN has_device=0 AND has_apple_acc=1 AND has_partner_acc=1 THEN 'Somente acess. Apple + Parceiros (sem device)'
+    END AS segmento,
+    COUNT(*) AS clientes
+  FROM contact_flags
+  GROUP BY 1
+),
+segmentos_total AS (
+  SELECT SUM(clientes) AS total FROM segmentos_agg WHERE segmento IS NOT NULL
 )
--- Resultado: linhas de matriz + linhas de oportunidade (grupo = 'oportunidade') + totais
+-- Resultado: linhas de matriz + linhas de oportunidade (grupo = 'oportunidade') + totais + segmentos
 SELECT linha_apple, categoria, grupo,
        clientes_mesmo_pedido, clientes_janela, total_clientes,
        rate_mesmo_pedido, rate_janela
@@ -6429,6 +6466,19 @@ SELECT linha_apple,
        total_clientes AS clientes_mesmo_pedido,
        0, total_clientes, 100.0, 0
 FROM total_por_linha
+UNION ALL
+SELECT
+  s.segmento        AS linha_apple,
+  'SEGMENTO'        AS categoria,
+  'segmento'        AS grupo,
+  s.clientes        AS clientes_mesmo_pedido,
+  0                 AS clientes_janela,
+  t.total           AS total_clientes,
+  ROUND(s.clientes * 100.0 / NULLIF(t.total, 0), 1) AS rate_mesmo_pedido,
+  0                 AS rate_janela
+FROM segmentos_agg s
+CROSS JOIN segmentos_total t
+WHERE s.segmento IS NOT NULL
 ORDER BY linha_apple, grupo, categoria
 """.strip()
 
@@ -6525,7 +6575,7 @@ def acessorios(
         marcas_records = run_bigquery_records(sql_marcas, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
 
         # Parse matrix rows by grupo
-        matrix_apple, matrix_parceiro, oportunidade, total_por_linha = [], [], [], []
+        matrix_apple, matrix_parceiro, oportunidade, total_por_linha, segmentos = [], [], [], [], []
         for row in matriz_records:
             grupo = str(row.get("grupo") or "")
             item = {
@@ -6553,6 +6603,13 @@ def acessorios(
                     "linha_apple":   item["linha_apple"],
                     "total_clientes": item["total_clientes"],
                 })
+            elif grupo == "segmento":
+                segmentos.append({
+                    "segmento":   item["linha_apple"],
+                    "clientes":   item["clientes_mesmo_pedido"],
+                    "total":      item["total_clientes"],
+                    "pct":        item["rate_mesmo_pedido"],
+                })
 
         # Parse brand cards
         por_marca = []
@@ -6574,11 +6631,24 @@ def acessorios(
         top_ori_qtd  = _json.loads(first.get("top_ori_json") or "[]")
         top_ori_rec  = _json.loads(first.get("top_ori_receita_json") or "[]")
 
+        # Ordem de exibição dos segmentos
+        SEG_ORDER = [
+            'Device Apple + Sem acessório',
+            'Device Apple + Acess. Apple',
+            'Device Apple + Acess. parceiros',
+            'Device Apple + Acess. Apple + Parceiros',
+            'Somente acess. Apple (sem device)',
+            'Somente acess. parceiros (sem device)',
+            'Somente acess. Apple + Parceiros (sem device)',
+        ]
+        segmentos.sort(key=lambda x: SEG_ORDER.index(x['segmento']) if x['segmento'] in SEG_ORDER else 99)
+
         return {
             "matrix_apple":    matrix_apple,
             "matrix_parceiro": matrix_parceiro,
             "oportunidade":    oportunidade,
             "total_por_linha": total_por_linha,
+            "segmentos":       segmentos,
             "por_marca":       por_marca,
             "top_produtos": {
                 "JBL":               {"qtd": top_jbl_qtd, "receita": top_jbl_rec},
