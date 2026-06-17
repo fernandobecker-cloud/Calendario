@@ -2729,7 +2729,7 @@ export default function App({ mode = 'campanhas' }) {
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <h3 className="mb-1 text-base font-semibold text-slate-900">Cross-sell com Apple</h3>
                 <p className="mb-4 text-xs text-slate-500">
-                  Clientes que compraram JBL ou Logitech E também compraram produto Apple no mesmo período
+                  Clientes que compraram JBL, Logitech ou Originais iPlace E também compraram produto Apple no mesmo período
                 </p>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {[
