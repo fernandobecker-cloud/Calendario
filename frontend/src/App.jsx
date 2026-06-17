@@ -2617,7 +2617,7 @@ export default function App({ mode = 'campanhas' }) {
     const LINHA_ORDER = ['iPhone', 'Mac', 'iPad', 'Apple Watch']
     const CAT_ORDER = [
       'Capa/Case', 'Carregador', 'Película', 'Cabo', 'Adaptador',
-      'Bolsa/Mochila', 'Teclado', 'Mouse', 'Fone', 'Pulseira',
+      'Bolsa/Mochila', 'Teclado', 'Mouse', 'Fone', 'Caneta', 'Pulseira', 'Caixa de Som',
     ]
     const buildMatrix = (rows) => {
       const linhasSet = new Set(rows.map((r) => r.linha_apple))

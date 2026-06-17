@@ -6322,21 +6322,15 @@ partner_acc AS (
     CAST(order_id AS STRING)      AS order_id,
     DATE(purchase_date)           AS purchase_date,
     CASE
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'KIT (VIAGEM|DE VIAGEM)')              THEN 'Kit Viagem'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'CARREGADOR')                          THEN 'Carregador'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCABO\\b')                           THEN 'Cabo'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'CAIXA DE SOM|SOUNDBAR')              THEN 'Caixa de Som'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'FONE DE OUVIDO|EARPODS|HEADPHONE|ON-EAR|OVER-EAR') THEN 'Fone'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'HEADSET')                            THEN 'Headset'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bMOUSE\\b')                         THEN 'Mouse'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'TECLADO|KEYBOARD')                   THEN 'Teclado'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'PELICULA|PELÍCULA')                  THEN 'Película'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'ADAPTADOR')                          THEN 'Adaptador'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'SMART TAG|SMART KEY')                THEN 'Smart Tag/Key'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'WEBCAM')                             THEN 'Webcam'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCANETA\\b')                        THEN 'Caneta'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'MICROFONE')                          THEN 'Microfone'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'LIMPA TELAS|LIMPA-TELAS')           THEN 'Limpa Telas'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCAPA\\b|\\bCASE\\b')               THEN 'Capa/Case'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bPULSEIRA\\b')                      THEN 'Pulseira'
       WHEN REGEXP_CONTAINS(UPPER(product_name), r'BOLSA|MOCHILA|\\bMALA\\b|\\bSLEEVE\\b') THEN 'Bolsa/Mochila'
