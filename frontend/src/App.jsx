@@ -2614,15 +2614,17 @@ export default function App({ mode = 'campanhas' }) {
     }
 
     // Build matrix rows grouped by linha_apple for a given grupo
+    const LINHA_ORDER = ['iPhone', 'Mac', 'iPad', 'Apple Watch']
     const buildMatrix = (rows) => {
-      const linhas = [...new Set(rows.map((r) => r.linha_apple))].sort()
+      const linhasSet = new Set(rows.map((r) => r.linha_apple))
+      const linhas = LINHA_ORDER.filter((l) => linhasSet.has(l))
       const cats   = [...new Set(rows.map((r) => r.categoria))].sort()
       const lookup = {}
       rows.forEach((r) => { lookup[`${r.linha_apple}|${r.categoria}`] = r })
       return { linhas, cats, lookup }
     }
 
-    const MatrizTable = ({ titulo, rows, grupo }) => {
+    const MatrizTable = ({ titulo, rows }) => {
       if (!rows?.length) return null
       const { linhas, cats, lookup } = buildMatrix(rows)
       const rateKey = acessoriosModo === 'mesmo_pedido' ? 'rate_mesmo_pedido' : 'rate_janela'
@@ -2806,7 +2808,6 @@ export default function App({ mode = 'campanhas' }) {
               <MatrizTable
                 titulo="Acessórios Apple (AirPods, AirTag, EarPods, MagSafe, Magic Mouse, Magic Keyboard, Cabo Apple, Carregador Apple)"
                 rows={d.matrix_apple}
-                grupo="apple"
               />
             )}
 
@@ -2815,7 +2816,6 @@ export default function App({ mode = 'campanhas' }) {
               <MatrizTable
                 titulo="Acessórios Parceiros (JBL, Logitech, Originais iPlace)"
                 rows={d.matrix_parceiro}
-                grupo="parceiro"
               />
             )}
 
