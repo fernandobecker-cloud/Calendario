@@ -334,6 +334,9 @@ export default function App({ mode = 'campanhas' }) {
   const [acessoriosError, setAcessoriosError] = useState('')
   const [acessoriosStart, setAcessoriosStart] = useState(currentMonthRange.start)
   const [acessoriosEnd, setAcessoriosEnd] = useState(currentMonthRange.end)
+  const [acessoriosModo, setAcessoriosModo] = useState('mesmo_pedido')
+  const [acessoriosTopSort, setAcessoriosTopSort] = useState('qtd')
+  const [acessoriosExportLoading, setAcessoriosExportLoading] = useState(false)
 
   const [cupomQuery, setCupomQuery] = useState('')
   const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
@@ -2590,8 +2593,9 @@ export default function App({ mode = 'campanhas' }) {
   )
 
   const renderAcessoriosView = () => {
-    const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
+    const fmt  = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
     const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
+    const fmtPct = (n) => `${(n ?? 0).toFixed(1)}%`
     const d = acessoriosData
 
     const MARCA_CONFIG = {
@@ -2600,35 +2604,128 @@ export default function App({ mode = 'campanhas' }) {
       'Originais iPlace': { bg: 'from-violet-700 to-purple-600', badge: 'bg-violet-100 text-violet-700' },
     }
 
-    const TopProdutosTable = ({ titulo, dados }) => (
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
-        <div className="border-b border-slate-100 px-5 py-3">
-          <h4 className="text-sm font-semibold text-slate-800">{titulo}</h4>
-        </div>
-        {!dados?.length ? (
-          <p className="px-5 py-6 text-center text-xs text-slate-400">Sem dados no período.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-2">Produto</th>
-                <th className="px-4 py-2 text-right">Qtd</th>
-                <th className="px-4 py-2 text-right">Receita</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dados.map((p, i) => (
-                <tr key={i} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 text-xs text-slate-800">{p.nome}</td>
-                  <td className="px-4 py-2 text-right text-xs text-slate-700">{fmtN(p.qtd)}</td>
-                  <td className="px-4 py-2 text-right text-xs font-medium text-slate-900">{fmt(p.receita)}</td>
+    // Heat-map color scale: 0% → white, ≥15% → full color
+    const heatBg = (rate) => {
+      const pct = Math.min((rate ?? 0) / 15, 1)
+      const r = Math.round(254 - pct * (254 - 37))
+      const g = Math.round(243 - pct * (243 - 99))
+      const b = Math.round(199 - pct * (199 - 235))
+      return { background: `rgb(${r},${g},${b})`, color: pct > 0.5 ? '#1e1b4b' : '#374151' }
+    }
+
+    // Build matrix rows grouped by linha_apple for a given grupo
+    const buildMatrix = (rows) => {
+      const linhas = [...new Set(rows.map((r) => r.linha_apple))].sort()
+      const cats   = [...new Set(rows.map((r) => r.categoria))].sort()
+      const lookup = {}
+      rows.forEach((r) => { lookup[`${r.linha_apple}|${r.categoria}`] = r })
+      return { linhas, cats, lookup }
+    }
+
+    const MatrizTable = ({ titulo, rows, grupo }) => {
+      if (!rows?.length) return null
+      const { linhas, cats, lookup } = buildMatrix(rows)
+      const rateKey = acessoriosModo === 'mesmo_pedido' ? 'rate_mesmo_pedido' : 'rate_janela'
+      const clientesKey = acessoriosModo === 'mesmo_pedido' ? 'clientes_mesmo_pedido' : 'clientes_janela'
+      const totalPorLinha = {}
+      ;(d?.total_por_linha || []).forEach((t) => { totalPorLinha[t.linha_apple] = t.total_clientes })
+      return (
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-soft overflow-hidden">
+          <div className="border-b border-slate-100 px-5 py-3 flex items-center gap-3">
+            <h4 className="text-sm font-semibold text-slate-800 flex-1">{titulo}</h4>
+            <span className="text-xs text-slate-400">attach rate por linha de dispositivo</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-2 whitespace-nowrap">Linha Apple</th>
+                  <th className="px-4 py-2 text-right">Total</th>
+                  {cats.map((c) => <th key={c} className="px-3 py-2 text-center whitespace-nowrap">{c}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-    )
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {linhas.map((linha) => (
+                  <tr key={linha} className="hover:bg-slate-50/50">
+                    <td className="px-4 py-2 font-semibold text-slate-800 whitespace-nowrap">{linha}</td>
+                    <td className="px-4 py-2 text-right text-slate-500">{fmtN(totalPorLinha[linha] ?? 0)}</td>
+                    {cats.map((cat) => {
+                      const cell = lookup[`${linha}|${cat}`]
+                      const rate = cell ? cell[rateKey] : 0
+                      const clientes = cell ? cell[clientesKey] : 0
+                      return (
+                        <td key={cat} className="px-3 py-2 text-center" style={heatBg(rate)}>
+                          <span className="font-bold">{fmtPct(rate)}</span>
+                          <br />
+                          <span className="opacity-70">{fmtN(clientes)}</span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )
+    }
+
+    const exportOportunidade = async (linha) => {
+      setAcessoriosExportLoading(true)
+      try {
+        const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
+        if (linha) params.set('linha', linha)
+        const res = await fetch(`/api/open-data/acessorios/oportunidade-export?${params}`)
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.detail || 'Erro ao exportar')
+        const items = json.items || []
+        if (!items.length) { alert('Nenhum contato encontrado.'); return }
+        const cols = ['si_contact_id','cpf','linha_apple','purchase_date']
+        const esc  = (v) => { const s = String(v ?? ''); return s.includes(',') ? `"${s}"` : s }
+        const csv  = [cols.join(','), ...items.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n')
+        const a    = document.createElement('a')
+        a.href     = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+        a.download = `oportunidade_acessorios_${acessoriosStart}_${acessoriosEnd}${linha ? '_' + linha : ''}.csv`
+        a.click()
+      } catch (err) {
+        alert(`Erro: ${err.message}`)
+      } finally {
+        setAcessoriosExportLoading(false)
+      }
+    }
+
+    const TopProdutosTable = ({ marca }) => {
+      const dados = d?.top_produtos?.[marca]?.[acessoriosTopSort] || []
+      return (
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h4 className="text-sm font-semibold text-slate-800">Top 10 — {marca}</h4>
+          </div>
+          {!dados.length ? (
+            <p className="px-4 py-5 text-center text-xs text-slate-400">Sem dados no período.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-2">Produto</th>
+                  <th className="px-4 py-2 text-right">Qtd</th>
+                  <th className="px-4 py-2 text-right">Receita</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dados.map((p, i) => (
+                  <tr key={i} className="hover:bg-slate-50">
+                    <td className="px-4 py-2 text-slate-800">{p.nome}</td>
+                    <td className="px-4 py-2 text-right text-slate-700">{fmtN(p.qtd)}</td>
+                    <td className="px-4 py-2 text-right font-medium text-slate-900">{fmt(p.receita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )
+    }
 
     return (
       <section className="space-y-5">
@@ -2637,7 +2734,9 @@ export default function App({ mode = 'campanhas' }) {
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Acessórios</h1>
-              <p className="mt-2 text-sm text-slate-300">Desempenho de JBL e Logitech — vendas, atribuição CRM e cross-sell com Apple</p>
+              <p className="mt-2 text-sm text-slate-300">
+                Attach rate de acessórios por linha de dispositivo Apple — mesmo pedido e janela 30 dias
+              </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-sm text-white/90">
@@ -2668,91 +2767,171 @@ export default function App({ mode = 'campanhas' }) {
         {/* Loading */}
         {acessoriosLoading && (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-            <p className="text-sm text-slate-500">Consultando BigQuery...</p>
+            <p className="text-sm text-slate-500">Consultando BigQuery... pode levar até 30s.</p>
           </section>
         )}
 
         {/* Results */}
         {!acessoriosLoading && d && (
           <>
-            {/* Cards por marca */}
-            {d.por_marca.length === 0 ? (
-              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-                <p className="text-sm text-slate-400">Nenhum dado encontrado para JBL ou Logitech no período.</p>
-              </section>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {d.por_marca.map((m) => {
-                  const cfg = MARCA_CONFIG[m.marca] || { bg: 'from-slate-600 to-slate-500', badge: 'bg-slate-100 text-slate-700' }
-                  const pctCrm = m.pedidos > 0 ? Math.round((m.pedidos_crm / m.pedidos) * 100) : 0
-                  return (
-                    <section key={m.marca} className={`rounded-2xl bg-gradient-to-r ${cfg.bg} p-5 text-white shadow-soft`}>
-                      <div className="mb-4 flex items-center justify-between">
-                        <h3 className="text-xl font-bold">{m.marca}</h3>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.badge}`}>
-                          {pctCrm}% via CRM
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          { label: 'Pedidos', value: fmtN(m.pedidos) },
-                          { label: 'Receita', value: fmt(m.receita) },
-                          { label: 'Itens', value: fmtN(m.itens) },
-                        ].map((c) => (
-                          <div key={c.label}>
-                            <p className="text-xs text-white/70">{c.label}</p>
-                            <p className="text-base font-semibold">{c.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4 rounded-xl bg-black/20 p-3">
-                        <p className="mb-1 text-xs font-semibold text-white/80 uppercase tracking-wide">Atribuição CRM</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <p className="text-xs text-white/70">Pedidos</p>
-                            <p className="font-semibold">{fmtN(m.pedidos_crm)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-white/70">Receita</p>
-                            <p className="font-semibold">{fmt(m.receita_crm)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </section>
-                  )
-                })}
-              </div>
+            {/* Toggle modo */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Visualizar:</span>
+              {[
+                { key: 'mesmo_pedido', label: 'Mesmo Pedido' },
+                { key: 'janela',       label: 'Janela 30 dias' },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setAcessoriosModo(opt.key)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    acessoriosModo === opt.key
+                      ? 'bg-slate-800 text-white'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <span className="ml-auto text-xs text-slate-400">
+                {acessoriosModo === 'mesmo_pedido'
+                  ? 'Acessório comprado no mesmo pedido do dispositivo'
+                  : 'Acessório comprado até 30 dias após o dispositivo (pedido diferente)'}
+              </span>
+            </div>
+
+            {/* Matriz — Acessórios Apple */}
+            {d.matrix_apple?.length > 0 && (
+              <MatrizTable
+                titulo="Acessórios Apple (AirPods, AirTag, EarPods, MagSafe, Magic Mouse, Magic Keyboard, Cabo Apple, Carregador Apple)"
+                rows={d.matrix_apple}
+                grupo="apple"
+              />
             )}
 
-            {/* Cross-sell Apple */}
-            {d.cross_sell && (
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <h3 className="mb-1 text-base font-semibold text-slate-900">Cross-sell com Apple</h3>
-                <p className="mb-4 text-xs text-slate-500">
-                  Clientes que compraram JBL, Logitech ou Originais iPlace E também compraram produto Apple no mesmo período
-                </p>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                  {[
-                    { label: 'Clientes cross-sell', value: fmtN(d.cross_sell.clientes) },
-                    { label: '% dos compradores', value: `${d.cross_sell.pct}%` },
-                    { label: 'Pedidos acessório', value: fmtN(d.cross_sell.pedidos) },
-                    { label: 'Receita acessório', value: fmt(d.cross_sell.receita) },
-                  ].map((c) => (
-                    <div key={c.label} className="rounded-xl bg-slate-50 p-4">
-                      <p className="text-xs text-slate-500">{c.label}</p>
-                      <p className="mt-1 text-xl font-bold text-slate-900">{c.value}</p>
+            {/* Matriz — Parceiros */}
+            {d.matrix_parceiro?.length > 0 && (
+              <MatrizTable
+                titulo="Acessórios Parceiros (JBL, Logitech, Originais iPlace)"
+                rows={d.matrix_parceiro}
+                grupo="parceiro"
+              />
+            )}
+
+            {/* Pool de Oportunidade */}
+            {d.oportunidade?.length > 0 && (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-soft">
+                <div className="mb-4 flex items-start justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-amber-900">Pool de Oportunidade</h3>
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      Compradores de dispositivo Apple que não adquiriram nenhum acessório no período (incluindo janela de 30 dias)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={acessoriosExportLoading}
+                    onClick={() => exportOportunidade('')}
+                    className="ml-4 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-800 disabled:opacity-60"
+                  >
+                    {acessoriosExportLoading ? 'Exportando...' : 'Exportar todos (CSV)'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {d.oportunidade.map((op) => (
+                    <div key={op.linha_apple} className="rounded-xl bg-white/70 p-4 border border-amber-200">
+                      <p className="text-xs font-semibold text-amber-800">{op.linha_apple}</p>
+                      <p className="mt-1 text-2xl font-bold text-amber-900">{fmtN(op.sem_acessorio)}</p>
+                      <p className="text-xs text-amber-600">
+                        {fmtPct(op.pct_sem_acessorio)} do total ({fmtN(op.total_clientes)})
+                      </p>
+                      <button
+                        type="button"
+                        disabled={acessoriosExportLoading}
+                        onClick={() => exportOportunidade(op.linha_apple)}
+                        className="mt-2 text-xs font-medium text-amber-700 underline hover:text-amber-900 disabled:opacity-60"
+                      >
+                        Exportar {op.linha_apple}
+                      </button>
                     </div>
                   ))}
                 </div>
               </section>
             )}
 
-            {/* Top produtos */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <TopProdutosTable titulo="Top 10 Produtos JBL" dados={d.top_jbl} />
-              <TopProdutosTable titulo="Top 10 Produtos Logitech" dados={d.top_logitech} />
-              <TopProdutosTable titulo="Top 10 Originais iPlace" dados={d.top_originais} />
+            {/* Cards de marca + top produtos */}
+            <div className="flex items-center gap-2 pt-2">
+              <h3 className="text-sm font-semibold text-slate-700">Marcas Parceiras</h3>
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">Ordenar top por:</span>
+                {[{ key: 'qtd', label: 'Qtd' }, { key: 'receita', label: 'Receita' }].map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setAcessoriosTopSort(opt.key)}
+                    className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+                      acessoriosTopSort === opt.key
+                        ? 'bg-slate-800 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {d.por_marca?.length > 0 ? (
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                {d.por_marca.map((m) => {
+                  const cfg = MARCA_CONFIG[m.marca] || { bg: 'from-slate-600 to-slate-500', badge: 'bg-slate-100 text-slate-700' }
+                  const pctCrm = m.pedidos > 0 ? Math.round((m.pedidos_crm / m.pedidos) * 100) : 0
+                  return (
+                    <div key={m.marca} className="flex flex-col gap-3">
+                      <section className={`rounded-2xl bg-gradient-to-r ${cfg.bg} p-5 text-white shadow-soft`}>
+                        <div className="mb-4 flex items-center justify-between">
+                          <h3 className="text-xl font-bold">{m.marca}</h3>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.badge}`}>
+                            {pctCrm}% via CRM
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {[
+                            { label: 'Pedidos', value: fmtN(m.pedidos) },
+                            { label: 'Receita',  value: fmt(m.receita) },
+                            { label: 'Itens',    value: fmtN(m.itens) },
+                          ].map((c) => (
+                            <div key={c.label}>
+                              <p className="text-xs text-white/70">{c.label}</p>
+                              <p className="text-base font-semibold">{c.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 rounded-xl bg-black/20 p-3">
+                          <p className="mb-1 text-xs font-semibold text-white/80 uppercase tracking-wide">Atribuição CRM</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="text-xs text-white/70">Pedidos</p>
+                              <p className="font-semibold">{fmtN(m.pedidos_crm)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-white/70">Receita</p>
+                              <p className="font-semibold">{fmt(m.receita_crm)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                      <TopProdutosTable marca={m.marca} />
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+                <p className="text-sm text-slate-400">Nenhum dado de marca parceira encontrado no período.</p>
+              </section>
+            )}
           </>
         )}
       </section>
