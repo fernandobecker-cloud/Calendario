@@ -2812,6 +2812,125 @@ export default function App({ mode = 'campanhas' }) {
               </span>
             </div>
 
+            {/* Composição de clientes */}
+            {d.segmentos?.length > 0 && (() => {
+              const SEG_CFG = {
+                'Device Apple + Sem acessório':                    { color: '#f59e0b', tw: 'bg-amber-400',   label: 'Sem acessório',              group: 'device' },
+                'Device Apple + Acess. Apple':                     { color: '#3b82f6', tw: 'bg-blue-500',    label: 'Acess. Apple',               group: 'device' },
+                'Device Apple + Acess. parceiros':                 { color: '#8b5cf6', tw: 'bg-violet-500',  label: 'Acess. Parceiros',           group: 'device' },
+                'Device Apple + Acess. Apple + Parceiros':         { color: '#14b8a6', tw: 'bg-teal-500',    label: 'Acess. Apple + Parceiros',   group: 'device' },
+                'Somente acess. Apple (sem device)':               { color: '#94a3b8', tw: 'bg-slate-300',   label: 'Somente Acess. Apple',       group: 'sem' },
+                'Somente acess. parceiros (sem device)':           { color: '#64748b', tw: 'bg-slate-400',   label: 'Somente Acess. Parceiros',   group: 'sem' },
+                'Somente acess. Apple + Parceiros (sem device)':   { color: '#475569', tw: 'bg-slate-600',   label: 'Somente Acess. Apple + Parceiros', group: 'sem' },
+              }
+              const total = d.segmentos[0]?.total ?? 1
+              const devSegs = d.segmentos.filter(s => SEG_CFG[s.segmento]?.group === 'device')
+              const semSegs = d.segmentos.filter(s => SEG_CFG[s.segmento]?.group === 'sem')
+              const devTotal = devSegs.reduce((a, s) => a + s.clientes, 0)
+              const semTotal = semSegs.reduce((a, s) => a + s.clientes, 0)
+              return (
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                  <p className="mb-3 text-sm font-semibold text-slate-800">Composição de clientes no período</p>
+
+                  {/* Barra de composição */}
+                  <div className="mb-1 flex h-7 w-full overflow-hidden rounded-full">
+                    {d.segmentos.map((s) => {
+                      const cfg = SEG_CFG[s.segmento]
+                      if (!cfg || s.pct === 0) return null
+                      return (
+                        <div
+                          key={s.segmento}
+                          title={`${cfg.label}: ${fmtN(s.clientes)} (${fmtPct(s.pct)})`}
+                          className={`${cfg.tw} cursor-default transition-opacity hover:opacity-80`}
+                          style={{ width: `${s.pct}%` }}
+                        />
+                      )
+                    })}
+                  </div>
+                  {/* Legenda da barra */}
+                  <div className="mb-5 flex flex-wrap gap-x-4 gap-y-1">
+                    {d.segmentos.map((s) => {
+                      const cfg = SEG_CFG[s.segmento]
+                      if (!cfg) return null
+                      return (
+                        <span key={s.segmento} className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <span className={`inline-block h-2 w-2 rounded-full ${cfg.tw}`} />
+                          {cfg.label} {fmtPct(s.pct)}
+                        </span>
+                      )
+                    })}
+                  </div>
+
+                  {/* Dois grupos */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {/* Com Device */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                      <div className="mb-3 flex items-baseline justify-between">
+                        <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Com Device Apple</p>
+                        <p className="text-sm font-bold text-blue-900">
+                          {fmtN(devTotal)} <span className="text-xs font-normal text-blue-600">({fmtPct(devTotal / total * 100)})</span>
+                        </p>
+                      </div>
+                      <div className="space-y-2.5">
+                        {devSegs.map((s) => {
+                          const cfg = SEG_CFG[s.segmento]
+                          if (!cfg) return null
+                          const pctOfGroup = devTotal > 0 ? s.clientes / devTotal * 100 : 0
+                          return (
+                            <div key={s.segmento}>
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.tw}`} />
+                                <span className="flex-1 text-xs text-slate-700">{cfg.label}</span>
+                                <span className="text-xs font-semibold text-slate-900">{fmtN(s.clientes)}</span>
+                                <span className="w-10 text-right text-xs text-slate-400">{fmtPct(s.pct)}</span>
+                              </div>
+                              <div className="ml-4 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                                <div className={`h-full rounded-full ${cfg.tw}`} style={{ width: `${pctOfGroup}%` }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Sem Device */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mb-3 flex items-baseline justify-between">
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Sem Device Apple</p>
+                        <p className="text-sm font-bold text-slate-700">
+                          {fmtN(semTotal)} <span className="text-xs font-normal text-slate-400">({fmtPct(semTotal / total * 100)})</span>
+                        </p>
+                      </div>
+                      <div className="space-y-2.5">
+                        {semSegs.map((s) => {
+                          const cfg = SEG_CFG[s.segmento]
+                          if (!cfg) return null
+                          const pctOfGroup = semTotal > 0 ? s.clientes / semTotal * 100 : 0
+                          return (
+                            <div key={s.segmento}>
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.tw}`} />
+                                <span className="flex-1 text-xs text-slate-700">{cfg.label}</span>
+                                <span className="text-xs font-semibold text-slate-900">{fmtN(s.clientes)}</span>
+                                <span className="w-10 text-right text-xs text-slate-400">{fmtPct(s.pct)}</span>
+                              </div>
+                              <div className="ml-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                                <div className={`h-full rounded-full ${cfg.tw}`} style={{ width: `${pctOfGroup}%` }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="mt-3 text-right text-xs text-slate-400">
+                    Total: {fmtN(total)} clientes únicos · janela 30 dias
+                  </p>
+                </section>
+              )
+            })()}
+
             {/* Matriz — Acessórios Apple */}
             {d.matrix_apple?.length > 0 && (
               <MatrizTable
@@ -2826,55 +2945,6 @@ export default function App({ mode = 'campanhas' }) {
                 titulo="Acessórios Parceiros (JBL, Logitech, Originais iPlace)"
                 rows={d.matrix_parceiro}
               />
-            )}
-
-            {/* Tabela de segmentos */}
-            {d.segmentos?.length > 0 && (
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft overflow-hidden">
-                <div className="border-b border-slate-100 px-5 py-3 flex items-center gap-2">
-                  <h4 className="text-sm font-semibold text-slate-800 flex-1">Composição de clientes no período</h4>
-                  <span className="text-xs text-slate-400">janela 30 dias — % sobre total de clientes únicos com alguma compra relevante</span>
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-5 py-2">Segmento</th>
-                      <th className="px-5 py-2 text-right">Clientes</th>
-                      <th className="px-5 py-2 text-right w-48">% do total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {d.segmentos.map((seg) => {
-                      const isDevice = seg.segmento.startsWith('Device')
-                      const bgClass = isDevice ? 'bg-blue-50/40' : ''
-                      return (
-                        <tr key={seg.segmento} className={`hover:bg-slate-50 ${bgClass}`}>
-                          <td className="px-5 py-2.5 text-slate-800">{seg.segmento}</td>
-                          <td className="px-5 py-2.5 text-right font-semibold text-slate-900">{fmtN(seg.clientes)}</td>
-                          <td className="px-5 py-2.5 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <div className="h-2 w-32 rounded-full bg-slate-100 overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${isDevice ? 'bg-blue-400' : 'bg-slate-300'}`}
-                                  style={{ width: `${Math.min(seg.pct, 100)}%` }}
-                                />
-                              </div>
-                              <span className="w-12 text-right text-slate-700">{fmtPct(seg.pct)}</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                    <tr className="border-t-2 border-slate-200 bg-slate-50">
-                      <td className="px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</td>
-                      <td className="px-5 py-2.5 text-right font-bold text-slate-900">
-                        {fmtN(d.segmentos[0]?.total ?? 0)}
-                      </td>
-                      <td className="px-5 py-2.5 text-right text-slate-500">100%</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </section>
             )}
 
             {/* Pool de Oportunidade */}
