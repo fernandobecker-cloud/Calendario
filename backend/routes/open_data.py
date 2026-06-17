@@ -6275,11 +6275,14 @@ acessorios AS (
     COALESCE(NULLIF(TRIM(product_name), ''), 'Sem nome') AS product_name,
     sales_amount,
     CASE
-      WHEN UPPER(product_name) LIKE '%JBL%'      THEN 'JBL'
-      WHEN UPPER(product_name) LIKE '%LOGITECH%' THEN 'Logitech'
+      WHEN UPPER(product_name) LIKE '%JBL%'              THEN 'JBL'
+      WHEN UPPER(product_name) LIKE '%LOGITECH%'          THEN 'Logitech'
+      WHEN UPPER(product_name) LIKE '%ORIGINAIS IPLACE%' THEN 'Originais iPlace'
     END AS marca
   FROM period_purchases
-  WHERE UPPER(product_name) LIKE '%JBL%' OR UPPER(product_name) LIKE '%LOGITECH%'
+  WHERE UPPER(product_name) LIKE '%JBL%'
+     OR UPPER(product_name) LIKE '%LOGITECH%'
+     OR UPPER(product_name) LIKE '%ORIGINAIS IPLACE%'
 ),
 por_marca AS (
   SELECT
@@ -6332,6 +6335,11 @@ top_log_raw AS (
   SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount), 2) AS receita
   FROM acessorios WHERE marca = 'Logitech'
   GROUP BY 1
+),
+top_ori_raw AS (
+  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount), 2) AS receita
+  FROM acessorios WHERE marca = 'Originais iPlace'
+  GROUP BY 1
 )
 SELECT
   pm.marca,
@@ -6345,7 +6353,8 @@ SELECT
   (SELECT receita  FROM cross_sell_agg) AS cross_sell_receita,
   (SELECT total    FROM total_clientes_agg) AS total_clientes,
   (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_jbl_raw) AS top_jbl_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_log_raw) AS top_logitech_json
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_log_raw) AS top_logitech_json,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd, receita) ORDER BY qtd DESC LIMIT 10)) FROM top_ori_raw) AS top_originais_json
 FROM por_marca pm
 LEFT JOIN crm_por_marca cpm ON cpm.marca = pm.marca
 ORDER BY pm.receita DESC
@@ -6383,6 +6392,7 @@ def acessorios(
         total_clientes = int(first.get("total_clientes") or 0)
         top_jbl = _json.loads(first.get("top_jbl_json") or "[]")
         top_logitech = _json.loads(first.get("top_logitech_json") or "[]")
+        top_originais = _json.loads(first.get("top_originais_json") or "[]")
 
         return {
             "por_marca": por_marca,
@@ -6395,6 +6405,7 @@ def acessorios(
             },
             "top_jbl": top_jbl,
             "top_logitech": top_logitech,
+            "top_originais": top_originais,
             "start_date": s,
             "end_date": e,
         }

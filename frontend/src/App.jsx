@@ -2595,8 +2595,9 @@ export default function App({ mode = 'campanhas' }) {
     const d = acessoriosData
 
     const MARCA_CONFIG = {
-      JBL:      { bg: 'from-orange-600 to-amber-500',  badge: 'bg-orange-100 text-orange-700' },
-      Logitech: { bg: 'from-blue-700 to-blue-500',     badge: 'bg-blue-100 text-blue-700' },
+      JBL:               { bg: 'from-orange-600 to-amber-500',   badge: 'bg-orange-100 text-orange-700' },
+      Logitech:          { bg: 'from-blue-700 to-blue-500',      badge: 'bg-blue-100 text-blue-700' },
+      'Originais iPlace': { bg: 'from-violet-700 to-purple-600', badge: 'bg-violet-100 text-violet-700' },
     }
 
     const TopProdutosTable = ({ titulo, dados }) => (
@@ -2747,9 +2748,10 @@ export default function App({ mode = 'campanhas' }) {
             )}
 
             {/* Top produtos */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <TopProdutosTable titulo="Top 10 Produtos JBL" dados={d.top_jbl} />
               <TopProdutosTable titulo="Top 10 Produtos Logitech" dados={d.top_logitech} />
+              <TopProdutosTable titulo="Top 10 Originais iPlace" dados={d.top_originais} />
             </div>
           </>
         )}
