@@ -2615,10 +2615,19 @@ export default function App({ mode = 'campanhas' }) {
 
     // Build matrix rows grouped by linha_apple for a given grupo
     const LINHA_ORDER = ['iPhone', 'Mac', 'iPad', 'Apple Watch']
+    const CAT_ORDER = [
+      'Capa/Case', 'Carregador', 'Película', 'Cabo', 'Adaptador',
+      'Bolsa/Mochila', 'Teclado', 'Mouse', 'Fone', 'Pulseira',
+    ]
     const buildMatrix = (rows) => {
       const linhasSet = new Set(rows.map((r) => r.linha_apple))
       const linhas = LINHA_ORDER.filter((l) => linhasSet.has(l))
-      const cats   = [...new Set(rows.map((r) => r.categoria))].sort()
+      const catsSet = new Set(rows.map((r) => r.categoria))
+      const cats = [
+        ...CAT_ORDER.filter((c) => catsSet.has(c)),
+        ...[...catsSet].filter((c) => !CAT_ORDER.includes(c) && c !== 'Outros').sort(),
+        ...( catsSet.has('Outros') ? ['Outros'] : [] ),
+      ]
       const lookup = {}
       rows.forEach((r) => { lookup[`${r.linha_apple}|${r.categoria}`] = r })
       return { linhas, cats, lookup }
