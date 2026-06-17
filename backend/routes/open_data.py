@@ -6359,8 +6359,8 @@ def acessorios(
 ) -> dict[str, Any]:
     import json as _json
     try:
-        s = _validate_iso_date(start)
-        e = _validate_iso_date(end)
+        s = _validate_optional_iso_date(start) or start
+        e = _validate_optional_iso_date(end) or end
         sql = _build_acessorios_sql(s, e)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
 
