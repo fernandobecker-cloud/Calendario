@@ -854,7 +854,8 @@ export default function App({ mode = 'campanhas' }) {
       fetch(`/api/open-data/sms-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
-          setSmsRegional(p => ({ ...p, [campaignId]: { loading: false, error: ok ? '' : (d?.detail || 'Erro'), data: ok ? d : null, expanded: true } }))
+          const errMsg = ok ? '' : (Array.isArray(d?.detail) ? d.detail.map(e => e.msg || JSON.stringify(e)).join('; ') : (d?.detail || 'Erro'))
+          setSmsRegional(p => ({ ...p, [campaignId]: { loading: false, error: errMsg, data: ok ? d : null, expanded: true } }))
         })
         .catch(err => {
           setSmsRegional(p => ({ ...p, [campaignId]: { loading: false, error: err.message || 'Erro', data: null, expanded: true } }))
@@ -875,7 +876,8 @@ export default function App({ mode = 'campanhas' }) {
       fetch(`/api/open-data/email-apuracao-regional?${params}`)
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
-          setEmailRegional(p => ({ ...p, [campaignId]: { loading: false, error: ok ? '' : (d?.detail || 'Erro'), data: ok ? d : null, expanded: true } }))
+          const errMsg = ok ? '' : (Array.isArray(d?.detail) ? d.detail.map(e => e.msg || JSON.stringify(e)).join('; ') : (d?.detail || 'Erro'))
+          setEmailRegional(p => ({ ...p, [campaignId]: { loading: false, error: errMsg, data: ok ? d : null, expanded: true } }))
         })
         .catch(err => {
           setEmailRegional(p => ({ ...p, [campaignId]: { loading: false, error: err.message || 'Erro', data: null, expanded: true } }))
@@ -2361,7 +2363,7 @@ export default function App({ mode = 'campanhas' }) {
                 Resultados para &ldquo;{smsApuracaoData.nome}&rdquo;
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                {smsApuracaoData.total} campanha(s) — disparo em {smsApuracaoData.dispatch_date}
+                {smsApuracaoData.total} campanha(s)
               </p>
             </div>
             {smsApuracaoData.total === 0 ? (
@@ -2389,7 +2391,7 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right text-slate-700">{item.pedidos_atribuidos.toLocaleString('pt-BR')}</td>
                             <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.receita_atribuida)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleSmsRegional(item.campaign_id, smsApuracaoData.dispatch_date)}
+                              <button onClick={() => toggleSmsRegional(item.campaign_id, item.dispatch_date)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}
@@ -2522,7 +2524,7 @@ export default function App({ mode = 'campanhas' }) {
                             <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_apple || 0)}</td>
                             <td className="px-4 py-3 text-right font-medium text-slate-800">{formatCurrency(item.receita_nao_apple || 0)}</td>
                             <td className="px-4 py-3 text-right">
-                              <button onClick={() => toggleEmailRegional(item.campaign_id, emailApuracaoData.start_date, emailApuracaoData.end_date)}
+                              <button onClick={() => toggleEmailRegional(item.campaign_id, item.start_date, item.end_date)}
                                 disabled={reg.loading}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                                 {reg.loading ? '…' : reg.expanded ? '▲ Regional' : '▼ Regional'}

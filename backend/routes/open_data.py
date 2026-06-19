@@ -3683,7 +3683,7 @@ sms_sends_camp AS (
   WHERE DATE(ss.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
 ),
 sms_sends_agg AS (
-  SELECT campaign_id, COUNT(DISTINCT contact_id) AS enviados
+  SELECT campaign_id, COUNT(DISTINCT contact_id) AS enviados, MIN(send_date) AS dispatch_date
   FROM sms_sends_camp
   GROUP BY 1
 ),
@@ -3727,6 +3727,7 @@ SELECT
   sc.nome_campanha,
   sc.campaign_id,
   COALESCE(ss.enviados, 0)             AS enviados,
+  CAST(ss.dispatch_date AS STRING)     AS dispatch_date,
   COALESCE(aa.pedidos_atribuidos, 0)   AS pedidos_atribuidos,
   COALESCE(aa.receita_atribuida, 0)    AS receita_atribuida,
   COALESCE(ia.receita_influenciada, 0) AS receita_influenciada
@@ -3763,7 +3764,11 @@ email_camp AS (
   GROUP BY 1
 ),
 email_sends_agg AS (
-  SELECT CAST(campaign_id AS STRING) AS campaign_id, COUNT(DISTINCT message_id) AS enviados
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    COUNT(DISTINCT message_id) AS enviados,
+    CAST(MIN(DATE(partitiontime)) AS STRING) AS start_date,
+    CAST(MAX(DATE(partitiontime)) AS STRING) AS end_date
   FROM `{project_id}.{dataset}.{email_sends_table}`
   WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL AND message_id IS NOT NULL
@@ -3930,6 +3935,7 @@ def sms_apuracao(
             {
                 "nome_campanha": str(row.get("nome_campanha") or ""),
                 "campaign_id": str(row.get("campaign_id") or ""),
+                "dispatch_date": str(row.get("dispatch_date") or ""),
                 "enviados": int(row.get("enviados") or 0),
                 "pedidos_atribuidos": int(row.get("pedidos_atribuidos") or 0),
                 "receita_atribuida": float(row.get("receita_atribuida") or 0),
@@ -3956,6 +3962,8 @@ def email_apuracao(
             {
                 "nome_campanha": str(row.get("nome_campanha") or ""),
                 "campaign_id": str(row.get("campaign_id") or ""),
+                "start_date": str(row.get("start_date") or ""),
+                "end_date": str(row.get("end_date") or ""),
                 "enviados": int(row.get("enviados") or 0),
                 "aberturas": int(row.get("aberturas") or 0),
                 "taxa_abertura": float(row.get("taxa_abertura") or 0) if row.get("taxa_abertura") is not None else None,
