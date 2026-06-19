@@ -4441,6 +4441,7 @@ SELECT
 FROM `{project_id}.{dataset}.{purchases_table}` p
 INNER JOIN attributed a ON a.order_id = p.order_id
 WHERE p.sales_amount > 0
+  AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
 GROUP BY 1
 ORDER BY receita DESC
 LIMIT 10
@@ -4473,6 +4474,7 @@ categorized AS (
   FROM `{project_id}.{dataset}.{purchases_table}` p
   INNER JOIN attributed a ON a.order_id = p.order_id
   WHERE p.sales_amount > 0
+    AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
 )
 SELECT
   categoria,
