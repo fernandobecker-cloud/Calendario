@@ -138,6 +138,37 @@ VENDAS_BQ_DATASET = os.getenv("VENDAS_BQ_DATASET", "vendas_order").strip()
 VENDAS_BQ_TABLE = os.getenv("VENDAS_BQ_TABLE", "vendas_iplace").strip()
 
 
+def _get_canal_order_ids(canal_filter: str, start: str | None, end: str | None) -> list[str] | None:
+    """Busca order_ids na vendas_iplace para o canal dado; usa cache de 10 min."""
+    if not canal_filter or not BASE_VENDAS_BQ_PROJECT:
+        return None
+    safe_canal = canal_filter.replace("'", "''")
+    cache_key = f"canal_orders:{safe_canal}:{start}:{end}"
+    cached = _cpf_cache_get(cache_key)
+    if cached is not None:
+        return list(cached)
+    date_clause = f"AND Data_Completa BETWEEN '{start}' AND '{end}'" if start and end else ""
+    sql = f"""
+SELECT DISTINCT CAST(Numero_Pedido AS STRING) AS order_id
+FROM `{BASE_VENDAS_BQ_PROJECT}.{VENDAS_BQ_DATASET}.{VENDAS_BQ_TABLE}`
+WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
+{date_clause}
+"""
+    records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=None)
+    order_ids: set[str] = {str(r["order_id"]) for r in records if r.get("order_id")}
+    _cpf_cache_set(cache_key, order_ids)  # type: ignore[arg-type]
+    return list(order_ids)
+
+
+def _make_order_id_filter(canal_order_ids: list | None, id_expr: str = "CAST(r.order_id AS STRING)") -> str:
+    """Retorna cláusula SQL AND ... IN UNNEST([...]) ou vazia."""
+    if canal_order_ids is None:
+        return ""
+    if not canal_order_ids:
+        return "AND FALSE"
+    ids_literal = ", ".join(f"'{str(oid).replace(chr(39), '')}'" for oid in canal_order_ids)
+    return f"AND {id_expr} IN UNNEST([{ids_literal}])"
+
 
 def _quote_identifier(value: str) -> str:
     safe = value.strip().replace("`", "")
@@ -796,6 +827,7 @@ def emarsys_automation_program_revenue(
 def _build_monthly_revenue_sql(
     start_date: str | None = None,
     end_date: str | None = None,
+    canal_order_ids: list | None = None,
 ) -> str:
     """
     Receita atribuída usando a tabela revenue_attribution do Emarsys Open Data.
@@ -846,6 +878,7 @@ WITH per_order AS (
   WHERE r.event_time IS NOT NULL
     AND {event_time_filter}
     AND {partition_filter}
+    {_make_order_id_filter(canal_order_ids, "CAST(r.order_id AS STRING)")}
   GROUP BY r.order_id
 )
 SELECT
@@ -863,6 +896,7 @@ ORDER BY mes
 def _build_monthly_revenue_by_channel_sql(
     start_date: str | None = None,
     end_date: str | None = None,
+    canal_order_ids: list | None = None,
 ) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
@@ -901,6 +935,7 @@ WITH per_order_channel AS (
     AND t.attributed_amount > 0
     AND {event_time_filter}
     AND {partition_filter}
+    {_make_order_id_filter(canal_order_ids, "CAST(r.order_id AS STRING)")}
   GROUP BY r.order_id, canal
 )
 SELECT
@@ -918,10 +953,12 @@ ORDER BY canal
 def emarsys_monthly_revenue(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> dict[str, Any]:
+    canal_order_ids = _get_canal_order_ids(canal.upper().strip() if canal else "", start, end)
     try:
-        sql_total = _build_monthly_revenue_sql(start, end)
-        sql_canal = _build_monthly_revenue_by_channel_sql(start, end)
+        sql_total = _build_monthly_revenue_sql(start, end, canal_order_ids)
+        sql_canal = _build_monthly_revenue_by_channel_sql(start, end, canal_order_ids)
         records_total = run_bigquery_records(
             sql_total,
             EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -1377,7 +1414,7 @@ LIMIT 500
 """.strip()
 
 
-def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_date: str | None = None, canal_order_ids: list | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
@@ -1385,6 +1422,7 @@ def _build_audit_receita_por_campanha_sql(start_date: str | None = None, end_dat
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(r.order_id AS STRING)")
 
     return f"""
 WITH email_names AS (
@@ -1418,6 +1456,7 @@ revenue_by_campaign AS (
     AND t.attributed_amount > 0
     AND {event_time_filter}
     AND {partition_filter}
+    {order_id_filter}
   GROUP BY 1, 2
 )
 SELECT
@@ -1740,9 +1779,11 @@ WHERE {date_filter}
 def emarsys_audit_receita_por_campanha(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> dict[str, Any]:
+    canal_order_ids = _get_canal_order_ids(canal.upper().strip() if canal else "", start, end)
     try:
-        sql_detalhe = _build_audit_receita_por_campanha_sql(start, end)
+        sql_detalhe = _build_audit_receita_por_campanha_sql(start, end, canal_order_ids)
         sql_resumo = _build_audit_receita_resumo_sql(start, end)
         sql_total_crm = _build_si_purchases_total_sql(start, end)
 
@@ -4366,11 +4407,12 @@ def perfil_cliente(
 # Top Produtos e Categorias — Pedidos atribuídos
 # ---------------------------------------------------------------------------
 
-def _attributed_orders_cte(start_date: str, end_date: str) -> str:
+def _attributed_orders_cte(start_date: str, end_date: str, canal_order_ids: list | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     tz = EMARSYS_TZ
+    order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(r.order_id AS STRING)")
     return f"""attributed AS (
   SELECT DISTINCT r.order_id
   FROM `{project_id}.{dataset}.{revenue_table}` r
@@ -4379,14 +4421,15 @@ def _attributed_orders_cte(start_date: str, end_date: str) -> str:
     AND DATE(r.partitiontime) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 1 DAY)
                                    AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
     AND r.order_id IS NOT NULL
+    {order_id_filter}
 )"""
 
 
-def _build_atribuida_top_produtos_sql(start_date: str, end_date: str) -> str:
+def _build_atribuida_top_produtos_sql(start_date: str, end_date: str, canal_order_ids: list | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    cte = _attributed_orders_cte(start_date, end_date)
+    cte = _attributed_orders_cte(start_date, end_date, canal_order_ids)
     return f"""
 WITH {cte}
 SELECT
@@ -4402,11 +4445,11 @@ LIMIT 10
 """.strip()
 
 
-def _build_atribuida_top_categorias_sql(start_date: str, end_date: str) -> str:
+def _build_atribuida_top_categorias_sql(start_date: str, end_date: str, canal_order_ids: list | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    cte = _attributed_orders_cte(start_date, end_date)
+    cte = _attributed_orders_cte(start_date, end_date, canal_order_ids)
     return f"""
 WITH
 {cte},
@@ -4443,11 +4486,13 @@ ORDER BY receita DESC
 def atribuida_top_produtos(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> list[dict]:
     start_date = _validate_optional_iso_date(start) or str(date.today())
     end_date = _validate_optional_iso_date(end) or start_date
+    canal_order_ids = _get_canal_order_ids(canal.upper().strip() if canal else "", start_date, end_date)
     try:
-        sql = _build_atribuida_top_produtos_sql(start_date, end_date)
+        sql = _build_atribuida_top_produtos_sql(start_date, end_date, canal_order_ids)
         records = run_bigquery_records(
             sql, EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=40,
@@ -4466,11 +4511,13 @@ def atribuida_top_produtos(
 def atribuida_top_categorias(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> list[dict]:
     start_date = _validate_optional_iso_date(start) or str(date.today())
     end_date = _validate_optional_iso_date(end) or start_date
+    canal_order_ids = _get_canal_order_ids(canal.upper().strip() if canal else "", start_date, end_date)
     try:
-        sql = _build_atribuida_top_categorias_sql(start_date, end_date)
+        sql = _build_atribuida_top_categorias_sql(start_date, end_date, canal_order_ids)
         records = run_bigquery_records(
             sql, EMARSYS_OPEN_DATA_PROJECT_ID,
             location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=40,

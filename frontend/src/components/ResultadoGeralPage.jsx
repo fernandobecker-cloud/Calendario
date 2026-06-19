@@ -157,6 +157,7 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [atribuidaTopCategorias, setAtribuidaTopCategorias] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
 
+  const [canalAtribuida, setCanalAtribuida] = useState('')
   const [canalAtribuidaState, setCanalAtribuidaState] = useState({ data: null, loading: false, error: null })
   const [conversao7Dias, setConversao7Dias] = useState({ data: null, loading: false })
   const [dataDelay, setDataDelay] = useState(null)
@@ -221,7 +222,7 @@ export default function ResultadoGeralPage({ currentRole }) {
           dailyRevenue: daily.ok ? (daily.data?.items ?? []) : [],
         })
       } else if (activeView === 'atribuida') {
-        const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}) })
+        const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}), ...(canalAtribuida ? { canal: canalAtribuida } : {}) })
         const [res, monthlyRes, topProdRes, topCatRes] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
@@ -297,6 +298,30 @@ export default function ResultadoGeralPage({ currentRole }) {
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
                 />
               </label>
+              {activeView === 'atribuida' && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm text-slate-600">Canal</span>
+                  <div className="flex overflow-hidden rounded-lg border border-slate-300">
+                    {[
+                      { value: '',          label: 'Todos' },
+                      { value: 'VAREJO',    label: 'Loja' },
+                      { value: 'ECOMMERCE', label: 'E-comm' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setCanalAtribuida(opt.value)}
+                        className={`px-4 py-2 text-sm font-semibold transition ${
+                          canalAtribuida === opt.value
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-white text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button
                 onClick={handleAtualizar}
                 disabled={loading}
