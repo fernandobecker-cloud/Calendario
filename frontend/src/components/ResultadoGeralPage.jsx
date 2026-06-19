@@ -888,7 +888,7 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
       {(topProdutos?.length > 0 || topCategorias?.length > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Top Produtos e Categorias
+            Top Produtos e Categorias — Todas as Vendas do Período
           </h2>
           <div className="grid gap-6 md:grid-cols-2">
             {prodByReceita.length > 0 && (

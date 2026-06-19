@@ -4431,17 +4431,16 @@ def _build_atribuida_top_produtos_sql(start_date: str, end_date: str, canal_orde
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    cte = _attributed_orders_cte(start_date, end_date, canal_order_ids)
+    order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(p.order_id AS STRING)")
     return f"""
-WITH {cte}
 SELECT
   COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS produto,
   COUNT(DISTINCT p.order_id)                             AS pedidos,
   ROUND(SUM(p.sales_amount), 2)                         AS receita
 FROM `{project_id}.{dataset}.{purchases_table}` p
-INNER JOIN attributed a ON a.order_id = p.order_id
 WHERE p.sales_amount > 0
   AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+  {order_id_filter}
 GROUP BY 1
 ORDER BY receita DESC
 LIMIT 10
@@ -4452,11 +4451,9 @@ def _build_atribuida_top_categorias_sql(start_date: str, end_date: str, canal_or
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    cte = _attributed_orders_cte(start_date, end_date, canal_order_ids)
+    order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(p.order_id AS STRING)")
     return f"""
-WITH
-{cte},
-categorized AS (
+WITH categorized AS (
   SELECT
     CASE
       WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPHONE')                        THEN 'iPhone'
@@ -4472,9 +4469,9 @@ categorized AS (
     p.order_id,
     p.sales_amount
   FROM `{project_id}.{dataset}.{purchases_table}` p
-  INNER JOIN attributed a ON a.order_id = p.order_id
   WHERE p.sales_amount > 0
     AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    {order_id_filter}
 )
 SELECT
   categoria,
