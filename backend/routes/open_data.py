@@ -3349,7 +3349,7 @@ def base_vendas_canal_breakdown(
         raise HTTPException(status_code=502, detail=f"Falha ao calcular breakdown de canal: {exc}") from exc
 
 
-def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | None = None, canal_order_ids: list | None = None) -> str:
     """Atribuição vs Influência usando a mesma base de pedidos.
 
     Base: order_id de revenue_attribution onde attributed_amount > 0.
@@ -3363,6 +3363,15 @@ def _build_comparativo_crm_sql(start_date: str | None = None, end_date: str | No
     si_purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+
+    if canal_order_ids is not None:
+        if canal_order_ids:
+            ids_literal = ", ".join(f"'{str(oid).replace(chr(39), '')}'" for oid in canal_order_ids)
+            order_id_filter = f"AND CAST(r.order_id AS STRING) IN UNNEST([{ids_literal}])"
+        else:
+            order_id_filter = "AND FALSE"
+    else:
+        order_id_filter = ""
 
     normalized_start = _validate_optional_iso_date(start_date)
     normalized_end = _validate_optional_iso_date(end_date)
@@ -3423,6 +3432,7 @@ treatments_classified AS (
     AND t.attributed_amount > 0
     AND {attr_event_time_filter}
     AND {attr_partition_filter}
+    {order_id_filter}
 ),
 attributed_orders AS (
   SELECT order_id, ROUND(SUM(attributed_amount), 2) AS attributed_amount
@@ -3465,9 +3475,25 @@ LEFT JOIN sales_all sa USING (order_id)
 def comparativo_crm(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    canal: str = Query(default=""),
 ) -> dict[str, Any]:
     try:
-        sql = _build_comparativo_crm_sql(start, end)
+        canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
+        canal_order_ids: list | None = None
+        if canal_filter and BASE_VENDAS_BQ_PROJECT:
+            s = _validate_optional_iso_date(start) or start or ""
+            e = _validate_optional_iso_date(end) or end or ""
+            safe_canal = canal_filter.replace("'", "''")
+            date_clause = f"AND Data_Completa BETWEEN '{s}' AND '{e}'" if s and e else ""
+            sql_canal = f"""
+SELECT DISTINCT CAST(Numero_Pedido AS STRING) AS order_id
+FROM `{BASE_VENDAS_BQ_PROJECT}.{VENDAS_BQ_DATASET}.{VENDAS_BQ_TABLE}`
+WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
+{date_clause}
+"""
+            canal_records = run_bigquery_records(sql_canal, BASE_VENDAS_BQ_PROJECT, location=None)
+            canal_order_ids = [str(r["order_id"]) for r in canal_records if r.get("order_id")]
+        sql = _build_comparativo_crm_sql(start, end, canal_order_ids)
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
         if not records:
             return {

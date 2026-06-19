@@ -309,6 +309,7 @@ export default function App({ mode = 'campanhas' }) {
   const [comparativoCRMError, setComparativoCRMError] = useState('')
   const [comparativoCRMStart, setComparativoCRMStart] = useState(currentMonthRange.start)
   const [comparativoCRMEnd, setComparativoCRMEnd] = useState(currentMonthRange.end)
+  const [comparativoCRMCanal, setComparativoCRMCanal] = useState('')
   const [smsApuracaoNome, setSmsApuracaoNome] = useState('')
   const [smsApuracaoData, setSmsApuracaoData] = useState(null)
   const [smsApuracaoLoading, setSmsApuracaoLoading] = useState(false)
@@ -787,12 +788,14 @@ export default function App({ mode = 'campanhas' }) {
       .catch(() => setPermissoesError('Nao foi possivel carregar as permissoes.'))
   }, [activeView])
 
-  const loadComparativoCRM = useCallback(async () => {
+  const loadComparativoCRM = useCallback(async (canalOverride) => {
     if (!comparativoCRMStart || !comparativoCRMEnd) return
+    const canal = canalOverride !== undefined ? canalOverride : comparativoCRMCanal
     setComparativoCRMLoading(true)
     setComparativoCRMError('')
     try {
       const params = new URLSearchParams({ start: comparativoCRMStart, end: comparativoCRMEnd })
+      if (canal) params.set('canal', canal)
       const res = await fetch(`/api/open-data/comparativo-crm?${params}`)
       const payload = await res.json()
       if (!res.ok) throw new Error(payload?.detail || 'Erro ao calcular comparativo CRM.')
@@ -803,7 +806,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setComparativoCRMLoading(false)
     }
-  }, [comparativoCRMStart, comparativoCRMEnd])
+  }, [comparativoCRMStart, comparativoCRMEnd, comparativoCRMCanal])
 
 
   const loadSmsApuracao = useCallback(async () => {
@@ -3264,6 +3267,29 @@ export default function App({ mode = 'campanhas' }) {
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-white/70">Canal</span>
+              <div className="flex rounded-lg overflow-hidden border border-white/30">
+                {[
+                  { value: '',          label: 'Todos' },
+                  { value: 'VAREJO',    label: 'Loja' },
+                  { value: 'ECOMMERCE', label: 'E-comm' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setComparativoCRMCanal(opt.value); loadComparativoCRM(opt.value) }}
+                    className={`px-3 py-2 text-xs font-semibold transition ${
+                      comparativoCRMCanal === opt.value
+                        ? 'bg-white text-indigo-700'
+                        : 'bg-white/15 text-white hover:bg-white/25'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="flex flex-col gap-1 text-sm text-white/90">
               Inicio
               <input
