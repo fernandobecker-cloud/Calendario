@@ -1483,7 +1483,7 @@ LIMIT 200
 """.strip()
 
 
-def _build_audit_receita_resumo_sql(start_date: str | None = None, end_date: str | None = None) -> str:
+def _build_audit_receita_resumo_sql(start_date: str | None = None, end_date: str | None = None, canal_order_ids: list | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
@@ -1491,6 +1491,7 @@ def _build_audit_receita_resumo_sql(start_date: str | None = None, end_date: str
     sms_campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, "r")
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(r.order_id AS STRING)")
 
     return f"""
 WITH email_names AS (
@@ -1524,6 +1525,7 @@ revenue_by_campaign AS (
     AND t.attributed_amount > 0
     AND {event_time_filter}
     AND {partition_filter}
+    {order_id_filter}
   GROUP BY 1, 2
 )
 SELECT
@@ -1784,7 +1786,7 @@ def emarsys_audit_receita_por_campanha(
     canal_order_ids = _get_canal_order_ids(canal.upper().strip() if canal else "", start, end)
     try:
         sql_detalhe = _build_audit_receita_por_campanha_sql(start, end, canal_order_ids)
-        sql_resumo = _build_audit_receita_resumo_sql(start, end)
+        sql_resumo = _build_audit_receita_resumo_sql(start, end, canal_order_ids)
         sql_total_crm = _build_si_purchases_total_sql(start, end)
 
         records = run_bigquery_records(sql_detalhe, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
