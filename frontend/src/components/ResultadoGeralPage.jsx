@@ -249,7 +249,7 @@ export default function ResultadoGeralPage({ currentRole }) {
     } finally {
       setLoading(false)
     }
-  }, [activeView, startDate, endDate])
+  }, [activeView, startDate, endDate, canalAtribuida])
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
