@@ -6421,7 +6421,7 @@ acc_parceiro AS (
       ELSE 'Outros'
     END AS categoria
   FROM all_items
-  WHERE produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGITECH%' OR produto_upper LIKE '%ORIGINAIS IPLACE%'
+  WHERE produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGITECH%' OR produto_upper LIKE '%IPLACE%'
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -6497,7 +6497,7 @@ brand_items AS (
     CASE
       WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'              THEN 'JBL'
       WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'         THEN 'Logitech'
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%ORIGINAIS IPLACE%' THEN 'Originais iPlace'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%' THEN 'Originais iPlace'
     END AS marca
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
@@ -6506,7 +6506,7 @@ brand_items AS (
     AND (
       UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'
       OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'
-      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%ORIGINAIS IPLACE%'
+      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%'
     )
 ),
 por_marca AS (
@@ -6664,7 +6664,7 @@ todos_acc AS (
     OR (produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%')
     OR produto_upper LIKE '%JBL%'
     OR produto_upper LIKE '%LOGITECH%'
-    OR produto_upper LIKE '%ORIGINAIS IPLACE%'
+    OR produto_upper LIKE '%IPLACE%'
   )
 )
 SELECT
