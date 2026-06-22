@@ -7013,24 +7013,27 @@ por_marca AS (
   WHERE marca IN ('JBL', 'Logitech', 'Originais iPlace')
   GROUP BY 1
 ),
-top_jbl AS (
-  SELECT desc_produto AS nome, COUNT(*) AS qtd
-  FROM brand_items WHERE marca = 'JBL' GROUP BY 1
+top_jbl_json AS (
+  SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) AS v
+  FROM (SELECT desc_produto AS nome, COUNT(*) AS qtd FROM brand_items WHERE marca = 'JBL' GROUP BY 1)
 ),
-top_log AS (
-  SELECT desc_produto AS nome, COUNT(*) AS qtd
-  FROM brand_items WHERE marca = 'Logitech' GROUP BY 1
+top_log_json AS (
+  SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) AS v
+  FROM (SELECT desc_produto AS nome, COUNT(*) AS qtd FROM brand_items WHERE marca = 'Logitech' GROUP BY 1)
 ),
-top_ori AS (
-  SELECT desc_produto AS nome, COUNT(*) AS qtd
-  FROM brand_items WHERE marca = 'Originais iPlace' GROUP BY 1
+top_ori_json AS (
+  SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) AS v
+  FROM (SELECT desc_produto AS nome, COUNT(*) AS qtd FROM brand_items WHERE marca = 'Originais iPlace' GROUP BY 1)
 )
 SELECT
   pm.marca, pm.pedidos, pm.itens,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_jbl) AS top_jbl_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_log) AS top_log_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_ori) AS top_ori_json
+  tj.v AS top_jbl_json,
+  tl.v AS top_log_json,
+  ori.v AS top_ori_json
 FROM por_marca pm
+CROSS JOIN top_jbl_json tj
+CROSS JOIN top_log_json tl
+CROSS JOIN top_ori_json ori
 ORDER BY pm.pedidos DESC
 """.strip()
 
