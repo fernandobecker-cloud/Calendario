@@ -6366,18 +6366,20 @@ all_items AS (
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
 ),
 device_rows AS (
   SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'IPHONE')                                   THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'IPAD')                                     THEN 'iPad'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
-      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE WATCH')                              THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^IPHONE')                                                    THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^IPAD')                                                      THEN 'iPad'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')             THEN 'Mac'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                                  THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^APPLE TV')                                                  THEN 'Apple TV'
     END AS linha_apple
   FROM all_items
-  WHERE REGEXP_CONTAINS(produto_upper, r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
+  WHERE REGEXP_CONTAINS(produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
 ),
 pedidos_device AS (
   SELECT DISTINCT pedido_key, linha_apple
@@ -6387,41 +6389,49 @@ pedidos_device AS (
 acc_apple AS (
   SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'AIRPOD')                                         THEN 'AirPods'
-      WHEN REGEXP_CONTAINS(produto_upper, r'AIRTAG|AIR TAG')                                 THEN 'AirTag'
-      WHEN REGEXP_CONTAINS(produto_upper, r'EARPODS')                                        THEN 'EarPods'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MAGSAFE')                                        THEN 'MagSafe'
-      WHEN produto_upper LIKE '%MAGIC MOUSE%'                                                THEN 'Magic Mouse'
-      WHEN produto_upper LIKE '%MAGIC KEYBOARD%'                                             THEN 'Magic Keyboard'
-      WHEN produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%'                     THEN 'Cabo Apple'
-      WHEN produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%'               THEN 'Carregador Apple'
+      WHEN REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD')                               THEN 'AirPods'
+      WHEN REGEXP_CONTAINS(produto_upper, r'AIRTAG|AIR TAG')                           THEN 'AirTag'
+      WHEN REGEXP_CONTAINS(produto_upper, r'EARPODS')                                  THEN 'EarPods'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MAGSAFE|CARTEIRA APPLE')                   THEN 'MagSafe'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MAGIC MOUSE|MOUSE MAGIC')                  THEN 'Magic Mouse'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MAGIC KEY(?:BOARD|B)|TECLADO APPLE')       THEN 'Magic Keyboard'
+      WHEN REGEXP_CONTAINS(produto_upper, r'CABO APPLE')                               THEN 'Cabo Apple'
+      WHEN REGEXP_CONTAINS(produto_upper, r'(?:CARREG|CARREGADOR) APPLE')              THEN 'Carregador Apple'
+      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE PENCIL')                             THEN 'Apple Pencil'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')                           THEN 'Pulseira Apple'
     END AS categoria
   FROM all_items
   WHERE (
-    REGEXP_CONTAINS(produto_upper, r'AIRPOD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
-    OR (produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%')
-    OR (produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%')
+    REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
+    OR REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')
   )
+  AND NOT REGEXP_CONTAINS(produto_upper, r'IPLACE|JBL|LOGI|MISTER')
 ),
 acc_parceiro AS (
   SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'CARREGADOR')                              THEN 'Carregador'
+      WHEN REGEXP_CONTAINS(produto_upper, r'CARREG(?:ADOR)?|KIT VIAGEM')              THEN 'Carregador'
       WHEN REGEXP_CONTAINS(produto_upper, r'\\bCABO\\b')                               THEN 'Cabo'
-      WHEN REGEXP_CONTAINS(produto_upper, r'CAIXA DE SOM|SOUNDBAR')                  THEN 'Caixa de Som'
-      WHEN REGEXP_CONTAINS(produto_upper, r'FONE DE OUVIDO|EARPODS|HEADPHONE|ON-EAR|OVER-EAR') THEN 'Fone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bMOUSE\\b')                             THEN 'Mouse'
-      WHEN REGEXP_CONTAINS(produto_upper, r'TECLADO|KEYBOARD')                       THEN 'Teclado'
-      WHEN REGEXP_CONTAINS(produto_upper, r'PELICULA|PELÍCULA')                      THEN 'Película'
-      WHEN REGEXP_CONTAINS(produto_upper, r'ADAPTADOR')                              THEN 'Adaptador'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCANETA\\b')                            THEN 'Caneta'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCAPA\\b|\\bCASE\\b')                   THEN 'Capa/Case'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bPULSEIRA\\b')                          THEN 'Pulseira'
-      WHEN REGEXP_CONTAINS(produto_upper, r'BOLSA|MOCHILA|\\bMALA\\b|\\bSLEEVE\\b')  THEN 'Bolsa/Mochila'
+      WHEN REGEXP_CONTAINS(produto_upper, r'CAIXA DE SOM|SOUNDBAR|CAIXA SOM')         THEN 'Caixa de Som'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bFONE\\b|HEADPHONE|ON-EAR|OVER-EAR')   THEN 'Fone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bMOUSE\\b')                              THEN 'Mouse'
+      WHEN REGEXP_CONTAINS(produto_upper, r'TECLADO|KEYBOARD')                        THEN 'Teclado'
+      WHEN REGEXP_CONTAINS(produto_upper, r'PELICULA|\\bPEL\\b')                       THEN 'Película'
+      WHEN REGEXP_CONTAINS(produto_upper, r'ADAPT(?:ADOR)?')                           THEN 'Adaptador'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCANETA\\b')                             THEN 'Caneta'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCAPA\\b|\\bCASE\\b|\\bWALLET\\b')      THEN 'Capa/Case'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bPULSEIRA\\b|\\bALCA\\b|^P IPLACE WATCH|^KIT P IPLACE') THEN 'Pulseira'
+      WHEN REGEXP_CONTAINS(produto_upper, r'BOLSA|MOCHILA|\\bSLEEVE\\b|\\bMALA\\b')   THEN 'Bolsa/Mochila'
       ELSE 'Outros'
     END AS categoria
   FROM all_items
-  WHERE produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGITECH%' OR produto_upper LIKE '%IPLACE%'
+  WHERE (
+    produto_upper LIKE '%JBL%'
+    OR produto_upper LIKE '%LOGI%'
+    OR produto_upper LIKE '%IPLACE%'
+    OR produto_upper LIKE '%MISTER%'
+  )
+  AND NOT REGEXP_CONTAINS(produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -6495,19 +6505,21 @@ brand_items AS (
     CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
     COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto,
     CASE
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'              THEN 'JBL'
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'         THEN 'Logitech'
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%' THEN 'Originais iPlace'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'      THEN 'JBL'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGI%'      THEN 'Logitech'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%'    THEN 'Originais iPlace'
     END AS marca
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
     AND (
       UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'
-      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'
+      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGI%'
       OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%'
     )
+    AND NOT REGEXP_CONTAINS(UPPER(COALESCE(Desc_Produto, '')), r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
 ),
 por_marca AS (
   SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
@@ -6640,17 +6652,19 @@ all_items AS (
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{s}' AND '{e}'
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
 ),
 device_rows AS (
   SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal,
     CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'IPHONE')                                   THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'IPAD')                                     THEN 'iPad'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
-      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE WATCH')                              THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^IPHONE')                                                    THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^IPAD')                                                      THEN 'iPad'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')             THEN 'Mac'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                                  THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(produto_upper, r'^APPLE TV')                                                  THEN 'Apple TV'
     END AS linha_apple
   FROM all_items
-  WHERE REGEXP_CONTAINS(produto_upper, r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
+  WHERE REGEXP_CONTAINS(produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
 ),
 pedidos_device AS (
   SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal, linha_apple
@@ -6659,12 +6673,15 @@ pedidos_device AS (
 todos_acc AS (
   SELECT DISTINCT pedido_key FROM all_items
   WHERE (
-    REGEXP_CONTAINS(produto_upper, r'AIRPOD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
-    OR (produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%')
-    OR (produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%')
-    OR produto_upper LIKE '%JBL%'
-    OR produto_upper LIKE '%LOGITECH%'
-    OR produto_upper LIKE '%IPLACE%'
+    (
+      REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
+      OR REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')
+    )
+    AND NOT REGEXP_CONTAINS(produto_upper, r'IPLACE|JBL|LOGI|MISTER')
+  )
+  OR (
+    (produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGI%' OR produto_upper LIKE '%IPLACE%' OR produto_upper LIKE '%MISTER%')
+    AND NOT REGEXP_CONTAINS(produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
   )
 )
 SELECT
