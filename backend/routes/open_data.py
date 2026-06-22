@@ -6350,18 +6350,478 @@ ORDER BY valor_real DESC
     }
 
 
+# ── Classificação de produtos por SKU (Cod_Produto) ────────────────────────────
+# Formato: {Cod_Produto: (tipo, categoria, marca_ou_None)}
+# tipos: 'device' | 'acc_apple' | 'acc_parceiro'
+# SKUs com prefixo 000000010000 (serviços/reparos) são filtrados na query, não aqui.
+_ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
+
+    # ─── Devices: iPhone ─────────────────────────────────────────────────────────
+    '000000000100072473': ('device', 'iPhone', None),  # 17 Pro Max Silver 256
+    '000000000100080116': ('device', 'iPhone', None),  # 17 Black 256
+    '000000000100072474': ('device', 'iPhone', None),  # 17 Pro Max C Org 256
+    '000000000100072475': ('device', 'iPhone', None),  # 17 Pro Max DP BL 256
+    '000000000100080117': ('device', 'iPhone', None),  # 17 White 256
+    '000000000100032026': ('device', 'iPhone', None),  # 15 Blue 128
+    '000000000100031967': ('device', 'iPhone', None),  # 15 Black 128
+    '000000000100060277': ('device', 'iPhone', None),  # 16E Blk 128
+    '000000000100060278': ('device', 'iPhone', None),  # 16E Wht 128
+    '000000000100053737': ('device', 'iPhone', None),  # 16 Black 128
+    '000000000100053739': ('device', 'iPhone', None),  # 16 Pink 128
+    '000000000100053738': ('device', 'iPhone', None),  # 16 White 128
+    '000000000100080118': ('device', 'iPhone', None),  # 17 Mist Blue 256
+    '000000000100080119': ('device', 'iPhone', None),  # 17 Lavender 256
+    '000000000100032029': ('device', 'iPhone', None),  # 15 Blue 256
+    '000000000100032020': ('device', 'iPhone', None),  # 15 Black 256
+    '000000000100053736': ('device', 'iPhone', None),  # 16 Ultramarine 128
+    '000000000100053761': ('device', 'iPhone', None),  # 16 Black 256
+    '000000000100053762': ('device', 'iPhone', None),  # 16 White 256
+    '000000000100053763': ('device', 'iPhone', None),  # 16 Pink 256
+    '000000000100053760': ('device', 'iPhone', None),  # 16 Teal 128
+    '000000000100053765': ('device', 'iPhone', None),  # 16 Teal 256
+    '000000000100053764': ('device', 'iPhone', None),  # 16 Ultramarine 256
+    '000000000100072467': ('device', 'iPhone', None),  # 17 Pro Deep Blue 256
+    '000000000100072465': ('device', 'iPhone', None),  # 17 Pro Silver 256
+    '000000000100072466': ('device', 'iPhone', None),  # 17 Pro Cos Orange 256
+    '000000000100072468': ('device', 'iPhone', None),  # 17 Pro Silver 512
+    '000000000100072470': ('device', 'iPhone', None),  # 17 Pro Deep Blue 512
+    '000000000100072471': ('device', 'iPhone', None),  # 17 Pro Silver 1TB
+    '000000000100072516': ('device', 'iPhone', None),  # 17 Pro Deep Blue 1TB
+    '000000000100072476': ('device', 'iPhone', None),  # 17 Pro Max Silver 512
+    '000000000100072477': ('device', 'iPhone', None),  # 17 Pro Max C Org 512
+    '000000000100072478': ('device', 'iPhone', None),  # 17 Pro Max DP BL 512
+    '000000000100072480': ('device', 'iPhone', None),  # 17 Pro Max C Org 1TB
+    '000000000100072481': ('device', 'iPhone', None),  # 17 Pro Max DP BL 1TB
+    '000000000100072482': ('device', 'iPhone', None),  # 17 Pro Max Silver 2TB
+    '000000000100072483': ('device', 'iPhone', None),  # 17 Pro Max C Org 2TB
+    '000000000100072484': ('device', 'iPhone', None),  # 17 Pro Max DP BL 2TB
+    '000000000100080131': ('device', 'iPhone', None),  # 17 Black 512
+    '000000000100080132': ('device', 'iPhone', None),  # 17 White 512
+    '000000000100080133': ('device', 'iPhone', None),  # 17 Mist Blue 512
+    '000000000100080134': ('device', 'iPhone', None),  # 17 Lavender 512
+    '000000000100080130': ('device', 'iPhone', None),  # 17 Sage 256
+    '000000000100080443': ('device', 'iPhone', None),  # 17 Sage 512 (se existir)
+    '000000000100080147': ('device', 'iPhone', None),  # 17E Black 256 BE
+    '000000000100080148': ('device', 'iPhone', None),  # 17E White 256 BE
+    '000000000100080878': ('device', 'iPhone', None),  # 17E Black 256
+    '000000000100080879': ('device', 'iPhone', None),  # 17E White 256
+    '000000000100080880': ('device', 'iPhone', None),  # 17E Soft Pink 256
+    '000000000100072443': ('device', 'iPhone', None),  # 17 Black 256 BE
+    '000000000100072445': ('device', 'iPhone', None),  # 17 Mist Blue 256 BE
+    '000000000100072453': ('device', 'iPhone', None),  # Air Space Black 256
+    '000000000100072456': ('device', 'iPhone', None),  # Air Sky Blue 256
+    '000000000100060280': ('device', 'iPhone', None),  # 16E Wht 256
+    '000000000100030426': ('device', 'iPhone', None),  # 14 Midnight 128
+    '000000100048732001': ('device', 'iPhone', None),  # 13 Starlight 128 BB
+    '000000100048716001': ('device', 'iPhone', None),  # 13 Midnight 128 BB
+    '000000100048694001': ('device', 'iPhone', None),  # 13 Pink 128 BB
+
+    # ─── Devices: iPad ───────────────────────────────────────────────────────────
+    '000000000100060982': ('device', 'iPad', None),  # 11th Wifi 128 Silver
+    '000000000100060983': ('device', 'iPad', None),  # 11th Wifi 128 Blue
+    '000000000100060984': ('device', 'iPad', None),  # 11th Wifi 128 Yellow
+    '000000000100060985': ('device', 'iPad', None),  # 11th Wifi 128 Pink
+    '000000000100060986': ('device', 'iPad', None),  # 11th Wifi 256 Silver
+    '000000000100060987': ('device', 'iPad', None),  # 11th Wifi 256 Blue
+
+    # ─── Devices: Mac ────────────────────────────────────────────────────────────
+    '000000000100080250': ('device', 'Mac', None),  # MacB Air 13 M5 SIL 512
+    '000000000100080256': ('device', 'Mac', None),  # MacB Air 13 M5 MDN 512
+    '000000000100080318': ('device', 'Mac', None),  # MacBook Neo 13 A18P SIL 512
+    '000000000100080319': ('device', 'Mac', None),  # MacBook Neo 13 A18P CITR 256
+    '000000000100080321': ('device', 'Mac', None),  # MacBook Neo 13 A18P IND 256
+    '000000000100080322': ('device', 'Mac', None),  # MacBook Neo 13 A18P IND 512
+    '000000000100080323': ('device', 'Mac', None),  # MacBook Neo 13 A18P BLS 256
+
+    # ─── Devices: Apple Watch ────────────────────────────────────────────────────
+    '000000000100072534': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB SM G
+    '000000000100072535': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB ML G
+    '000000000100072536': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB SM G
+    '000000000100072537': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB ML G
+    '000000000100072539': ('device', 'Apple Watch', None),  # SE3 44 S AL S SB ML G
+    '000000000100072541': ('device', 'Apple Watch', None),  # SE3 44 M AL M SB ML G
+    '000000000100072542': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB SM C
+    '000000000100072544': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB SM C
+    '000000000100072549': ('device', 'Apple Watch', None),  # SE3 44 M AL M SB ML C
+    '000000000100072550': ('device', 'Apple Watch', None),  # 11 42 JB AL BK SB SM G
+    '000000000100072554': ('device', 'Apple Watch', None),  # 11 42 RG AL LB SB SM G
+    '000000000100072559': ('device', 'Apple Watch', None),  # 11 46 JB AL BK SB ML G
+    '000000000100072561': ('device', 'Apple Watch', None),  # 11 46 SG AL BK SB ML G
+    '000000000100072612': ('device', 'Apple Watch', None),  # Ultra3 49 Black TI BK
+
+    # ─── Devices: Apple TV ───────────────────────────────────────────────────────
+    '000000000100059036': ('device', 'Apple TV', None),  # 4K 64GB Wi-Fi PTO
+
+    # ─── Apple Accessories: AirPods ──────────────────────────────────────────────
+    '000000000100072410': ('acc_apple', 'AirPods', None),  # AirPods Pro 3
+    '000000000100064788': ('acc_apple', 'AirPods', None),  # AirPods 4 USB-C
+    '000000000100064789': ('acc_apple', 'AirPods', None),  # AirPods 4 CAN
+
+    # ─── Apple Accessories: AirTag ───────────────────────────────────────────────
+    '000000000100061669': ('acc_apple', 'AirTag', None),  # Pack 1
+    '000000000100079131': ('acc_apple', 'AirTag', None),  # Pack 1 2TH
+    '000000000100079132': ('acc_apple', 'AirTag', None),  # Pack 4 2TH
+
+    # ─── Apple Accessories: EarPods ──────────────────────────────────────────────
+    '000000000100033486': ('acc_apple', 'EarPods', None),  # Lightning
+    '000000000100067576': ('acc_apple', 'EarPods', None),  # USB-C
+
+    # ─── Apple Accessories: MagSafe ──────────────────────────────────────────────
+    '000000000100072794': ('acc_apple', 'MagSafe', None),  # Carregador MagSafe 1M
+    '000000000100052119': ('acc_apple', 'MagSafe', None),  # Carreg USB-C MAG 2M
+    '000000000100052080': ('acc_apple', 'MagSafe', None),  # Carteira Tecido
+
+    # ─── Apple Accessories: Magic Mouse ──────────────────────────────────────────
+    '000000000100055383': ('acc_apple', 'Magic Mouse', None),  # Touch ID BCO
+    '000000000100055384': ('acc_apple', 'Magic Mouse', None),  # Touch PTO
+
+    # ─── Apple Accessories: Magic Keyboard ───────────────────────────────────────
+    # (adicionar SKUs conforme necessário)
+
+    # ─── Apple Accessories: Cabo Apple ───────────────────────────────────────────
+    '000000000100046277': ('acc_apple', 'Cabo Apple', None),  # Lightning USB 1M
+    '000000000100046292': ('acc_apple', 'Cabo Apple', None),  # USB-C Lightning 1M
+    '000000000100046298': ('acc_apple', 'Cabo Apple', None),  # USB-C Lightning 2M
+    '000000000100051680': ('acc_apple', 'Cabo Apple', None),  # 240W USB-C 2M (v1)
+    '000000000100060548': ('acc_apple', 'Cabo Apple', None),  # 60W USB-C 1M
+    '000000000100073530': ('acc_apple', 'Cabo Apple', None),  # USB-A USB-C Beats CZ
+    '000000000100073538': ('acc_apple', 'Cabo Apple', None),  # USB-C Beats CZA
+    '000000000100081087': ('acc_apple', 'Cabo Apple', None),  # Watch USB-C 1M
+    '000000000100081113': ('acc_apple', 'Cabo Apple', None),  # 240W USB-C 2M (v2)
+
+    # ─── Apple Accessories: Carregador Apple ─────────────────────────────────────
+    '000000000100024363': ('acc_apple', 'Carregador Apple', None),  # 20W USB-C
+    '000000000100024701': ('acc_apple', 'Carregador Apple', None),  # 35W Dual USB-C
+    '000000000100024708': ('acc_apple', 'Carregador Apple', None),  # 30W USB-C
+    '000000000100052235': ('acc_apple', 'Carregador Apple', None),  # 70W USB-C
+
+    # ─── Apple Accessories: Apple Pencil ─────────────────────────────────────────
+    '000000000100014433': ('acc_apple', 'Apple Pencil', None),  # USB-C
+    '000000000100014439': ('acc_apple', 'Apple Pencil', None),  # Pro
+    '000000000100058172': ('acc_apple', 'Apple Pencil', None),  # Pontas (4)
+
+    # ─── Originais iPlace: Carregador ────────────────────────────────────────────
+    '000000000100014834': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Portátil
+    '000000000100019344': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 3em1 MagSafe
+    '000000000100019979': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2Port 30W
+    '000000000100020081': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem 30W BCO
+    '000000000100020299': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2USB-C 65W
+    '000000000100060362': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2em1 MagSafe
+    '000000000100061067': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem 30W Light
+    '000000000100071399': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Onça
+    '000000000100071398': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Cow
+    '000000000100071501': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2USB-C 45W
+    '000000000100080719': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Brasil
+
+    # ─── Mister: Carregador ──────────────────────────────────────────────────────
+    '000000000100019856': ('acc_parceiro', 'Carregador', 'Mister'),  # 2Port 30W BCO
+    '000000000100019873': ('acc_parceiro', 'Carregador', 'Mister'),  # 2Port 30W PTO
+    '000000000100020088': ('acc_parceiro', 'Carregador', 'Mister'),  # Veicular 28W
+
+    # ─── Originais iPlace: Cabo ───────────────────────────────────────────────────
+    '000000000100017372': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 1,2 BCO
+    '000000000100017406': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 1,2 PTO
+    '000000000100017422': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 3M BCO
+    '000000000100019337': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C MagSafe 1,2
+    '000000000100020316': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Watch 1,2
+    '000000000100057293': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-A 1,2 BCO
+    '000000000100068065': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light AZL 1,2
+    '000000000100068066': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light AVL 1,2
+    '000000000100068067': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-A USB-C BCO 1,2
+    '000000000100068068': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light BCO 1,2
+    '000000000100068069': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 1,2 SI
+    '000000000100068080': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C LIL 1,2
+    '000000000100068081': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light PTO 1,2
+    '000000000100068082': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C AVL 1,2
+    '000000000100068083': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light LIL 1,2
+    '000000000100068084': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C PTO 1,2
+    '000000000100068085': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-A Light BCO 1,2
+    '000000000100068086': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C AZL 1,2
+    '000000000100068102': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 1,2
+    '000000000100068751': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light BCO 3M
+    '000000000100068752': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 3M
+
+    # ─── Originais iPlace: Película ───────────────────────────────────────────────
+    '000000000100038596': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16P/16PM PTO
+    '000000000100038603': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16P/16PM SIL
+    '000000000100038621': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16/16Plus PTO
+    '000000000100039039': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad Air 11
+    '000000000100040727': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 13 Antibact
+    '000000000100041353': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Antibac
+    '000000000100041368': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Antibact A.U
+    '000000000100041405': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Privacid
+    '000000000100041976': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 15 Antibac
+    '000000000100042020': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 15 Privacid
+    '000000000100042273': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16 Antibac
+    '000000000100042663': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16PM Antibact
+    '000000000100043610': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 40MM
+    '000000000100043705': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 44MM
+    '000000000100043772': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 49MM
+    '000000000100044223': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad 10 Antibac
+    '000000000100053539': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 42MM
+    '000000000100053550': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 46MM
+    '000000000100056106': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh16PM Ant/Priv
+    '000000000100056108': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh16 Ant/Priv
+    '000000000100057276': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 13 Privacid
+    '000000000100060629': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16/17E Antibac
+    '000000000100060628': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16/17E Antib/Priv
+    '000000000100066664': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad MAG 10TH
+    '000000000100066943': ('acc_parceiro', 'Película', 'Originais iPlace'),  # MAC Air 13.6
+    '000000000100066970': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17 Silver
+    '000000000100066971': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh17PM ProSaf
+    '000000000100066972': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro ProMat
+    '000000000100066974': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 ProSaf
+    '000000000100066979': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17PM Premium
+    '000000000100066983': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro Essent
+    '000000000100066986': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro ProSaf
+    '000000000100067001': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM AZL
+    '000000000100067013': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 Essent
+    '000000000100067014': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh17PM ProMat
+    '000000000100067015': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM LRJ
+    '000000000100067016': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 ProMat
+    '000000000100067021': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM SIL
+    '000000000100067022': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17PM Essent
+    '000000000100067024': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh Air ProSaf
+    '000000000100075278': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM SL
+    '000000000100075279': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM AZ
+    '000000000100075290': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM LR
+
+    # ─── Originais iPlace: Capa/Case (iPhone) ─────────────────────────────────────
+    '000000000100015866': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 AirCus
+    '000000000100016204': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM Shine
+    '000000000100016211': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM AirCus
+    '000000000100046678': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh14 AirCus
+    '000000000100046714': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 AirCus
+    '000000000100046902': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16E/17E Essent
+    '000000000100046905': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16E/17E Slim
+    '000000000100046941': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Poli PTO
+    '000000000100046973': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Poli PTO
+    '000000000100047064': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Essent PTO
+    '000000000100047297': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM Essent PTO
+    '000000000100047372': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Shine
+    '000000000100047568': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Shine
+    '000000000100051649': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Essent PTO
+    '000000000100063911': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16/17E Stand PTO
+    '000000000100063912': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16/17E Drop Nude
+    '000000000100066840': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Blend CNZ
+    '000000000100066842': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Loop Avela
+    '000000000100066843': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Steal
+    '000000000100066948': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Steal
+    '000000000100066950': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shine PTO
+    '000000000100066951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Silicone PTO
+    '000000000100066954': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Shine
+    '000000000100066955': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Blend CNZ
+    '000000000100066957': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh Air AirCus
+    '000000000100066958': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Peel CNZ
+    '000000000100066959': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Silic PTO
+    '000000000100066960': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro AirCus
+    '000000000100066961': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Kvelar VRD
+    '000000000100066962': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Kvelar Verde
+    '000000000100066989': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Shine PTO
+    '000000000100066992': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM AirCus
+    '000000000100066993': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 AirCus
+    '000000000100066996': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Silic PTO
+    '000000000100067000': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shine
+    '000000000100067002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Kvelar VRD
+    '000000000100067003': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Peel LRJ
+    '000000000100067004': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh Air Shine
+    '000000000100067005': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Shine
+    '000000000100067006': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Stand PTO
+    '000000000100067027': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Loop Avela
+    '000000000100067208': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM BMW PTO
+    '000000000100068090': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Edge AZL
+    '000000000100068091': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Edge Off
+    '000000000100075046': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Stand PT
+    '000000000100075047': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Essen PT
+    '000000000100075048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Stand PT
+    '000000000100075071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Shine TR
+    '000000000100075072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Essen PT
+    '000000000100075073': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Shine TR
+    '000000000100075277': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Stand LARA
+    '000000000100075442': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shell LARA
+    '000000000100075443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shell AZUL
+    '000000000100046334': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15Pro AirCus
+
+    # ─── Originais iPlace: Capa/Case (iPad) ───────────────────────────────────────
+    '000000000100016443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2em1 10th PTO
+    '000000000100016460': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2em1 10th RSA
+    '000000000100016467': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC 10th RSA
+    '000000000100016525': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC Pro 11 CNZ
+    '000000000100017002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC Univ 9a11 AZL
+    '000000000100065951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2/1 Tela 13
+    '000000000100066305': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad Univer 9 a 11
+    '000000000100071983': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # MAC Air 13,6 PU MAR
+    '000000000100046361': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Envelope Mac13,3
+
+    # ─── Originais iPlace: Capa/Case (Apple Watch) ────────────────────────────────
+    '000000000100026001': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 41MM
+    '000000000100026008': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 45MM
+    '000000000100066795': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 46MM
+    '000000000100066796': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 42MM
+
+    # ─── Originais iPlace: Capa/Case (AirPods) ────────────────────────────────────
+    '000000000100055025': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 SIL PTO
+    '000000000100055034': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Transp
+    '000000000100056184': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Steal
+    '000000000100066945': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Onça
+    '000000000100074059': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods Pro 3 PU MAR
+    '000000000100074070': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods Pro 3 Transp
+    '000000000100074072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 PU Marrom
+
+    # ─── Originais iPlace: Pulseira (Apple Watch) ─────────────────────────────────
+    '000000000100026335': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit P Watch 38-41
+    '000000000100026362': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit P Watch 42-49
+    '000000000100027202': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch Tecid 38-41
+    '000000000100027236': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch TEC MAG 42-49
+    '000000000100052659': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch SIL 38/41
+    '000000000100053034': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch SIL IMA 42-45
+    '000000000100064550': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch Titaniu 42-49
+    '000000000100080720': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit Pul Brasil 38-41
+
+    # ─── Originais iPlace: Caneta ─────────────────────────────────────────────────
+    '000000000100071397': ('acc_parceiro', 'Caneta', 'Originais iPlace'),  # iPad Indu/USB-C
+
+    # ─── Originais iPlace: Adaptador ─────────────────────────────────────────────
+    '000000000100052636': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 3em1 USB-C
+    '000000000100052637': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # HDMI USB-C
+    '000000000100055842': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 7em1 USB-C
+    '000000000100065953': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 14em1 USB-C
+    '000000000100071500': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # Veicul CarPlay
+
+    # ─── Originais iPlace: Mouse ──────────────────────────────────────────────────
+    '000000000100024742': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # Sem Fio CNZ
+    '000000000100068336': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # Sem Fio BT BCO
+
+    # ─── Originais iPlace: Teclado ────────────────────────────────────────────────
+    '000000000100017398': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # Num PTO
+
+    # ─── Originais iPlace: Bolsa/Mochila ──────────────────────────────────────────
+    '000000000100027101': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Rafa PTO
+    '000000000100027244': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Transv PTO
+    '000000000100027247': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Transv MRM
+    '000000000100027290': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Olivia MRM
+    '000000000100027293': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Olivia PTO
+    '000000000100045609': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Alça Ombro Bege
+    '000000000100045625': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Alça Ombro PTO
+    '000000000100046367': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Pampas 16
+    '000000000100046399': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Essenc 15,6
+    '000000000100046794': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pampas 13
+    '000000000100047030': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pampas 16
+    '000000000100047926': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Digital 16
+    '000000000100047961': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Supor Deskp
+    '000000000100063910': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pocket 14
+    '000000000100066304': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Bolsa Transv Essenc
+    '000000000100066429': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Basic 15,6
+    '000000000100066430': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Basic 14
+    '000000000100066665': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Trip 15,6
+    '000000000100066792': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo RSA
+    '000000000100066793': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo PTO
+    '000000000100066794': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo BCO
+    '000000000100079334': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Mac 13 Lilas
+    '000000000100079398': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Mac 13 Azul
+
+    # ─── Originais iPlace: Outros ─────────────────────────────────────────────────
+    '000000000100017760': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Difusor Smart HomeKit
+    '000000000100017766': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Lâmpada HomeKit
+    '000000000100017769': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Luminária HomeKit
+    '000000000100017815': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Tomada Inteligente
+    '000000000100024756': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Case Viagem Couro
+    '000000000100024796': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Organizador Couro
+    '000000000100059159': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Microfone Lapela
+    '000000000100063908': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Tag
+    '000000000100065952': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Tag Combo 2
+    '000000000100066428': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SSD Externo 1TB
+    '000000000100066836': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Organizador Trip
+    '000000000100067018': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Cow
+    '000000000100067019': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Onça
+    '000000000100067029': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ring Light Selfie
+    '000000000100067030': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ventosa Avela
+    '000000000100067031': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ring Shine MAG
+    '000000000100067032': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Wallet PU PTO
+    '000000000100067033': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Suporte de Gloss
+    '000000000100067034': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Wallet PU CNZ
+    '000000000100068318': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Key
+    '000000000100068324': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Detector
+    '000000000100068326': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Card
+    '000000000100068327': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Pass
+    '000000000100068335': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Tripé Selfie
+    '000000000100068611': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Kit Limpa Telas
+    '000000000100080721': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Brasil
+
+    # ─── JBL: Fone ───────────────────────────────────────────────────────────────
+    '000000000100056766': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Beam 2 BCO
+    '000000000100056767': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Buds 2 PTO
+    '000000000100056768': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Beam 2 PTO
+    '000000000100056775': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Buds 2 BCO
+    '000000000100079311': ('acc_parceiro', 'Fone', 'JBL'),  # Tune 780NC Preto
+    '000000000100079315': ('acc_parceiro', 'Fone', 'JBL'),  # Tune T530BT Preto
+    '000000000100079330': ('acc_parceiro', 'Fone', 'JBL'),  # Tune 730BT Preto
+
+    # ─── JBL: Caixa de Som ───────────────────────────────────────────────────────
+    '000000000100034608': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 PTO
+    '000000000100034651': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 AZL
+    '000000000100034654': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 BCO
+    '000000000100035735': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Xtreme 4 PTO
+    '000000000100065115': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Flip 7 PTO
+    '000000000100065121': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Charge 6 PTO
+    '000000000100069935': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 PTO
+    '000000000100078946': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Encore 2MI BCO
+    '000000000100078947': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 LARA
+    '000000000100079150': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # SB180 PTO
+    '000000000100080397': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Encor 2 2MIC PTO
+    '000000000100069936': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 BCO
+
+    # ─── Logitech: Mouse ─────────────────────────────────────────────────────────
+    '000000000100040794': ('acc_parceiro', 'Mouse', 'Logitech'),  # Pebble 2 M350S BCO
+    '000000000100050715': ('acc_parceiro', 'Mouse', 'Logitech'),  # Lift BCO
+
+    # ─── Logitech: Teclado ───────────────────────────────────────────────────────
+    '000000000100041209': ('acc_parceiro', 'Teclado', 'Logitech'),  # Pebble K380 BCO
+    '000000000100041227': ('acc_parceiro', 'Teclado', 'Logitech'),  # Pebble K380 GRF
+    '000000000100050620': ('acc_parceiro', 'Teclado', 'Logitech'),  # MX Keys CINZ
+
+    # ─── Logitech: Fone ──────────────────────────────────────────────────────────
+    '000000000100043413': ('acc_parceiro', 'Fone', 'Logitech'),  # OV ZoneVibe 100 BCO
+    '000000000100043459': ('acc_parceiro', 'Fone', 'Logitech'),  # OV ZoneVibe 100 RSA
+    '000000000100043484': ('acc_parceiro', 'Fone', 'Logitech'),  # ON c/Fio H390 RSA
+
+    # ─── Logitech: Outros ────────────────────────────────────────────────────────
+    '000000000100041402': ('acc_parceiro', 'Outros', 'Logitech'),  # Webcam Brio 500
+    '000000000100041410': ('acc_parceiro', 'Outros', 'Logitech'),  # Deskpad Grafit
+    '000000000100051977': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # Capa TEC Univ PTO
+}
+
+
+def _acessorios_sku_lookup_cte() -> str:
+    """Gera o CTE sku_lookup inline com todos os SKUs classificados."""
+    rows = []
+    for sku, (tipo, categoria, marca) in _ACESSORIOS_SKU_MAP.items():
+        m = f"'{marca}'" if marca else 'NULL'
+        rows.append(f"    STRUCT('{sku}', '{tipo}', '{categoria}', {m})")
+    body = ",\n".join(rows)
+    return (
+        "sku_lookup AS (\n"
+        "  SELECT * FROM UNNEST(ARRAY<STRUCT<sku STRING, tipo STRING, categoria STRING, marca STRING>>[\n"
+        f"{body}\n"
+        "  ])\n)"
+    )
+
+
 def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Attach rate de acessórios por linha Apple usando vendas_iplace (Desc_Produto)."""
+    """Attach rate de acessórios por linha Apple usando vendas_iplace (Cod_Produto + fallback Desc_Produto)."""
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
     canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
+    sku_cte = _acessorios_sku_lookup_cte()
 
     return f"""
 WITH
+{sku_cte},
 all_items AS (
   SELECT
     CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Produto,
     UPPER(COALESCE(Desc_Produto, '')) AS produto_upper
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
@@ -6370,16 +6830,21 @@ all_items AS (
     {canal_clause}
 ),
 device_rows AS (
-  SELECT pedido_key,
-    CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'^IPHONE')                                                    THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^IPAD')                                                      THEN 'iPad'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')             THEN 'Mac'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                                  THEN 'Apple Watch'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^APPLE TV')                                                  THEN 'Apple TV'
-    END AS linha_apple
-  FROM all_items
-  WHERE REGEXP_CONTAINS(produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
+  SELECT ai.pedido_key,
+    COALESCE(
+      lk.categoria,
+      CASE
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^IPHONE')                                              THEN 'iPhone'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^IPAD')                                                THEN 'iPad'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')       THEN 'Mac'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                            THEN 'Apple Watch'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^APPLE TV')                                            THEN 'Apple TV'
+      END
+    ) AS linha_apple
+  FROM all_items ai
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'device'
+  WHERE lk.sku IS NOT NULL
+    OR REGEXP_CONTAINS(ai.produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
 ),
 pedidos_device AS (
   SELECT DISTINCT pedido_key, linha_apple
@@ -6387,51 +6852,65 @@ pedidos_device AS (
   WHERE linha_apple IS NOT NULL
 ),
 acc_apple AS (
-  SELECT pedido_key,
-    CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD')                               THEN 'AirPods'
-      WHEN REGEXP_CONTAINS(produto_upper, r'AIRTAG|AIR TAG')                           THEN 'AirTag'
-      WHEN REGEXP_CONTAINS(produto_upper, r'EARPODS')                                  THEN 'EarPods'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MAGSAFE|CARTEIRA APPLE')                   THEN 'MagSafe'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MAGIC MOUSE|MOUSE MAGIC')                  THEN 'Magic Mouse'
-      WHEN REGEXP_CONTAINS(produto_upper, r'MAGIC KEY(?:BOARD|B)|TECLADO APPLE')       THEN 'Magic Keyboard'
-      WHEN REGEXP_CONTAINS(produto_upper, r'CABO APPLE')                               THEN 'Cabo Apple'
-      WHEN REGEXP_CONTAINS(produto_upper, r'(?:CARREG|CARREGADOR) APPLE')              THEN 'Carregador Apple'
-      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE PENCIL')                             THEN 'Apple Pencil'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')                           THEN 'Pulseira Apple'
-    END AS categoria
-  FROM all_items
-  WHERE (
-    REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
-    OR REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')
-  )
-  AND NOT REGEXP_CONTAINS(produto_upper, r'IPLACE|JBL|LOGI|MISTER')
+  SELECT ai.pedido_key,
+    COALESCE(
+      lk.categoria,
+      CASE
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIR\\s*POD')                               THEN 'AirPods'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIRTAG|AIR TAG')                           THEN 'AirTag'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'EARPODS')                                  THEN 'EarPods'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGSAFE|CARTEIRA APPLE')                   THEN 'MagSafe'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGIC MOUSE|MOUSE MAGIC')                  THEN 'Magic Mouse'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGIC KEY(?:BOARD|B)|TECLADO APPLE')       THEN 'Magic Keyboard'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CABO APPLE')                               THEN 'Cabo Apple'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'(?:CARREG|CARREGADOR) APPLE')              THEN 'Carregador Apple'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'APPLE PENCIL')                             THEN 'Apple Pencil'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^P APPLE WATCH')                           THEN 'Pulseira Apple'
+      END
+    ) AS categoria
+  FROM all_items ai
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acc_apple'
+  WHERE lk.sku IS NOT NULL
+    OR (
+      (
+        REGEXP_CONTAINS(ai.produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
+        OR REGEXP_CONTAINS(ai.produto_upper, r'^P APPLE WATCH')
+      )
+      AND NOT REGEXP_CONTAINS(ai.produto_upper, r'IPLACE|JBL|LOGI|MISTER')
+    )
 ),
 acc_parceiro AS (
-  SELECT pedido_key,
-    CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'CARREG(?:ADOR)?|KIT VIAGEM')              THEN 'Carregador'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCABO\\b')                               THEN 'Cabo'
-      WHEN REGEXP_CONTAINS(produto_upper, r'CAIXA DE SOM|SOUNDBAR|CAIXA SOM')         THEN 'Caixa de Som'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bFONE\\b|HEADPHONE|ON-EAR|OVER-EAR')   THEN 'Fone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bMOUSE\\b')                              THEN 'Mouse'
-      WHEN REGEXP_CONTAINS(produto_upper, r'TECLADO|KEYBOARD')                        THEN 'Teclado'
-      WHEN REGEXP_CONTAINS(produto_upper, r'PELICULA|\\bPEL\\b')                       THEN 'Película'
-      WHEN REGEXP_CONTAINS(produto_upper, r'ADAPT(?:ADOR)?')                           THEN 'Adaptador'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCANETA\\b')                             THEN 'Caneta'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCAPA\\b|\\bCASE\\b|\\bWALLET\\b')      THEN 'Capa/Case'
-      WHEN REGEXP_CONTAINS(produto_upper, r'\\bPULSEIRA\\b|\\bALCA\\b|^P IPLACE WATCH|^KIT P IPLACE') THEN 'Pulseira'
-      WHEN REGEXP_CONTAINS(produto_upper, r'BOLSA|MOCHILA|\\bSLEEVE\\b|\\bMALA\\b')   THEN 'Bolsa/Mochila'
-      ELSE 'Outros'
-    END AS categoria
-  FROM all_items
-  WHERE (
-    produto_upper LIKE '%JBL%'
-    OR produto_upper LIKE '%LOGI%'
-    OR produto_upper LIKE '%IPLACE%'
-    OR produto_upper LIKE '%MISTER%'
-  )
-  AND NOT REGEXP_CONTAINS(produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
+  SELECT ai.pedido_key,
+    COALESCE(
+      lk.categoria,
+      CASE
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CARREG(?:ADOR)?|KIT VIAGEM')              THEN 'Carregador'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCABO\\b')                               THEN 'Cabo'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CAIXA DE SOM|SOUNDBAR|CAIXA SOM')         THEN 'Caixa de Som'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bFONE\\b|HEADPHONE|ON-EAR|OVER-EAR')   THEN 'Fone'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bMOUSE\\b')                              THEN 'Mouse'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'TECLADO|KEYBOARD')                        THEN 'Teclado'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'PELICULA|\\bPEL\\b')                       THEN 'Película'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'ADAPT(?:ADOR)?')                           THEN 'Adaptador'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCANETA\\b')                             THEN 'Caneta'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCAPA\\b|\\bCASE\\b|\\bWALLET\\b')      THEN 'Capa/Case'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bPULSEIRA\\b|\\bALCA\\b|^P IPLACE WATCH|^KIT P IPLACE') THEN 'Pulseira'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'BOLSA|MOCHILA|\\bSLEEVE\\b|\\bMALA\\b')   THEN 'Bolsa/Mochila'
+        ELSE 'Outros'
+      END
+    ) AS categoria
+  FROM all_items ai
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acc_parceiro'
+  WHERE lk.sku IS NOT NULL
+    OR (
+      (
+        ai.produto_upper LIKE '%JBL%'
+        OR ai.produto_upper LIKE '%LOGI%'
+        OR ai.produto_upper LIKE '%IPLACE%'
+        OR ai.produto_upper LIKE '%MISTER%'
+      )
+      AND NOT REGEXP_CONTAINS(ai.produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
+    )
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -6497,33 +6976,42 @@ def _build_acessorios_marcas_vendas_sql(start_date: str, end_date: str, canal_fi
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
     canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
+    sku_cte = _acessorios_sku_lookup_cte()
 
     return f"""
 WITH
+{sku_cte},
 brand_items AS (
   SELECT
-    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
-    COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto,
-    CASE
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'      THEN 'JBL'
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGI%'      THEN 'Logitech'
-      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%'    THEN 'Originais iPlace'
-    END AS marca
-  FROM `{project}.{dataset}.{table}`
-  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
-    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
-    AND Cod_Produto NOT LIKE '000000010000%'
+    CONCAT(CAST(v.Cod_Filial AS STRING), '-', CAST(v.Numero_Pedido AS STRING)) AS pedido_key,
+    COALESCE(NULLIF(TRIM(v.Desc_Produto), ''), 'Sem nome') AS desc_produto,
+    COALESCE(
+      lk.marca,
+      CASE
+        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%JBL%'    THEN 'JBL'
+        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%LOGI%'   THEN 'Logitech'
+        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%IPLACE%' THEN 'Originais iPlace'
+      END
+    ) AS marca
+  FROM `{project}.{dataset}.{table}` v
+  LEFT JOIN sku_lookup lk ON lk.sku = v.Cod_Produto AND lk.tipo = 'acc_parceiro'
+  WHERE v.Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+    AND UPPER(TRIM(v.Status_Pedidos)) = 'FATURADO'
+    AND v.Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
     AND (
-      UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'
-      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGI%'
-      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%IPLACE%'
+      lk.sku IS NOT NULL
+      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%JBL%'
+      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%LOGI%'
+      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%IPLACE%'
     )
-    AND NOT REGEXP_CONTAINS(UPPER(COALESCE(Desc_Produto, '')), r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
+    AND NOT REGEXP_CONTAINS(UPPER(COALESCE(v.Desc_Produto, '')), r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
 ),
 por_marca AS (
   SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
-  FROM brand_items GROUP BY 1
+  FROM brand_items
+  WHERE marca IN ('JBL', 'Logitech', 'Originais iPlace')
+  GROUP BY 1
 ),
 top_jbl AS (
   SELECT desc_produto AS nome, COUNT(*) AS qtd
