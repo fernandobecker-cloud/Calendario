@@ -4433,14 +4433,24 @@ def _build_atribuida_top_produtos_sql(start_date: str, end_date: str, canal_orde
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(p.order_id AS STRING)")
     return f"""
+WITH purchases_deduped AS (
+  -- Deduplica por (order_id, product_name): evita reprocessamentos do Emarsys
+  -- e colisão de filial caso o order_id não seja globalmente único
+  SELECT
+    CAST(p.order_id AS STRING)                            AS order_id,
+    COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS product_name,
+    MAX(p.sales_amount)                                   AS sales_amount
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE p.sales_amount > 0
+    AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    {order_id_filter}
+  GROUP BY 1, 2
+)
 SELECT
-  COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS produto,
-  COUNT(DISTINCT p.order_id)                             AS pedidos,
-  ROUND(SUM(p.sales_amount), 2)                         AS receita
-FROM `{project_id}.{dataset}.{purchases_table}` p
-WHERE p.sales_amount > 0
-  AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-  {order_id_filter}
+  product_name                     AS produto,
+  COUNT(DISTINCT order_id)         AS pedidos,
+  ROUND(SUM(sales_amount), 2)      AS receita
+FROM purchases_deduped
 GROUP BY 1
 ORDER BY receita DESC
 LIMIT 10
@@ -4453,29 +4463,39 @@ def _build_atribuida_top_categorias_sql(start_date: str, end_date: str, canal_or
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
     order_id_filter = _make_order_id_filter(canal_order_ids, "CAST(p.order_id AS STRING)")
     return f"""
-WITH categorized AS (
+WITH
+purchases_deduped AS (
+  -- Deduplica por (order_id, product_name) antes de categorizar
   SELECT
-    CASE
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPHONE')                        THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'IPAD')                          THEN 'iPad'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'APPLE WATCH')                   THEN 'Apple Watch'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'AIRPOD')                        THEN 'AirPods'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'APPLE TV|APPLETV|HOMEPOD')      THEN 'Apple TV / HomePod'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'SAMSUNG')                       THEN 'Samsung'
-      WHEN REGEXP_CONTAINS(UPPER(COALESCE(p.product_name,'')), r'XIAOMI|MOTOROLA|LG |SONY|PHILIPS|BOSE|BEATS|JABRA|JBL') THEN 'Outras Marcas'
-      ELSE 'Acessórios / Outros'
-    END AS categoria,
-    p.order_id,
-    p.sales_amount
+    CAST(p.order_id AS STRING)                            AS order_id,
+    COALESCE(NULLIF(TRIM(p.product_name), ''), 'Sem nome') AS product_name,
+    MAX(p.sales_amount)                                   AS sales_amount
   FROM `{project_id}.{dataset}.{purchases_table}` p
   WHERE p.sales_amount > 0
     AND DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
     {order_id_filter}
+  GROUP BY 1, 2
+),
+categorized AS (
+  SELECT
+    CASE
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPHONE')                        THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPAD')                          THEN 'iPad'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'APPLE WATCH')                   THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'AIRPOD')                        THEN 'AirPods'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'APPLE TV|APPLETV|HOMEPOD')      THEN 'Apple TV / HomePod'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'SAMSUNG')                       THEN 'Samsung'
+      WHEN REGEXP_CONTAINS(UPPER(product_name), r'XIAOMI|MOTOROLA|LG |SONY|PHILIPS|BOSE|BEATS|JABRA|JBL') THEN 'Outras Marcas'
+      ELSE 'Acessórios / Outros'
+    END AS categoria,
+    order_id,
+    sales_amount
+  FROM purchases_deduped
 )
 SELECT
   categoria,
-  COUNT(DISTINCT order_id) AS pedidos,
+  COUNT(DISTINCT order_id)    AS pedidos,
   ROUND(SUM(sales_amount), 2) AS receita
 FROM categorized
 GROUP BY 1
