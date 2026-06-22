@@ -8102,7 +8102,7 @@ def _acessorios_sku_lookup_cte() -> str:
 
 
 def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Attach rate de acessórios por linha Apple usando vendas_iplace (Cod_Produto + fallback Desc_Produto)."""
+    """Attach rate de acessórios por linha Apple — classificação 100% via SKU map (CSV)."""
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
@@ -8115,97 +8115,32 @@ WITH
 all_items AS (
   SELECT
     CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
-    Cod_Produto,
-    UPPER(COALESCE(Desc_Produto, '')) AS produto_upper
+    Cod_Produto
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
     AND Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
 ),
-device_rows AS (
-  SELECT ai.pedido_key,
-    COALESCE(
-      lk.categoria,
-      CASE
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^IPHONE')                                              THEN 'iPhone'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^IPAD')                                                THEN 'iPad'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')       THEN 'Mac'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                            THEN 'Apple Watch'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^APPLE TV')                                            THEN 'Apple TV'
-      END
-    ) AS linha_apple
+classified AS (
+  SELECT ai.pedido_key, lk.tipo, lk.categoria, lk.marca
   FROM all_items ai
-  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'device'
-  WHERE lk.sku IS NOT NULL
-    OR REGEXP_CONTAINS(ai.produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
+  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
 ),
 pedidos_device AS (
-  SELECT DISTINCT pedido_key, linha_apple
-  FROM device_rows
-  WHERE linha_apple IS NOT NULL
+  SELECT DISTINCT pedido_key, categoria AS linha_apple
+  FROM classified
+  WHERE tipo = 'device'
 ),
 acc_apple AS (
-  SELECT ai.pedido_key,
-    COALESCE(
-      lk.categoria,
-      CASE
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIR\\s*POD')                               THEN 'AirPods'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIRTAG|AIR TAG')                           THEN 'AirTag'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'EARPODS')                                  THEN 'EarPods'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGSAFE|CARTEIRA APPLE')                   THEN 'MagSafe'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGIC MOUSE|MOUSE MAGIC')                  THEN 'Magic Mouse'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGIC KEY(?:BOARD|B)|TECLADO APPLE')       THEN 'Magic Keyboard'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CABO APPLE')                               THEN 'Cabo Apple'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'(?:CARREG|CARREGADOR) APPLE')              THEN 'Carregador Apple'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'APPLE PENCIL')                             THEN 'Caneta'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^PU[LS]*[. ]APPLE WATCH|^P APPLE WATCH')  THEN 'Pulseira'
-      END
-    ) AS categoria
-  FROM all_items ai
-  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acc_apple'
-  WHERE lk.sku IS NOT NULL
-    OR (
-      (
-        REGEXP_CONTAINS(ai.produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
-        OR REGEXP_CONTAINS(ai.produto_upper, r'^P APPLE WATCH')
-      )
-      AND NOT REGEXP_CONTAINS(ai.produto_upper, r'IPLACE|JBL|LOGI|MISTER')
-    )
+  SELECT pedido_key, categoria
+  FROM classified
+  WHERE tipo = 'acc_apple'
 ),
 acc_parceiro AS (
-  SELECT ai.pedido_key,
-    COALESCE(
-      lk.categoria,
-      CASE
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CARREG(?:ADOR)?|KIT VIAGEM')              THEN 'Carregador'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCABO\\b')                               THEN 'Cabo'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'CAIXA DE SOM|SOUNDBAR|CAIXA SOM')         THEN 'Caixa de Som'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bFONE\\b|HEADPHONE|ON-EAR|OVER-EAR')   THEN 'Fone'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bMOUSE\\b')                              THEN 'Mouse'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'TECLADO|KEYBOARD')                        THEN 'Teclado'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'PELICULA|\\bPEL\\b')                       THEN 'Película'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'ADAPT(?:ADOR)?')                           THEN 'Adaptador'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCANETA\\b')                             THEN 'Caneta'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCAPA\\b|\\bCASE\\b|\\bWALLET\\b')      THEN 'Capa/Case'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bPULSEIRA\\b|\\bALCA\\b|^P IPLACE WATCH|^KIT P IPLACE') THEN 'Pulseira'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'BOLSA|MOCHILA|\\bSLEEVE\\b|\\bMALA\\b')   THEN 'Bolsa/Mochila'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIRTAG|AIR TAG')                          THEN 'AirTag'
-        ELSE 'Outros'
-      END
-    ) AS categoria
-  FROM all_items ai
-  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acc_parceiro'
-  WHERE lk.sku IS NOT NULL
-    OR (
-      (
-        ai.produto_upper LIKE '%JBL%'
-        OR ai.produto_upper LIKE '%LOGI%'
-        OR ai.produto_upper LIKE '%IPLACE%'
-        OR ai.produto_upper LIKE '%MISTER%'
-      )
-      AND NOT REGEXP_CONTAINS(ai.produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
-    )
+  SELECT pedido_key, categoria
+  FROM classified
+  WHERE tipo = 'acc_parceiro'
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -8216,7 +8151,6 @@ matrix_apple AS (
     COUNT(DISTINCT pd.pedido_key) AS pedidos_com_acessorio
   FROM pedidos_device pd
   JOIN acc_apple aa ON aa.pedido_key = pd.pedido_key
-  WHERE aa.categoria IS NOT NULL
   GROUP BY 1, 2, 3
 ),
 matrix_parceiro AS (
@@ -8227,7 +8161,7 @@ matrix_parceiro AS (
   GROUP BY 1, 2, 3
 ),
 todos_acc AS (
-  SELECT DISTINCT pedido_key FROM acc_apple WHERE categoria IS NOT NULL
+  SELECT DISTINCT pedido_key FROM acc_apple
   UNION DISTINCT
   SELECT DISTINCT pedido_key FROM acc_parceiro
 ),
@@ -8266,7 +8200,7 @@ ORDER BY linha_apple, grupo, categoria
 
 
 def _build_acessorios_marcas_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Cards de marca (JBL/Logitech/Originais iPlace) com top produtos via vendas_iplace."""
+    """Cards de marca (JBL/Logitech/Originais iPlace) — classificação 100% via SKU map (CSV)."""
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
@@ -8280,27 +8214,13 @@ brand_items AS (
   SELECT
     CONCAT(CAST(v.Cod_Filial AS STRING), '-', CAST(v.Numero_Pedido AS STRING)) AS pedido_key,
     COALESCE(NULLIF(TRIM(v.Desc_Produto), ''), 'Sem nome') AS desc_produto,
-    COALESCE(
-      lk.marca,
-      CASE
-        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%JBL%'    THEN 'JBL'
-        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%LOGI%'   THEN 'Logitech'
-        WHEN UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%IPLACE%' THEN 'Originais iPlace'
-      END
-    ) AS marca
+    lk.marca
   FROM `{project}.{dataset}.{table}` v
-  LEFT JOIN sku_lookup lk ON lk.sku = v.Cod_Produto AND lk.tipo = 'acc_parceiro'
+  JOIN sku_lookup lk ON lk.sku = v.Cod_Produto AND lk.tipo = 'acc_parceiro'
   WHERE v.Data_Completa BETWEEN '{start_date}' AND '{end_date}'
     AND UPPER(TRIM(v.Status_Pedidos)) = 'FATURADO'
     AND v.Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
-    AND (
-      lk.sku IS NOT NULL
-      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%JBL%'
-      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%LOGI%'
-      OR UPPER(COALESCE(v.Desc_Produto, '')) LIKE '%IPLACE%'
-    )
-    AND NOT REGEXP_CONTAINS(UPPER(COALESCE(v.Desc_Produto, '')), r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
 ),
 por_marca AS (
   SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
