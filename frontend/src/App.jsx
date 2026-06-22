@@ -2609,9 +2609,12 @@ export default function App({ mode = 'campanhas' }) {
       'Originais iPlace': { bg: 'from-violet-700 to-purple-600', badge: 'bg-violet-100 text-violet-700' },
     }
 
-    // Heat-map color scale: 0% → white, ≥15% → full color
+    // Heat-map: 0 → cinza | 0–1% → cinza claro | >1% → amarelo→laranja (≥15% = saturado)
     const heatBg = (rate) => {
-      const pct = Math.min((rate ?? 0) / 15, 1)
+      const v = rate ?? 0
+      if (v <= 0)  return { background: '#e2e8f0', color: '#94a3b8' }   // cinza slate-200
+      if (v < 1)   return { background: '#f1f5f9', color: '#94a3b8' }   // cinza claro slate-100
+      const pct = Math.min((v - 1) / 14, 1)                             // 1% → 0, 15% → 1
       const r = Math.round(254 - pct * (254 - 37))
       const g = Math.round(243 - pct * (243 - 99))
       const b = Math.round(199 - pct * (199 - 235))
@@ -2821,7 +2824,7 @@ export default function App({ mode = 'campanhas' }) {
             {/* Matriz — Acessórios Apple */}
             {d.matrix_apple?.length > 0 && (
               <MatrizTable
-                titulo="Acessórios Apple (AirPods, AirTag, EarPods, Carregador Apple, Cabo Apple, MagSafe, Magic Mouse, Magic Keyboard, Caneta, Pulseira, Capa/Case)"
+                titulo="Acessórios — Marca: Apple"
                 rows={d.matrix_apple}
                 catOrder={CAT_ORDER_APPLE}
               />
@@ -2830,7 +2833,7 @@ export default function App({ mode = 'campanhas' }) {
             {/* Matriz — Parceiros */}
             {d.matrix_parceiro?.length > 0 && (
               <MatrizTable
-                titulo="Acessórios Parceiros (JBL, Logitech, Originais iPlace)"
+                titulo="Acessórios — Marcas: Originais iPlace, JBL, Logitech, Mister"
                 rows={d.matrix_parceiro}
                 catOrder={CAT_ORDER_PARCEIRO}
               />
