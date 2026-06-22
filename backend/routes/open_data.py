@@ -6355,440 +6355,1734 @@ ORDER BY valor_real DESC
 # tipos: 'device' | 'acc_apple' | 'acc_parceiro'
 # SKUs com prefixo 000000010000 (serviços/reparos) são filtrados na query, não aqui.
 _ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
-
-    # ─── Devices: iPhone ─────────────────────────────────────────────────────────
-    '000000000100072473': ('device', 'iPhone', None),  # 17 Pro Max Silver 256
-    '000000000100080116': ('device', 'iPhone', None),  # 17 Black 256
-    '000000000100072474': ('device', 'iPhone', None),  # 17 Pro Max C Org 256
-    '000000000100072475': ('device', 'iPhone', None),  # 17 Pro Max DP BL 256
-    '000000000100080117': ('device', 'iPhone', None),  # 17 White 256
-    '000000000100032026': ('device', 'iPhone', None),  # 15 Blue 128
-    '000000000100031967': ('device', 'iPhone', None),  # 15 Black 128
-    '000000000100060277': ('device', 'iPhone', None),  # 16E Blk 128
-    '000000000100060278': ('device', 'iPhone', None),  # 16E Wht 128
-    '000000000100053737': ('device', 'iPhone', None),  # 16 Black 128
-    '000000000100053739': ('device', 'iPhone', None),  # 16 Pink 128
-    '000000000100053738': ('device', 'iPhone', None),  # 16 White 128
-    '000000000100080118': ('device', 'iPhone', None),  # 17 Mist Blue 256
-    '000000000100080119': ('device', 'iPhone', None),  # 17 Lavender 256
-    '000000000100032029': ('device', 'iPhone', None),  # 15 Blue 256
-    '000000000100032020': ('device', 'iPhone', None),  # 15 Black 256
-    '000000000100053736': ('device', 'iPhone', None),  # 16 Ultramarine 128
-    '000000000100053761': ('device', 'iPhone', None),  # 16 Black 256
-    '000000000100053762': ('device', 'iPhone', None),  # 16 White 256
-    '000000000100053763': ('device', 'iPhone', None),  # 16 Pink 256
-    '000000000100053760': ('device', 'iPhone', None),  # 16 Teal 128
-    '000000000100053765': ('device', 'iPhone', None),  # 16 Teal 256
-    '000000000100053764': ('device', 'iPhone', None),  # 16 Ultramarine 256
-    '000000000100072467': ('device', 'iPhone', None),  # 17 Pro Deep Blue 256
-    '000000000100072465': ('device', 'iPhone', None),  # 17 Pro Silver 256
-    '000000000100072466': ('device', 'iPhone', None),  # 17 Pro Cos Orange 256
-    '000000000100072468': ('device', 'iPhone', None),  # 17 Pro Silver 512
-    '000000000100072470': ('device', 'iPhone', None),  # 17 Pro Deep Blue 512
-    '000000000100072471': ('device', 'iPhone', None),  # 17 Pro Silver 1TB
-    '000000000100072516': ('device', 'iPhone', None),  # 17 Pro Deep Blue 1TB
-    '000000000100072476': ('device', 'iPhone', None),  # 17 Pro Max Silver 512
-    '000000000100072477': ('device', 'iPhone', None),  # 17 Pro Max C Org 512
-    '000000000100072478': ('device', 'iPhone', None),  # 17 Pro Max DP BL 512
-    '000000000100072480': ('device', 'iPhone', None),  # 17 Pro Max C Org 1TB
-    '000000000100072481': ('device', 'iPhone', None),  # 17 Pro Max DP BL 1TB
-    '000000000100072482': ('device', 'iPhone', None),  # 17 Pro Max Silver 2TB
-    '000000000100072483': ('device', 'iPhone', None),  # 17 Pro Max C Org 2TB
-    '000000000100072484': ('device', 'iPhone', None),  # 17 Pro Max DP BL 2TB
-    '000000000100080131': ('device', 'iPhone', None),  # 17 Black 512
-    '000000000100080132': ('device', 'iPhone', None),  # 17 White 512
-    '000000000100080133': ('device', 'iPhone', None),  # 17 Mist Blue 512
-    '000000000100080134': ('device', 'iPhone', None),  # 17 Lavender 512
-    '000000000100080130': ('device', 'iPhone', None),  # 17 Sage 256
-    '000000000100080443': ('device', 'iPhone', None),  # 17 Sage 512 (se existir)
-    '000000000100080147': ('device', 'iPhone', None),  # 17E Black 256 BE
-    '000000000100080148': ('device', 'iPhone', None),  # 17E White 256 BE
-    '000000000100080878': ('device', 'iPhone', None),  # 17E Black 256
-    '000000000100080879': ('device', 'iPhone', None),  # 17E White 256
-    '000000000100080880': ('device', 'iPhone', None),  # 17E Soft Pink 256
-    '000000000100072443': ('device', 'iPhone', None),  # 17 Black 256 BE
-    '000000000100072445': ('device', 'iPhone', None),  # 17 Mist Blue 256 BE
-    '000000000100072453': ('device', 'iPhone', None),  # Air Space Black 256
-    '000000000100072456': ('device', 'iPhone', None),  # Air Sky Blue 256
-    '000000000100060280': ('device', 'iPhone', None),  # 16E Wht 256
-    '000000000100030426': ('device', 'iPhone', None),  # 14 Midnight 128
-    '000000100048732001': ('device', 'iPhone', None),  # 13 Starlight 128 BB
-    '000000100048716001': ('device', 'iPhone', None),  # 13 Midnight 128 BB
-    '000000100048694001': ('device', 'iPhone', None),  # 13 Pink 128 BB
-
-    # ─── Devices: iPad ───────────────────────────────────────────────────────────
-    '000000000100060982': ('device', 'iPad', None),  # 11th Wifi 128 Silver
-    '000000000100060983': ('device', 'iPad', None),  # 11th Wifi 128 Blue
-    '000000000100060984': ('device', 'iPad', None),  # 11th Wifi 128 Yellow
-    '000000000100060985': ('device', 'iPad', None),  # 11th Wifi 128 Pink
-    '000000000100060986': ('device', 'iPad', None),  # 11th Wifi 256 Silver
-    '000000000100060987': ('device', 'iPad', None),  # 11th Wifi 256 Blue
-
-    # ─── Devices: Mac ────────────────────────────────────────────────────────────
-    '000000000100080250': ('device', 'Mac', None),  # MacB Air 13 M5 SIL 512
-    '000000000100080256': ('device', 'Mac', None),  # MacB Air 13 M5 MDN 512
-    '000000000100080318': ('device', 'Mac', None),  # MacBook Neo 13 A18P SIL 512
-    '000000000100080319': ('device', 'Mac', None),  # MacBook Neo 13 A18P CITR 256
-    '000000000100080321': ('device', 'Mac', None),  # MacBook Neo 13 A18P IND 256
-    '000000000100080322': ('device', 'Mac', None),  # MacBook Neo 13 A18P IND 512
-    '000000000100080323': ('device', 'Mac', None),  # MacBook Neo 13 A18P BLS 256
-
-    # ─── Devices: Apple Watch ────────────────────────────────────────────────────
-    '000000000100072534': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB SM G
-    '000000000100072535': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB ML G
-    '000000000100072536': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB SM G
-    '000000000100072537': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB ML G
-    '000000000100072539': ('device', 'Apple Watch', None),  # SE3 44 S AL S SB ML G
-    '000000000100072541': ('device', 'Apple Watch', None),  # SE3 44 M AL M SB ML G
-    '000000000100072542': ('device', 'Apple Watch', None),  # SE3 40 S AL S SB SM C
-    '000000000100072544': ('device', 'Apple Watch', None),  # SE3 40 M AL M SB SM C
-    '000000000100072549': ('device', 'Apple Watch', None),  # SE3 44 M AL M SB ML C
-    '000000000100072550': ('device', 'Apple Watch', None),  # 11 42 JB AL BK SB SM G
-    '000000000100072554': ('device', 'Apple Watch', None),  # 11 42 RG AL LB SB SM G
-    '000000000100072559': ('device', 'Apple Watch', None),  # 11 46 JB AL BK SB ML G
-    '000000000100072561': ('device', 'Apple Watch', None),  # 11 46 SG AL BK SB ML G
-    '000000000100072612': ('device', 'Apple Watch', None),  # Ultra3 49 Black TI BK
-
-    # ─── Devices: Apple TV ───────────────────────────────────────────────────────
-    '000000000100059036': ('device', 'Apple TV', None),  # 4K 64GB Wi-Fi PTO
-
-    # ─── Apple Accessories: AirPods ──────────────────────────────────────────────
-    '000000000100072410': ('acc_apple', 'AirPods', None),  # AirPods Pro 3
-    '000000000100064788': ('acc_apple', 'AirPods', None),  # AirPods 4 USB-C
-    '000000000100064789': ('acc_apple', 'AirPods', None),  # AirPods 4 CAN
-
-    # ─── Apple Accessories: AirTag ───────────────────────────────────────────────
-    '000000000100061669': ('acc_apple', 'AirTag', None),  # Pack 1
-    '000000000100079131': ('acc_apple', 'AirTag', None),  # Pack 1 2TH
-    '000000000100079132': ('acc_apple', 'AirTag', None),  # Pack 4 2TH
-
-    # ─── Apple Accessories: EarPods ──────────────────────────────────────────────
-    '000000000100033486': ('acc_apple', 'EarPods', None),  # Lightning
-    '000000000100067576': ('acc_apple', 'EarPods', None),  # USB-C
-
-    # ─── Apple Accessories: MagSafe ──────────────────────────────────────────────
-    '000000000100072794': ('acc_apple', 'MagSafe', None),  # Carregador MagSafe 1M
-    '000000000100052119': ('acc_apple', 'MagSafe', None),  # Carreg USB-C MAG 2M
-    '000000000100052080': ('acc_apple', 'MagSafe', None),  # Carteira Tecido
-
-    # ─── Apple Accessories: Magic Mouse ──────────────────────────────────────────
-    '000000000100055383': ('acc_apple', 'Magic Mouse', None),  # Touch ID BCO
-    '000000000100055384': ('acc_apple', 'Magic Mouse', None),  # Touch PTO
-
-    # ─── Apple Accessories: Magic Keyboard ───────────────────────────────────────
-    # (adicionar SKUs conforme necessário)
-
-    # ─── Apple Accessories: Cabo Apple ───────────────────────────────────────────
-    '000000000100046277': ('acc_apple', 'Cabo Apple', None),  # Lightning USB 1M
-    '000000000100046292': ('acc_apple', 'Cabo Apple', None),  # USB-C Lightning 1M
-    '000000000100046298': ('acc_apple', 'Cabo Apple', None),  # USB-C Lightning 2M
-    '000000000100051680': ('acc_apple', 'Cabo Apple', None),  # 240W USB-C 2M (v1)
-    '000000000100060548': ('acc_apple', 'Cabo Apple', None),  # 60W USB-C 1M
-    '000000000100073530': ('acc_apple', 'Cabo Apple', None),  # USB-A USB-C Beats CZ
-    '000000000100073538': ('acc_apple', 'Cabo Apple', None),  # USB-C Beats CZA
-    '000000000100081087': ('acc_apple', 'Cabo Apple', None),  # Watch USB-C 1M
-    '000000000100081113': ('acc_apple', 'Cabo Apple', None),  # 240W USB-C 2M (v2)
-
-    # ─── Apple Accessories: Carregador Apple ─────────────────────────────────────
-    '000000000100024363': ('acc_apple', 'Carregador Apple', None),  # 20W USB-C
-    '000000000100024701': ('acc_apple', 'Carregador Apple', None),  # 35W Dual USB-C
-    '000000000100024708': ('acc_apple', 'Carregador Apple', None),  # 30W USB-C
-    '000000000100052235': ('acc_apple', 'Carregador Apple', None),  # 70W USB-C
-
-    # ─── Apple Accessories: Apple Pencil ─────────────────────────────────────────
-    '000000000100014433': ('acc_apple', 'Apple Pencil', None),  # USB-C
-    '000000000100014439': ('acc_apple', 'Apple Pencil', None),  # Pro
-    '000000000100058172': ('acc_apple', 'Apple Pencil', None),  # Pontas (4)
-
-    # ─── Originais iPlace: Carregador ────────────────────────────────────────────
-    '000000000100014834': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Portátil
-    '000000000100019344': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 3em1 MagSafe
-    '000000000100019979': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2Port 30W
-    '000000000100020081': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem 30W BCO
-    '000000000100020299': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2USB-C 65W
-    '000000000100060362': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2em1 MagSafe
-    '000000000100061067': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem 30W Light
-    '000000000100071399': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Onça
-    '000000000100071398': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Cow
-    '000000000100071501': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # 2USB-C 45W
-    '000000000100080719': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # Kit Viagem Brasil
-
-    # ─── Mister: Carregador ──────────────────────────────────────────────────────
-    '000000000100019856': ('acc_parceiro', 'Carregador', 'Mister'),  # 2Port 30W BCO
-    '000000000100019873': ('acc_parceiro', 'Carregador', 'Mister'),  # 2Port 30W PTO
-    '000000000100020088': ('acc_parceiro', 'Carregador', 'Mister'),  # Veicular 28W
-
-    # ─── Originais iPlace: Cabo ───────────────────────────────────────────────────
-    '000000000100017372': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 1,2 BCO
-    '000000000100017406': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 1,2 PTO
-    '000000000100017422': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-C 3M BCO
-    '000000000100019337': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C MagSafe 1,2
-    '000000000100020316': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Watch 1,2
-    '000000000100057293': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # Ligh USB-A 1,2 BCO
-    '000000000100068065': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light AZL 1,2
-    '000000000100068066': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light AVL 1,2
-    '000000000100068067': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-A USB-C BCO 1,2
-    '000000000100068068': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light BCO 1,2
-    '000000000100068069': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 1,2 SI
-    '000000000100068080': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C LIL 1,2
-    '000000000100068081': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light PTO 1,2
-    '000000000100068082': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C AVL 1,2
-    '000000000100068083': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light LIL 1,2
-    '000000000100068084': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C PTO 1,2
-    '000000000100068085': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-A Light BCO 1,2
-    '000000000100068086': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C AZL 1,2
-    '000000000100068102': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 1,2
-    '000000000100068751': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C Light BCO 3M
-    '000000000100068752': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # USB-C USB-C BCO 3M
-
-    # ─── Originais iPlace: Película ───────────────────────────────────────────────
-    '000000000100038596': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16P/16PM PTO
-    '000000000100038603': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16P/16PM SIL
-    '000000000100038621': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh16/16Plus PTO
-    '000000000100039039': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad Air 11
-    '000000000100040727': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 13 Antibact
-    '000000000100041353': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Antibac
-    '000000000100041368': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Antibact A.U
-    '000000000100041405': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 14 Privacid
-    '000000000100041976': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 15 Antibac
-    '000000000100042020': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 15 Privacid
-    '000000000100042273': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16 Antibac
-    '000000000100042663': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16PM Antibact
-    '000000000100043610': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 40MM
-    '000000000100043705': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 44MM
-    '000000000100043772': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 49MM
-    '000000000100044223': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad 10 Antibac
-    '000000000100053539': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 42MM
-    '000000000100053550': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Watch 46MM
-    '000000000100056106': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh16PM Ant/Priv
-    '000000000100056108': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh16 Ant/Priv
-    '000000000100057276': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 13 Privacid
-    '000000000100060629': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16/17E Antibac
-    '000000000100060628': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 16/17E Antib/Priv
-    '000000000100066664': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPad MAG 10TH
-    '000000000100066943': ('acc_parceiro', 'Película', 'Originais iPlace'),  # MAC Air 13.6
-    '000000000100066970': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17 Silver
-    '000000000100066971': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh17PM ProSaf
-    '000000000100066972': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro ProMat
-    '000000000100066974': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 ProSaf
-    '000000000100066979': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17PM Premium
-    '000000000100066983': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro Essent
-    '000000000100066986': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17Pro ProSaf
-    '000000000100067001': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM AZL
-    '000000000100067013': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 Essent
-    '000000000100067014': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh17PM ProMat
-    '000000000100067015': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM LRJ
-    '000000000100067016': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17 ProMat
-    '000000000100067021': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam iPh 17P/PM SIL
-    '000000000100067022': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh 17PM Essent
-    '000000000100067024': ('acc_parceiro', 'Película', 'Originais iPlace'),  # iPh Air ProSaf
-    '000000000100075278': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM SL
-    '000000000100075279': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM AZ
-    '000000000100075290': ('acc_parceiro', 'Película', 'Originais iPlace'),  # Cam 3em1 iPh17PM LR
-
-    # ─── Originais iPlace: Capa/Case (iPhone) ─────────────────────────────────────
-    '000000000100015866': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 AirCus
-    '000000000100016204': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM Shine
-    '000000000100016211': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM AirCus
-    '000000000100046678': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh14 AirCus
-    '000000000100046714': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 AirCus
-    '000000000100046902': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16E/17E Essent
-    '000000000100046905': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16E/17E Slim
-    '000000000100046941': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Poli PTO
-    '000000000100046973': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Poli PTO
-    '000000000100047064': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Essent PTO
-    '000000000100047297': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16PM Essent PTO
-    '000000000100047372': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16 Shine
-    '000000000100047568': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Shine
-    '000000000100051649': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15 Essent PTO
-    '000000000100063911': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16/17E Stand PTO
-    '000000000100063912': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh16/17E Drop Nude
-    '000000000100066840': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Blend CNZ
-    '000000000100066842': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Loop Avela
-    '000000000100066843': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Steal
-    '000000000100066948': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Steal
-    '000000000100066950': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shine PTO
-    '000000000100066951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Silicone PTO
-    '000000000100066954': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Shine
-    '000000000100066955': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Blend CNZ
-    '000000000100066957': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh Air AirCus
-    '000000000100066958': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Peel CNZ
-    '000000000100066959': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Silic PTO
-    '000000000100066960': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro AirCus
-    '000000000100066961': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Kvelar VRD
-    '000000000100066962': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Kvelar Verde
-    '000000000100066989': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Shine PTO
-    '000000000100066992': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM AirCus
-    '000000000100066993': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 AirCus
-    '000000000100066996': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Silic PTO
-    '000000000100067000': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shine
-    '000000000100067002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Kvelar VRD
-    '000000000100067003': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Peel LRJ
-    '000000000100067004': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh Air Shine
-    '000000000100067005': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro Shine
-    '000000000100067006': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Stand PTO
-    '000000000100067027': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Loop Avela
-    '000000000100067208': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM BMW PTO
-    '000000000100068090': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Edge AZL
-    '000000000100068091': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17 Edge Off
-    '000000000100075046': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Stand PT
-    '000000000100075047': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Essen PT
-    '000000000100075048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Stand PT
-    '000000000100075071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Shine TR
-    '000000000100075072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17Pro PC Essen PT
-    '000000000100075073': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM PC Shine TR
-    '000000000100075277': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Stand LARA
-    '000000000100075442': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shell LARA
-    '000000000100075443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh17PM Shell AZUL
-    '000000000100046334': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPh15Pro AirCus
-
-    # ─── Originais iPlace: Capa/Case (iPad) ───────────────────────────────────────
-    '000000000100016443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2em1 10th PTO
-    '000000000100016460': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2em1 10th RSA
-    '000000000100016467': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC 10th RSA
-    '000000000100016525': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC Pro 11 CNZ
-    '000000000100017002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # TEC Univ 9a11 AZL
-    '000000000100065951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad 2/1 Tela 13
-    '000000000100066305': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # iPad Univer 9 a 11
-    '000000000100071983': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # MAC Air 13,6 PU MAR
-    '000000000100046361': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Envelope Mac13,3
-
-    # ─── Originais iPlace: Capa/Case (Apple Watch) ────────────────────────────────
-    '000000000100026001': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 41MM
-    '000000000100026008': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 45MM
-    '000000000100066795': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 46MM
-    '000000000100066796': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # Watch Bumper 42MM
-
-    # ─── Originais iPlace: Capa/Case (AirPods) ────────────────────────────────────
-    '000000000100055025': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 SIL PTO
-    '000000000100055034': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Transp
-    '000000000100056184': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Steal
-    '000000000100066945': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 Onça
-    '000000000100074059': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods Pro 3 PU MAR
-    '000000000100074070': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods Pro 3 Transp
-    '000000000100074072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # AirPods 4 PU Marrom
-
-    # ─── Originais iPlace: Pulseira (Apple Watch) ─────────────────────────────────
-    '000000000100026335': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit P Watch 38-41
-    '000000000100026362': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit P Watch 42-49
-    '000000000100027202': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch Tecid 38-41
-    '000000000100027236': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch TEC MAG 42-49
-    '000000000100052659': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch SIL 38/41
-    '000000000100053034': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch SIL IMA 42-45
-    '000000000100064550': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P Watch Titaniu 42-49
-    '000000000100080720': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # Kit Pul Brasil 38-41
-
-    # ─── Originais iPlace: Caneta ─────────────────────────────────────────────────
-    '000000000100071397': ('acc_parceiro', 'Caneta', 'Originais iPlace'),  # iPad Indu/USB-C
-
-    # ─── Originais iPlace: Adaptador ─────────────────────────────────────────────
-    '000000000100052636': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 3em1 USB-C
-    '000000000100052637': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # HDMI USB-C
-    '000000000100055842': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 7em1 USB-C
-    '000000000100065953': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # 14em1 USB-C
-    '000000000100071500': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # Veicul CarPlay
-
-    # ─── Originais iPlace: Mouse ──────────────────────────────────────────────────
-    '000000000100024742': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # Sem Fio CNZ
-    '000000000100068336': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # Sem Fio BT BCO
-
-    # ─── Originais iPlace: Teclado ────────────────────────────────────────────────
-    '000000000100017398': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # Num PTO
-
-    # ─── Originais iPlace: Bolsa/Mochila ──────────────────────────────────────────
-    '000000000100027101': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Rafa PTO
-    '000000000100027244': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Transv PTO
-    '000000000100027247': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Transv MRM
-    '000000000100027290': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Olivia MRM
-    '000000000100027293': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Olivia PTO
-    '000000000100045609': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Alça Ombro Bege
-    '000000000100045625': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Alça Ombro PTO
-    '000000000100046367': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Pampas 16
-    '000000000100046399': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Essenc 15,6
-    '000000000100046794': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pampas 13
-    '000000000100047030': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pampas 16
-    '000000000100047926': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Digital 16
-    '000000000100047961': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Supor Deskp
-    '000000000100063910': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Pocket 14
-    '000000000100066304': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Bolsa Transv Essenc
-    '000000000100066429': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Basic 15,6
-    '000000000100066430': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Basic 14
-    '000000000100066665': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mochila Trip 15,6
-    '000000000100066792': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo RSA
-    '000000000100066793': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo PTO
-    '000000000100066794': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Mala de Bordo BCO
-    '000000000100079334': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Mac 13 Lilas
-    '000000000100079398': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # Sleeve Mac 13 Azul
-
-    # ─── Originais iPlace: Outros ─────────────────────────────────────────────────
-    '000000000100017760': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Difusor Smart HomeKit
-    '000000000100017766': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Lâmpada HomeKit
-    '000000000100017769': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Luminária HomeKit
-    '000000000100017815': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Tomada Inteligente
-    '000000000100024756': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Case Viagem Couro
-    '000000000100024796': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Organizador Couro
-    '000000000100059159': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Microfone Lapela
-    '000000000100063908': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Tag
-    '000000000100065952': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Tag Combo 2
-    '000000000100066428': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SSD Externo 1TB
-    '000000000100066836': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Organizador Trip
-    '000000000100067018': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Cow
-    '000000000100067019': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Onça
-    '000000000100067029': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ring Light Selfie
-    '000000000100067030': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ventosa Avela
-    '000000000100067031': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Ring Shine MAG
-    '000000000100067032': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Wallet PU PTO
-    '000000000100067033': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Suporte de Gloss
-    '000000000100067034': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Wallet PU CNZ
-    '000000000100068318': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Key
-    '000000000100068324': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Detector
-    '000000000100068326': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Card
-    '000000000100068327': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Smart Pass
-    '000000000100068335': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Tripé Selfie
-    '000000000100068611': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Kit Limpa Telas
-    '000000000100080721': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # Garrafa Suporte MAG Brasil
-
-    # ─── JBL: Fone ───────────────────────────────────────────────────────────────
-    '000000000100056766': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Beam 2 BCO
-    '000000000100056767': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Buds 2 PTO
-    '000000000100056768': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Beam 2 PTO
-    '000000000100056775': ('acc_parceiro', 'Fone', 'JBL'),  # IN Wave Buds 2 BCO
-    '000000000100079311': ('acc_parceiro', 'Fone', 'JBL'),  # Tune 780NC Preto
-    '000000000100079315': ('acc_parceiro', 'Fone', 'JBL'),  # Tune T530BT Preto
-    '000000000100079330': ('acc_parceiro', 'Fone', 'JBL'),  # Tune 730BT Preto
-
-    # ─── JBL: Caixa de Som ───────────────────────────────────────────────────────
-    '000000000100034608': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 PTO
-    '000000000100034651': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 AZL
-    '000000000100034654': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # GO 4 BCO
-    '000000000100035735': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Xtreme 4 PTO
-    '000000000100065115': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Flip 7 PTO
-    '000000000100065121': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Charge 6 PTO
-    '000000000100069935': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 PTO
-    '000000000100078946': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Encore 2MI BCO
-    '000000000100078947': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 LARA
-    '000000000100079150': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # SB180 PTO
-    '000000000100080397': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Encor 2 2MIC PTO
-    '000000000100069936': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # Boombox 4 BCO
-
-    # ─── Logitech: Mouse ─────────────────────────────────────────────────────────
-    '000000000100040794': ('acc_parceiro', 'Mouse', 'Logitech'),  # Pebble 2 M350S BCO
-    '000000000100050715': ('acc_parceiro', 'Mouse', 'Logitech'),  # Lift BCO
-
-    # ─── Logitech: Teclado ───────────────────────────────────────────────────────
-    '000000000100041209': ('acc_parceiro', 'Teclado', 'Logitech'),  # Pebble K380 BCO
-    '000000000100041227': ('acc_parceiro', 'Teclado', 'Logitech'),  # Pebble K380 GRF
-    '000000000100050620': ('acc_parceiro', 'Teclado', 'Logitech'),  # MX Keys CINZ
-
-    # ─── Logitech: Fone ──────────────────────────────────────────────────────────
-    '000000000100043413': ('acc_parceiro', 'Fone', 'Logitech'),  # OV ZoneVibe 100 BCO
-    '000000000100043459': ('acc_parceiro', 'Fone', 'Logitech'),  # OV ZoneVibe 100 RSA
-    '000000000100043484': ('acc_parceiro', 'Fone', 'Logitech'),  # ON c/Fio H390 RSA
-
-    # ─── Logitech: Outros ────────────────────────────────────────────────────────
-    '000000000100041402': ('acc_parceiro', 'Outros', 'Logitech'),  # Webcam Brio 500
-    '000000000100041410': ('acc_parceiro', 'Outros', 'Logitech'),  # Deskpad Grafit
-    '000000000100051977': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # Capa TEC Univ PTO
+    '000000000100019979': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 2PORT 30W BCO OP1ANG3D1AC
+    '000000000100067576': ('acc_apple', 'EarPods', None),  # FONE APPLE EARPODS USB-C MYQY3BZ/A
+    '000000000100024363': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE 20W USB-C BCO MUVU3BZ/A
+    '000000000100067022': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PM ESSENT A.U OIV0791
+    '000000000100068068': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT BCO 1,2 LCBR12NY
+    '000000000100068102': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C BCO 1,2 CCBR12NY
+    '000000000100024708': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE 30W USB-C BCO MW2G3BZ/A
+    '000000000100046292': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C LIGTH 1M BCO MUQ93AM/A
+    '000000000100060548': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE 60W USB-C 1M BCO MW493AM/A
+    '000000000100072410': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS PRO 3 MFHP4BZ/A
+    '000000000100061067': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # KIT VIAGEM IPLACE 30W LIGHT CNZ OP1VLCC
+    '000000000100066992': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX AIRCUS OIV0820
+    '000000000100072473': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX SILVER 256GB MFYM4BE/A
+    '000000000100080116': ('device', 'iPhone', None),  # IPHONE 17 BLACK 256GB MG6J4BR/A
+    '000000000100014834': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE PORTATIL PTO OP1HFCAD
+    '000000000100057293': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-A 1,2M BCO OP1DLAB1
+    '000000000100068067': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-A USB-C BCO 1,2 CABR12NY
+    '000000000100072474': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX C ORG 256GB MFYN4BE/A
+    '000000000100066971': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH17PMAX PROSAF A.U OIV0795
+    '000000000100067013': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 ESSENT A.U OIV0788
+    '000000000100068611': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # KIT LIMPA TELAS IPLACE OIV0780
+    '000000000100080117': ('device', 'iPhone', None),  # IPHONE 17 WHITE 256GB MG6K4BR/A
+    '000000000100032026': ('device', 'iPhone', None),  # IPHONE 15 BLUE 128GB MTP43BR/A
+    '000000000100033486': ('acc_apple', 'EarPods', None),  # FONE APPLE EARPODS LIGHTN MWTY3BZ/A
+    '000000000100031967': ('device', 'iPhone', None),  # IPHONE 15 BLACK 128GB MTP03BR/A
+    '000000000100056775': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BUDS 2 BCO 28913824
+    '000000000100064789': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 4GER CAN MXP93BZ/A
+    '000000000100014433': ('acc_apple', 'Caneta', None),  # APPLE PENCIL USB-C BCO MUWA3AM/A
+    '000000000100068752': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C BCO 3 CCBR3NY
+    '000000000100068069': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C BCO 1,2 CCBR12SI
+    '000000000100080719': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # KIT VIAGEM IPLACE 30WUSBC BRASIL KVB3CRI
+    '000000000100060277': ('device', 'iPhone', None),  # IPHONE 16E BLK 128GB MD1Q4BR/A
+    '000000000100068081': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT PTO 1,2 LCPT12NY
+    '000000000100020081': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # KIT VIAGEM IPLACE 30WUSBC BCO OP1V3DACFW
+    '000000000100066983': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO ESSENT A.U OIV0790
+    '000000000100064788': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 4GER USB-C MXP63BZ/A
+    '000000000100072475': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX DP BL 256GB MFYP4BE/A
+    '000000000100041976': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15ANTIBAC A.U OIV0542
+    '000000000100066974': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PROSAF A.U OIV0792
+    '000000000100066993': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 AIRCUS OIV0818
+    '000000000100060629': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16/17E ANTIBAC OIV0660
+    '000000000100053737': ('device', 'iPhone', None),  # IPHONE 16 BLACK 128GB MYE73BR/A
+    '000000000100046277': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE LIGHT USB 1M BCO MUQW3AM/A
+    '000000000100080721': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # GARRAFA IPLACE SUPORTE MAG BRAS OIV0940
+    '000000000100068084': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C PTO 1,2 CCPT12NY
+    '000000000100072534': ('device', 'Apple Watch', None),  # WATCH SE 3 40 S AL S SB SM G MEH34AM/A
+    '000000000100042273': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16ANTIBAC A.U OIV0546
+    '000000000100066986': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PROSAF A.U OIV0794
+    '000000000100060982': ('device', 'iPad', None),  # IPAD 11TH WIFI 128GB SILVER MD3Y4BZ/A
+    '000000000100079131': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE PAC 1 UN 2TH BCO MFE94BE/A
+    '000000000100017002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE TEC UNIV 9A11 AZL IPSTA1010
+    '000000000100044223': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD 10 ANTIBAC OIV0109
+    '000000000100060278': ('device', 'iPhone', None),  # IPHONE 16E WHT 128GB MD1R4BR/A
+    '000000000100046902': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16E/17E ESENT PT OIV0367
+    '000000000100080118': ('device', 'iPhone', None),  # IPHONE 17 MIST BLUE 256GB MG6L4BR/A
+    '000000000100053739': ('device', 'iPhone', None),  # IPHONE 16 PINK 128GB MYEA3BR/A
+    '000000000100053738': ('device', 'iPhone', None),  # IPHONE 16 WHITE 128GB MYE93BR/A
+    '000000000100055842': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE 7EM1 USBC CNZ OP1GHCHRU3
+    '000000000100066979': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PM PREMIUM A.U OIV0802
+    '000000000100032836': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE IN N270 BCO AUHEL5353
+    '000000000100015866': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 AIRCUS OIV0445
+    '000000000100075073': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM PC SHINE TR OIV0913
+    '000000000100020299': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 2USB-C 65W BCO OP1AGN6C2UC
+    '000000000100066960': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO AIRCUS OIV0819
+    '000000000100072467': ('device', 'iPhone', None),  # IPHONE 17 PRO DEEP BLUE 256GB MG8J4BE/A
+    '000000000100056108': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16 ANT/PRIV A.U. OIV0618
+    '000000000100068086': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C AZL 1,2 CCAZ12NY
+    '000000000100068085': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-A LIGHT BCO 1,2 LABR12NY
+    '000000000100067030': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # VENTOSA IPLACE AVELA OIV0866
+    '000000000100067014': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH17PMAX PROMAT A.U OIV0799
+    '000000000100052636': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE 3EM1 USB-C CNZ ADTRA0449
+    '000000000100066951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 SILICONE PTO OIV0829
+    '000000000100060983': ('device', 'iPad', None),  # IPAD 11TH WIFI 128GB BLUE MD4A4BZ/A
+    '000000000100031719': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE WE.DUO N235 BRANCO AUHEL5454
+    '000000000100042020': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PRIVACID A.U OIV0543
+    '000000000100020088': ('acc_parceiro', 'Carregador', 'Mister'),  # CARREG MISTER VEICULAR 28W PTO MT1BACS
+    '000000000100046905': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16E/17E SLIM OIV0366
+    '000000000100072541': ('device', 'Apple Watch', None),  # WATCH SE 3 44 M AL M SB ML G MEHQ4AM/A
+    '000000000100066954': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 SHINE OIV0822
+    '000000000100068065': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT AZL 1,2 LCAZ12NY
+    '000000000100072465': ('device', 'iPhone', None),  # IPHONE 17 PRO SILVER 256GB MG8G4BE/A
+    '000000000100055383': ('acc_apple', 'Mouse', None),  # MOUSE MAGIC APPLE TOUCH ID BCO MXK53BE/A
+    '000000000100068751': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT BCO 3M LCBR3NY
+    '000000000100014439': ('acc_apple', 'Caneta', None),  # APPLE PENCIL PRO BCO MX2D3AM/A
+    '000000000100040794': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI PEBBLE 2 M350S BCO 910-007047
+    '000000000100075443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM SHELL AZUL OIV0921
+    '000000000100060985': ('device', 'iPad', None),  # IPAD 11TH WIFI 128GB PINK MD4E4BZ/A
+    '000000000100071399': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # KIT VIAGEM IPLACE 30WUSBC ONCA KVO3CRI
+    '000000000100042663': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PM ANTIBACT A.U OIV0558
+    '000000000100056106': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16PM ANT/PRIV A.U. OIV0621
+    '000000000100032029': ('device', 'iPhone', None),  # IPHONE 15 BLUE 256GB MTP93BR/A
+    '000000000100067001': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH 17P/PMAX AZL OIV0875
+    '000000000100046941': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 POLI PTO OIV0419
+    '000000000100053736': ('device', 'iPhone', None),  # IPHONE 16 ULTRAMARINE 128GB MYEC3BR/A
+    '000000000100032020': ('device', 'iPhone', None),  # IPHONE 15 BLACK 256GB MTP63BR/A
+    '000000000100068336': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # MOUSE SEM FIO IPLACE BT BCO ACSARWMODM
+    '000000000100024701': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE 35W DUAL USBC BCO MW2K3BZ/A
+    '000000000100075046': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM PC STAND PT OIV0919
+    '000000000100080119': ('device', 'iPhone', None),  # IPHONE 17 LAVENDER 256GB MG6M4BR/A
+    '000000000100071501': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 2USB-C 45W BCO OP1ANG4C2UC
+    '000000000100081113': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE 240W USBC 2M BCO MYQT3AM/A
+    '000000000100067003': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX PEEL LRJ OIV0840
+    '000000000100067031': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # RING SHINE IPLACE MAG OIV0868
+    '000000000100019856': ('acc_parceiro', 'Carregador', 'Mister'),  # CARREG MISTER 2PORT 30W BCO MT1A30W2B
+    '000000000100063908': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE CNZ ACTUYSTFMP
+    '000000000100072476': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX SILVER 512GB MFYQ4BE/A
+    '000000000100072478': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX DP BL 512GB MFYU4BE/A
+    '000000000100080880': ('device', 'iPhone', None),  # IPHONE 17E SOFT PINK 256GB MHRX4BR/A
+    '000000000100080878': ('device', 'iPhone', None),  # IPHONE 17E BLACK 256GB MHRV4BR/A
+    '000000000100046714': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 AIRCUS OIV0303
+    '000000000100075047': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM PC ESSEN PT OIV0917
+    '000000000100020316': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USBC WATCH 1,2M BCO OP1EWTBC
+    '000000000100080720': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # KIT PUL IPLACE BRASIL 38-41MM OIV0944
+    '000000000100047372': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 SHINE OIV0449
+    '000000000100066961': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX KVELAR VRD OIV0848
+    '000000000100066840': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX BLEND CNZ OIV0849
+    '000000000100080130': ('device', 'iPhone', None),  # IPHONE 17 SAGE 256GB MG6N4BR/A
+    '000000000100068082': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C AVL 1,2 CCAV12SI
+    '000000000100067021': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH 17P/PMAX SIL OIV0873
+    '000000000100053761': ('device', 'iPhone', None),  # IPHONE 16 BLACK 256GB MYEE3BR/A
+    '000000000100079315': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE T530BT PRETO 28914075
+    '000000000100026335': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # KIT P IPLACE WATCH 38-41 LIL/BEG OIV0531
+    '000000000100068066': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT AVL 1,2 LCAV12SI
+    '000000000100067006': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 STAND PTO OIV0833
+    '000000000100053034': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL IMA 42-45 PTO OIV0588
+    '000000000100046298': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C LIGHT 2M BCO MW2R3AM/A
+    '000000000100075277': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM STAND LARA  OIV0922
+    '000000000100072554': ('device', 'Apple Watch', None),  # WATCH 11 42 RG AL LB SB SM G MEU04AM/A
+    '000000000100067015': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH 17P/PMAX LRJ OIV0874
+    '000000000100019344': ('acc_parceiro', 'MagSafe', 'Originais iPlace'),  # CARREG IPLACE 3EM1 MAGSAFE BCO OP1FLWS
+    '000000000100068318': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART KEY IPLACE LOTRASKBFM
+    '000000000100067000': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX SHINE OIV0824
+    '000000000100075442': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM SHELL LARA OIV0920
+    '000000000100016443': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2EM1 10TH PTO OIV0393
+    '000000000100053762': ('device', 'iPhone', None),  # IPHONE 16 WHITE 256GB MYEF3BR/A
+    '000000000100066958': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX PEEL CNZ OIV0841
+    '000000000100072477': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX C ORG 512GB MFYT4BE/A
+    '000000000100071397': ('acc_parceiro', 'Caneta', 'Originais iPlace'),  # CANETA IPLACE IPAD INDU/USBC BCO CNBWCWI
+    '000000000100047568': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 SHINE OIV0566
+    '000000000100043610': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 40MM C/B OIV0082
+    '000000000100053763': ('device', 'iPhone', None),  # IPHONE 16 PINK 256GB MYEG3BR/A
+    '000000000100066796': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE WATCH BUMPER 42MM OIV0876
+    '000000000100056768': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BEAM 2 PTO 28913846
+    '000000000100026008': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE WATCH BUMPER 45MM OIV0385
+    '000000000100026001': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE WATCH BUMPER 41MM OIV0384
+    '000000000100069935': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 4 PTO 28913917
+    '000000000100051649': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 ESSENT PTO OIV0591
+    '000000000100045625': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA OMBRO IPLACE CORD 160 PTO OIV0401
+    '000000000100046794': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 PTO OIV0578
+    '000000000100016211': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX AIRCUS OIV0448
+    '000000000100072536': ('device', 'Apple Watch', None),  # WATCH SE 3 40 M AL M SB SM G MEH94AM/A
+    '000000000100066795': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE WATCH BUMPER 46MM OIV0877
+    '000000000100055025': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 SIL PTO OIV0603
+    '000000000100047064': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 ESSENT PTO OIV0441
+    '000000000100068083': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C LIGHT LIL 1,2 LCLI12NY
+    '000000000100072466': ('device', 'iPhone', None),  # IPHONE 17 PRO COS ORANGE 256GB MG8H4BE/A
+    '000000000100080323': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P BLS 256GB MHFH4BZ/A
+    '000000000100065952': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE COMBO 2 CNZ LOTUYSTCBF
+    '000000000100075279': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM 3 EM 1 IP 17PM AZ OIV0926
+    '000000000100068080': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C LIL 1,2 CCLI12NY
+    '000000000100075290': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM 3 EM 1 IP 17PM LR OIV0925
+    '000000000100031667': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE IN N60 USBC BCO AUBOT5151
+    '000000000100056767': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BUDS 2 PTO 28913823
+    '000000000100067033': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE DE GLOSS OFF WHITE OIV0867
+    '000000000100066972': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PROMAT A.U OIV0798
+    '000000000100067016': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PROMAT A.U OIV0796
+    '000000000100016460': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2EM1 10TH RSA OIV0394
+    '000000000100080318': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P SIL 512GB MHFC4BZ/A
+    '000000000100066793': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # MALA IPLACE DE BORDO W/TAG PTO OIV0890
+    '000000000100072794': ('acc_apple', 'MagSafe', None),  # CARREGADOR APPLE MAGSAFE 1M MGD74BE/A
+    '000000000100068090': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PMAX EDGE AZUL OIV0908
+    '000000000100016467': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE TEC 10TH RSA IPSTA1212B
+    '000000000100080321': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P IND 256GB MHFF4BZ/A
+    '000000000100063973': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE OVER N390 PTO AUHEL6467
+    '000000000100051680': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE 240W USBC 2M BCO MYQT3AM/A
+    '000000000100074059': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 3 PU MAR OIV0692
+    '000000000100019337': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USBC MAGSAF 1,2M BCO OP1EMSB
+    '000000000100053550': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 46MM C/B OIV0600
+    '000000000100034608': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO 4 PTO 28913760
+    '000000000100080879': ('device', 'iPhone', None),  # IPHONE 17E WHITE 256GB MHRW4BR/A
+    '000000000100027290': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE OLIVIA MRM OIV0367
+    '000000000100043772': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 49MM C/B OIV0087
+    '000000000100056766': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BEAM 2 BCO 28913847
+    '000000000100064550': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TITANIU 42-49 SIL OIV0674
+    '000000000100045609': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA OMBRO IPLACE CORD 160 BEGE OIV0400
+    '000000000100043705': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 44MM C/B OIV0085
+    '000000000100072559': ('device', 'Apple Watch', None),  # WATCH 11 46 JB AL BK SB ML G MEUX4AM/A
+    '000000000100041368': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14 ANTIBACT A.U OIV0540
+    '000000000100075048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PRO PC STAND PT OIV0918
+    '000000000100075072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PRO PC ESSEN PT OIV0916
+    '000000000100078947': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 4 LARA 28913923
+    '000000000100080250': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB SIL 512GB MDH74BZ/A
+    '000000000100066970': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH 17 SILVER OIV0871
+    '000000000100047297': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX ESSENT PTO OIV0444
+    '000000000100027202': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TECID 38-41 RSA OIV0412
+    '000000000100071398': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # KIT VIAGEM IPLACE 30WUSBC COW KVV3CRI
+    '000000000100080147': ('device', 'iPhone', None),  # IPHONE 17E BLACK 256GB MHRV4BE/A
+    '000000000100079330': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE 730BT PRETO 28914080
+    '000000000100066962': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 KVELAR VERDE OIV0846
+    '000000000100079132': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE PAC 4 UN 2TH BCO MFEA4BE/A
+    '000000000100051977': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA LOGI TEC UNIVER PTO 920-008334
+    '000000000100067027': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 LOOP AVELA OIV0852
+    '000000000100067034': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # WALLET IPLACE PU CNZ OIV0869
+    '000000000100053760': ('device', 'iPhone', None),  # IPHONE 16 TEAL 128GB MYED3BR/A
+    '000000000100079398': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE MAC 13 COURO AZUL OIV0938
+    '000000000100072542': ('device', 'Apple Watch', None),  # WATCH SE 3 40 S AL S SB SM C MEP64AM/A
+    '000000000100071500': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE VEICUL CARPLAY CNZ AVCCATJ
+    '000000000100034651': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO 4 AZL 28913761
+    '000000000100080131': ('device', 'iPhone', None),  # IPHONE 17 BLACK 512GB MG6P4BR/A
+    '000000000100067029': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # RING LIGHT IPLACE SELFIE ACTELSRLMF
+    '000000000100075071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PRO PC SHINE TR OIV0912
+    '000000000100066794': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # MALA IPLACE DE BORDO W/TAG BCO OIV0891
+    '000000000100072445': ('device', 'iPhone', None),  # IPHONE 17 MIST BLUE 256GB MG6L4BE/A
+    '000000000100055384': ('acc_apple', 'Mouse', None),  # MOUSE MAGIC APPLE TOUCH PTO MXK63BE/A
+    '000000000100031527': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE IN N20 LIGH BCO AUBOT2929
+    '000000000100060362': ('acc_parceiro', 'MagSafe', 'Originais iPlace'),  # CARREG IPLACE 2EM1 MAGSAFE BCO OIFMSAP
+    '000000000100072470': ('device', 'iPhone', None),  # IPHONE 17 PRO DEEP BLUE 512GB MG8N4BE/A
+    '000000000100072456': ('device', 'iPhone', None),  # IPHONE AIR SKY BLUE 256GB MG2P4BE/A
+    '000000000100017760': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # DIFUSOR IPLACE SMART C/ HOMEKIT OP5CADI
+    '000000000100066948': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX STEAL OIV0853
+    '000000000100040727': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 13ANTIBACT A.U OIV0539
+    '000000000100038603': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH16P/16PMAX SIL OIV0506
+    '000000000100052637': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE HDMI USB-C CNZ ADTRA0348
+    '000000000100017372': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M BCO OP1DLCB1
+    '000000000100046361': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA ENVELOPE IPLACE MAC13,3 MAR OIV0440
+    '000000000100038596': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH16P/16PMAX PTO OIV0505
+    '000000000100080319': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P CITR 256GB MHFD4BZ/A
+    '000000000100017766': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # LAMPADA IPLACE COLOR C/ HOMEKIT OP5CLC
+    '000000000100072481': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX DP BL 1TB MFYX4BE/A
+    '000000000100080133': ('device', 'iPhone', None),  # IPHONE 17 MIST BLUE 512GB MG6T4BR/A
+    '000000000100080148': ('device', 'iPhone', None),  # IPHONE 17E WHITE 256GB MHRW4BE/A
+    '000000000100080132': ('device', 'iPhone', None),  # IPHONE 17 WHITE 512GB MG6Q4BR/A
+    '000000000100072612': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BLACK TI BK  MF0J4BE/A
+    '000000000100053539': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 42MM C/B OIV0599
+    '000000000100055034': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 TRANSP OIV0607
+    '000000000100027101': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE RAFA PTO OIV0368
+    '000000000100066430': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE BASIC 14 CNZ OIV0773
+    '000000000100046973': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 POLI PTO OIV0496
+    '000000000100053764': ('device', 'iPhone', None),  # IPHONE 16 ULTRAMARINE 256GB MYEH3BR/A
+    '000000000100017406': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M PTO OP1DLCP1
+    '000000000100080256': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB MDN 512GB MDHE4BZ/A
+    '000000000100060986': ('device', 'iPad', None),  # IPAD 11TH WIFI 256GB SILVER MD4G4BZ/A
+    '000000000100079334': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE MAC 13 COURO LILAS OIV0939
+    '000000000100066996': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX SILIC PTO OIV0831
+    '000000000100068091': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 EDGE OFF OIV0911
+    '000000000100074070': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 3 TRANSP OIV0690
+    '000000000100043413': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI OV ZONEVIBE 100 BCO 981-001218
+    '000000000100024756': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE VIAGEM IPLACE DE COURO PRETO
+    '000000000100066943': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE MAG MAC AIR 13.6 OIV0781
+    '000000000100041209': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI PEBBLE K380 BCO 920-011790
+    '000000000100016204': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX SHINE OIV0452
+    '000000000100065121': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL CHARGE 6 PTO 28913863
+    '000000000100047030': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 16 PTO OIV0320
+    '000000000100063972': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE OVER N390 BCO AUHEL8287
+    '000000000100067002': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO KVELAR VRD OIV0847
+    '000000000100067032': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # WALLET IPLACE PU PTO OIV0870
+    '000000000100039039': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD AIR 11 OIV0407
+    '000000000100030426': ('device', 'iPhone', None),  # IPHONE 14 MIDNIGHT 128GB MPUF3BR/A
+    '000000000100074072': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 PU MARROM OIV0693
+    '000000000100079150': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL SB180 PTO 58033019
+    '000000000100053765': ('device', 'iPhone', None),  # IPHONE 16 TEAL 256GB MYEJ3BR/A
+    '000000000100072516': ('device', 'iPhone', None),  # IPHONE 17 PRO DEEP BLUE 1TB MG8R4BE/A
+    '000000000100066959': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO SILIC PTO OIV0830
+    '000000000100072482': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX SILVER 2TB MFYY4BE/A
+    '000000000100041405': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14PRIVACID A.U OIV0541
+    '000000000100041353': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14ANTIBAC OIV0028
+    '000000000100071983': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13,6 PU MAR OIV0685
+    '000000000100080397': ('acc_parceiro', 'Outros', 'JBL'),  # CAIXA SOM JBL ENCOR 2 2MIC PTO 58035039
+    '000000000100016525': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE TEC PRO 11 CNZ IPSTA1414
+    '000000000100058172': ('acc_apple', 'Caneta', None),  # APPLE PENCIL PONTAS (4) MX763AM/A
+    '000000000100081087': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE WATCH USB-C 1M MT0H3BE/A
+    '000000000100067005': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO SHINE OIV0823
+    '000000000100017815': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # TOMADA IPLACE INTELIGENTE BIVO 10A OP5CP
+    '000000000100066836': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ORGANIZADOR IPLACE TRIP PTO OIV0778
+    '000000000100059036': ('device', 'Apple TV', None),  # APPLE TV 4K 64GB WI-FI PTO MN873BZ/A
+    '000000000100026362': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # KIT P IPLACE WATCH 42-49 CNZ/AZL OIV0532
+    '000000000100038621': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH16/16PLUS PTO OIV0504
+    '000000000100063912': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16/17E DROP NUDE OIV0671
+    '000000000100060987': ('device', 'iPad', None),  # IPAD 11TH WIFI 256GB BLUE MD4H4BZ/A
+    '000000000100043484': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON C/FIO H390 RSA 981-001280
+    '000000000100060984': ('device', 'iPad', None),  # IPAD 11TH WIFI 128GB YELLOW MD4D4BZ/A
+    '000000000100072539': ('device', 'Apple Watch', None),  # WATCH SE 3 44 S AL S SB ML G MEHJ4AM/A
+    '000000000100072443': ('device', 'iPhone', None),  # IPHONE 17 BLACK 256GB MG6J4BE/A
+    '000000000100061669': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE PAC 1 UNIDADE BCO MX532BE/A
+    '000000000100067018': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # GARRAFA IPLACE SUPORTE MAG COW OIV0893
+    '000000000100066428': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SSD EXTERNO IPLACE 1TB CNZ ACSSKSSDUT
+    '000000000100065953': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE 14EM1 USBC CNZ ADSSKMVHRA
+    '000000000100019873': ('acc_parceiro', 'Carregador', 'Mister'),  # CARREG MISTER 2PORT 30W PTO MT1A30W2P
+    '000000000100065115': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL FLIP 7 PTO 28913860
+    '000000000100073530': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-A USB-C BEA CZ MDGJ4LL/A
+    '000000000100056184': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 STEAL OIV0606
+    '000000000100072537': ('device', 'Apple Watch', None),  # WATCH SE 3 40 M AL M SB ML G MEHC4AM/A
+    '000000000100041402': ('acc_parceiro', 'Outros', 'Logitech'),  # WEBCAM LOGI F HD BRIO 500 GRF 960-001412
+    '000000000100066957': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH AIR AIRCUS OIV0821
+    '000000000100066842': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX LOOP AVELA OIV0851
+    '000000000100067024': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH AIR PROSAF A.U OIV0793
+    '000000000100046399': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE ESSENC 15,6 PTO OIV0527
+    '000000000100017769': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # LUMINARIA IPLACE COLOR C/HOMEKIT OP5CLSC
+    '000000000100072468': ('device', 'iPhone', None),  # IPHONE 17 PRO SILVER 512GB MG8K4BE/A
+    '000000000100065951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2/1 TELA 13 PTO OIV0676
+    '000000000100017422': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 3M BCO OP1DLCB3
+    '000000000100046334': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15PRO AIRCUS OIV0259
+    '000000000100027247': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE TRANSV MRM OIV0355
+    '000000000100073538': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C BEATS CZA CAR MDGD4LL/A
+    '000000000100027236': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TEC MAG 42-49 VRD OIV0414
+    '000000000100041410': ('acc_parceiro', 'Outros', 'Logitech'),  # DESKPAD LOGI GRAFIT 956-000047
+    '000000000100024742': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # MOUSE IPLACE SEM FIO CNZ OP4MSFO
+    '000000000100052235': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE 70W USB-C BCO MXN53BZ/A
+    '000000000100047926': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE DIGITAL 16 PTO OIV0386
+    '000000000100072561': ('device', 'Apple Watch', None),  # WATCH 11 46 SG AL BK SB ML G MEV44AM/A
+    '000000000100068335': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # TRIPÉ SELFIE IPLACE ACWIWSSBRC
+    '000000000100034654': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO 4 BCO 28913762
+    '000000000100057276': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 13PRIVACID A.U OIV0653
+    '000000100048732001': ('device', 'iPhone', None),  # IPHONE 13  STARLIGHT 128GB BB I, E
+    '000000100048716001': ('device', 'iPhone', None),  # IPHONE 13 MIDNIGHT 128GB BB I, E
+    '000000000100050620': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI MX KEYS CINZ 920-011564
+    '000000000100043459': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI OV ZONEVIBE 100 RSA 981-001223
+    '000000000100027293': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE OLIVIA PTO OIV0366
+    '000000000100072453': ('device', 'iPhone', None),  # IPHONE AIR SPACE BLACK 256GB MG2L4BE/A
+    '000000000100066945': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 ONCA OIV0865
+    '000000000100066304': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE TRANSV ESSENC PTO OIV0776
+    '000000000100079311': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE 780NC PRETO 28914103
+    '000000000100072535': ('device', 'Apple Watch', None),  # WATCH SE 3 40 S AL S SB ML G MEH54AM/A
+    '000000000100063911': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16/17E STAND PTO OIV0670
+    '000000000100066665': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE TRIP 15,6 PTO OIV0777
+    '000000000100041227': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI PEBBLE K380 GRF 920-011789
+    '000000000100024796': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ORGANIZADOR IPLACE COURO PTO OIV0201
+    '000000000100067208': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX BMW PTO OIV0899
+    '000000000100046678': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 AIRCUS OIV0307
+    '000000000100075278': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM 3 EM 1 IP 17PM SL OIV0924
+    '000000000100066955': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 BLEND CNZ OIV0850
+    '000000000100052659': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL 38/41 PTO OIV0595
+    '000000000100066305': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD UNIVER 9 A 11 OIV0668
+    '000000000100072550': ('device', 'Apple Watch', None),  # WATCH 11 42 JB AL BK SB SM G MEQT4AM/A
+    '000000000100069936': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 4 BCO 28913921
+    '000000000100050715': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI LIFT BCO 910-006469
+    '000000000100066429': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE BASIC 15,6 CNZ OIV0772
+    '000000000100060280': ('device', 'iPhone', None),  # IPHONE 16E WHT 256GB MD1W4BR/A
+    '000000000100068326': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART CARD IPLACE LOREFSCBWC
+    '000000000100072471': ('device', 'iPhone', None),  # IPHONE 17 PRO SILVER 1TB MG8P4BE/A
+    '000000000100072549': ('device', 'Apple Watch', None),  # WATCH SE 3 44 M AL M SB ML C MEPJ4AM/A
+    '000000000100066843': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 STEAL OIV0856
+    '000000000100027244': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE TRANSV PTO OIV0568
+    '000000000100066950': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX SHINE PTO OIV0828
+    '000000000100017398': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # TECLADO IPLACE NUM PTO OP4TSFAN
+    '000000100048694001': ('device', 'iPhone', None),  # IPHONE 13  PINK 128GB BB I, E
+    '000000000100035735': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL XTREME 4 PTO 28913740
+    '000000000100078946': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL ENCORE 2MI BCO 28914163
+    '000000000100072483': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX C ORG 2TB MG004BE/A
+    '000000000100047961': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE SUPOR DESKP 16 PTO OIV0396
+    '000000000100072484': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX DP BL 2TB MG014BE/A
+    '000000000100066664': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD MAG 10TH OIV0783
+    '000000000100063910': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE POCKET 14 PTO OIV0667
+    '000000000100072544': ('device', 'Apple Watch', None),  # WATCH SE 3 40 M AL M SB SM C MEP94AM/A
+    '000000000100052119': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE USB-C MAG 2M BCO MX6Y3BE/A
+    '000000000100068327': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART PASS IPLACE LOREFSPTWC
+    '000000000100060628': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16/17E ANTIB/PRIV OIV0661
+    '000000000100067004': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH AIR SHINE OIV0825
+    '000000000100046367': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS 16 BEG OIV0437
+    '000000000100067020': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH AIR PROMAT A.U OIV0797
+    '000000000100052080': ('acc_apple', 'Outros', None),  # CARTEIRA APPLE TECIDO PTO MA6W4ZM/A
+    '000000000100068324': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART DETECTOR IPLACE LOTRASDIRL
+    '000000000100066989': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 SHINE PTO OIV0826
+    '000000000100067019': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # GARRAFA IPLACE SUPORTE MAG ONCA OIV0894
+    '000000000100080322': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P IND 512GB MHFG4BZ/A
+    '000000000100080134': ('device', 'iPhone', None),  # IPHONE 17 LAVENDER 512GB MG6U4BR/A
+    '000000000100055313': ('acc_apple', 'Teclado', None),  # TECLADO APPLE NUM EUA PTO MXK83BZ/A
+    '000000000100072480': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX C ORG 1TB MFYW4BE/A
+    '000000000100059159': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # MICROFONE IPLACE LAPELA PTO AUTRA4966
+    '000000000100066792': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # MALA IPLACE DE BORDO W/TAG RSA OIV0892
+    '000000000100027021': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44/49 COURO MARINHO OIV0208
+    '000000000100016532': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2EM1 PRO 13 PTO OIV0391
+    '000000000100042534': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO ANTIBAC A.U OIV0554
+    '000000000100072469': ('device', 'iPhone', None),  # IPHONE 17 PRO COS ORANGE 512GB MG8M4BE/A
+    '000000000100024894': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # DESKPAD IPLACE CARAMELO OIV0194
+    '000000000100024823': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ORGANIZADOR IPLACE DIGITAL PTO OIV0387
+    '000000000100054574': ('device', 'iPad', None),  # IPAD MINI 7TH WF 128GB SPG MXN63BZ/A
+    '000000000100066976': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PMAX PROSAFE OIV0810
+    '000000000100072479': ('device', 'iPhone', None),  # IPHONE 17 PRO MAX SILVER 1TB MFYV4BE/A
+    '000000000100032894': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE 10TH BCO MQDP3BZ/A
+    '000000000100080115': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE WATCH USB-A 1M MW6A3BE/A
+    '000000000100015353': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO2 SIL PTO OIV0096
+    '000000000100052642': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL IMA 38-41 RSA OIV0594
+    '000000000100032942': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE PRO13 PTO MWR53BZ/A
+    '000000000100066835': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ORGANIZADOR IPLACE BASIC CNZ OIV0774
+    '000000000100030874': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL C50HI PRETO 28913221
+    '000000000100057294': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE NEOPRENE 14 PTO OIV0651
+    '000000000100066946': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO STAND PTO OIV0834
+    '000000000100060493': ('acc_apple', 'Caneta', None),  # APPLE PENCIL 2ª GER BCO MXN43BZ/A
+    '000000000100067217': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX GUESS MRM OIV0895
+    '000000000100051763': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX BLACK 1TB MYX43BE/A
+    '000000000100047291': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO AIRCUS OIV0447
+    '000000000100072571': ('device', 'Apple Watch', None),  # WATCH 11 42 RG AL LB SB ML C MF8F4AM/A
+    '000000000100073531': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-A USB-C BEA PTO MDGG4LL/A
+    '000000000100052962': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL IMA 42-45 MRM OIV0593
+    '000000000100046324': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE WATCH UBS-C 1M MT0H3BE/A
+    '000000000100046799': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 MRM OIV0647
+    '000000000100080320': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P CITR 512GB MHFE4BZ/A
+    '000000000100066980': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH AIR ESSENT A.U OIV0789
+    '000000000100017812': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # LUMINARIA IPLACE RELAX C/HOMEKIT OP5CLSR
+    '000000000100080225': ('device', 'iPad', None),  # IPAD AIR M4 11 WF SPG 128GB MH304BZ/A
+    '000000000100080317': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P SIL 256GB MHFA4BZ/A
+    '000000000100047252': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PLUS AIRCUS OIV0446
+    '000000000100051725': ('device', 'iPhone', None),  # IPHONE 16 PLUS BLACK 128GB MXVU3BE/A
+    '000000000100060989': ('device', 'iPad', None),  # IPAD 11TH WIFI 256GB PINK MD4P4BZ/A
+    '000000000100060994': ('device', 'iPad', None),  # IPAD 11TH CELL 128GB SILVER MD7F4BZ/A
+    '000000000100058987': ('device', 'Apple TV', None),  # APPLE TV 4K 128GB WF/ETRN PTO MN893BZ/A
+    '000000000100038770': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD PRO 13 OIV0409
+    '000000000100080752': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX 2 PTO MHWK4BE/A
+    '000000000100027185': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TECID 38-41 NUDE OIV0411
+    '000000000100020095': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE VEICULAR 30W OP1BACS
+    '000000000100038491': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH15/15PLUS PTO OIV0299
+    '000000000100066994': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # PULSEIRA IPLACE ONCA 38-41MM OIV0864
+    '000000000100066662': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE MAG MAC PRO 14 OIV0782
+    '000000000100080135': ('device', 'iPhone', None),  # IPHONE 17 SAGE 512GB MG6V4BR/A
+    '000000000100018442': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USBC USBC 1,2M CNZ OP1DCMC1
+    '000000000100067026': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 PEEL CNZ OIV0842
+    '000000000100068089': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO EDGE AZUL OIV0909
+    '000000000100053015': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ESTABILIZADOR IPLACE CAMERA PTO OICSFT1
+    '000000000100067017': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # GARRAFA IPLACE SUPORTE MAG PTO OIV0775
+    '000000000100068320': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE PRETO LOREFSTPTO
+    '000000000100047924': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE CORTES 16 MRM OIV0324
+    '000000000100055839': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SACOLA COLEÇÃO SPRING OIV0613
+    '000000000100057011': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH COURO 42-49 MRM OIV0648
+    '000000000100066953': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX STAND PTO OIV0835
+    '000000000100066944': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 4 COW OIV0861
+    '000000000100072538': ('device', 'Apple Watch', None),  # WATCH SE 3 44 S AL S SB SM G MEHG4AM/A
+    '000000000100047788': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS 15 PTO OIV0572
+    '000000000100067575': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE VEIC IPLACE QI2 15W CNZ OIVMGP
+    '000000000100047326': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO ESSENT PTO OIV0443
+    '000000000100016498': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2EM1 PRO 11 PTO OIV0392
+    '000000000100072472': ('device', 'iPhone', None),  # IPHONE 17 PRO COS ORANGE 1TB MG8Q4BE/A
+    '000000000100016484': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE TEC 10TH CNZ IPSTA1313
+    '000000000100040725': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI SIGNAT M650 GRF 910-006231
+    '000000000100061670': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE PAC 4 UNIDADE BCO MX542BE/A
+    '000000000100068337': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # TECLADO SEM FIO IPLACE BT CNZ ACSARWKSNP
+    '000000000100052301': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 ESP PTO MXLJ3AM/A
+    '000000000100050625': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN LIVE BUDS 3 PTO 28913780
+    '000000000100073539': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C BEATS PRETO MDGA4LL/A
+    '000000000100035180': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHONE 13 TRANSP MM2X3ZE/A
+    '000000000100055037': ('acc_parceiro', 'AirTag', 'Originais iPlace'),  # PUL IPLACE AIRTAG KIDS AZL OIV0602
+    '000000000100055310': ('acc_apple', 'Teclado', None),  # TECLADO APPLE TOUCH ID EUA SIL MXCK3BZ/A
+    '000000000100045732': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE IPLACE MULT MAC CNZ OP1GSLHU3B
+    '000000000100032784': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL ON TUNE 520 BCO 28913697
+    '000000000100027574': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH COURO 42-49 PTO OIV0565
+    '000000000100017379': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M CNZ OP1DLCC1
+    '000000000100079314': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL SOUNDGEAR CLIP COBRE 28914043
+    '000000000100042490': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO A.U OIV0555
+    '000000000100047922': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE CORTES 16 PTO OIV0323
+    '000000000100047929': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE SUPOR DESKP 16 MRM OIV0397
+    '000000000100066991': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH AIR SILIC PTO OIV0832
+    '000000000100081088': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE WATCH USB-A 1M MW6A3BE/A
+    '000000000100032918': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE PRO11 PTO MWR23BZ/A
+    '000000000100072454': ('device', 'iPhone', None),  # IPHONE AIR CLOUD WHITE 256GB MG2M4BE/A
+    '000000000100066982': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PMAX PREMIUM OIV0817
+    '000000000100047142': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 DROP NUDE OIV0454
+    '000000000100063310': ('acc_parceiro', 'Mouse', 'Originais iPlace'),  # MOUSE IPLACE GAMER IPSAR2525
+    '000000000100046848': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 BEG OIV0577
+    '000000000100024935': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13,6 TRANSP OIV0296
+    '000000000100068325': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART LOCK IPLACE TSA LOREFSLTSA
+    '000000000100072455': ('device', 'iPhone', None),  # IPHONE AIR LIGHT GOLD 256GB MG2N4BE/A
+    '000000000100072447': ('device', 'iPhone', None),  # IPHONE 17 SAGE 256GB MG6N4BE/A
+    '000000000100065132': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL CHARGE 6 AZL 28913864
+    '000000000100055035': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 2 AZL OIV0604
+    '000000000100032742': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE OVER N350 PTO AUHEL3030
+    '000000000100055311': ('acc_apple', 'Teclado', None),  # TECLADO APPLE EUA BCO MXCL3BZ/A
+    '000000000100072444': ('device', 'iPhone', None),  # IPHONE 17 WHITE 256GB MG6K4BE/A
+    '000000000100042465': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16 PR ANTIBLU A.U OIV0556
+    '000000000100066985': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PREMIUM A.U OIV0800
+    '000000000100066973': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PREMIUM A.U OIV0801
+    '000000000100054643': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX ERGO TRACKB PTO 910-007261
+    '000000000100046393': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS 16 MRM OIV0438
+    '000000000100067150': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # TECLADO IPLACE MECANICO GAMER IPSAR2727
+    '000000000100036250': ('acc_parceiro', 'Fone', 'JBL'),  # MICROFONE JBL QUANT TALK PTO 28913738
+    '000000000100051945': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16PRO PTO MCFL4LL/A
+    '000000000100017763': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # FITA IPLACE LED RGBW 5M C/HOMEKIT OP5CF5
+    '000000000100046305': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PLUS AIRCUSHI OIV0211
+    '000000000100069612': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL ENCOR ESS2 PTO 28913925
+    '000000000100078943': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL SENSELITE PRETO 28914169
+    '000000000100072603': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI AB  MEWH4BE/A
+    '000000000100067450': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE GAM X700P OVER BCO AUSAR3737
+    '000000000100059160': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE LIA NUDE OIV0658
+    '000000000100016811': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD 2EM1 AIR 11 PTO OIV0389
+    '000000000100042639': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PMAX GAMER A.U OIV0561
+    '000000000100043405': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON C/FIO H390 BCO 981-001285
+    '000000000100061095': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE A16 BCO MDEJ4ZM/A
+    '000000000100064926': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD A16 DROPP NUDE OIV0771
+    '000000000100029599': ('device', 'iPhone', None),  # IPHONE SE 3RD MIDNIGHT 64GB MMXF3BZ/A
+    '000000000100026369': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH PARTY 38-41 BEG OIV0530
+    '000000000100073536': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C BEATS VERM EL MDGF4LL/A
+    '000000000100072755': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PMAX PRETO MGFR4ZM/A
+    '000000000100053033': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # DESKPAD IPLACE PTO OIV0586
+    '000000000100018597': ('acc_apple', 'Adaptador', None),  # ADAPT APPLE USBC LIGHT BCO MUQX3AM/A
+    '000000100048321001': ('device', 'iPhone', None),  # IPHONE 15 PRO TITANIUM 128GB BB I, E
+    '000000100048208001': ('device', 'iPhone', None),  # IPHONE 15 BLACK 128GB BB I, E
+    '000000000100015702': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PRO CANDY VRD OIV0283
+    '000000100048399001': ('device', 'iPhone', None),  # IPHONE 12 WHITE 64GB BB I, E
+    '000000000100080149': ('device', 'iPhone', None),  # IPHONE 17E SOFT PINK 256GB MHRX4BE/A
+    '000000000100055036': ('acc_parceiro', 'AirTag', 'Originais iPlace'),  # PUL IPLACE AIRTAG KIDS RSA OIV0601
+    '000000000100073534': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C LIGHT BEAT CZ MDGL4LL/A
+    '000000000100072556': ('device', 'Apple Watch', None),  # WATCH 11 42 SI AL PF SB SM G MEU64AM/A
+    '000000000100051727': ('device', 'iPhone', None),  # IPHONE 16 PLUS PINK 128GB MXVW3BE/A
+    '000000000100066995': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PREMIUM OIV0815
+    '000000000100072669': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PRO TRANSP MGFT4ZM/A
+    '000000000100072666': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PRETO MGF14ZM/A
+    '000000000100072555': ('device', 'Apple Watch', None),  # WATCH 11 42 RG AL LB SB ML G MEU44AM/A
+    '000000000100041244': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI PEBBLE K380 RSA 920-011791
+    '000000000100041296': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI WAVE KEYS GRAF 920-012281
+    '000000000100037048': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHONE 15 PRETO MT0J3ZM/A
+    '000000000100060410': ('acc_parceiro', 'Caneta', 'Originais iPlace'),  # CANETA IPLACE IPAD USB-C CNZ ACRUISPCWG
+    '000000000100065114': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL FLIP 7 AZL 28913861
+    '000000000100072793': ('acc_apple', 'MagSafe', None),  # BATERIA APPLE MAGSAFE IPH AIR MGPG4BE/A
+    '000000000100073537': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C BEATS AZUL PO MDGE4LL/A
+    '000000000100072543': ('device', 'Apple Watch', None),  # WATCH SE 3 40 S AL S SB ML C MEP74AM/A
+    '000000000100042324': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU ANTIBAC OIV0422
+    '000000000100071414': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # CORDA SMART IPLACE PTO OIV0787
+    '000000000100051937': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 ESP NIKE AREN MYL83AM/A
+    '000000000100074071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 3 SIL PT OIV0691
+    '000000000100052076': ('acc_apple', 'AirTag', None),  # CHAVEIRO APPLE AIRTAG TEC PTO MA7G4ZM/A
+    '000000000100024921': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13,3 M1 TRAN OIV0295
+    '000000000100047927': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE ATLAS 16 PTO OIV0383
+    '000000000100042646': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PM PRIVACID A.U OIV0559
+    '000000000100040230': ('acc_parceiro', 'Caneta', 'Logitech'),  # CANETA LOGI DIG CRYON PRATA 914-000070
+    '000000000100040682': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX MASTER 3S CNZ 910-006562
+    '000000000100067023': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH AIR SILVER OIV0872
+    '000000000100066981': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PROSAFE OIV0809
+    '000000000100046863': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 PROMAX 4/1 OIV0360
+    '000000000100063299': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14ANTIBAC/PRIV OIV0664
+    '000000000100027004': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH COURO 40-41 PTO OIV0205
+    '000000000100047838': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS 15 CAFE OIV0567
+    '000000000100063909': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH BUMPER 42-45 PTO OIV0665
+    '000000000100045529': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA DE MAO BRINDE OIV0317
+    '000000000100014993': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PLUS AIRCUSHION 303736
+    '000000000100071982': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC PRO 14 TRANSP OIV0687
+    '000000000100071453': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO ESSEN 2 PTO 28913988
+    '000000000100027028': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44/49 COURO MARROM OIV0206
+    '000000000100080253': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB STL 512GB MDHA4BZ/A
+    '000000000100034325': ('acc_parceiro', 'Caixa de Som', 'Originais iPlace'),  # CAIXA DE SOM IPLACE S100 PTO AUWEI2828
+    '000000000100056093': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16 ANTIBAC/PRIV OIV0634
+    '000000000100066984': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PROSAFE OIV0807
+    '000000000100079329': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE 730BT BRANCO 28914081
+    '000000000100042421': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO GAMER OIV0435
+    '000000000100037274': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PRO TRANSPARE MT223ZM/A
+    '000000000100067011': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PMAX ESSENTIAL OIV0806
+    '000000000100046383': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15PRO MAX AIRCSH OIV0213
+    '000000000100041097': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI MX MINI RSA 920-010507
+    '000000000100069411': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-C LIGH 1,5M BCO LCB1NVE
+    '000000000100052118': ('acc_apple', 'Carregador Apple', None),  # CARREG APPLE USB-C MAG 1M BCO MX6X3BE/A
+    '000000000100066997': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO SHINE PTO OIV0827
+    '000000000100016917': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA SLIM IPAD IPLACE PAMPAS MARIOIV0571
+    '000000000100043739': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 45MM C/B OIV0086
+    '000000000100015900': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PARTY RSA OIV0523
+    '000000100048228001': ('device', 'iPhone', None),  # IPHONE 15 PINK 256GB BB I, E
+    '000000100048221001': ('device', 'iPhone', None),  # IPHONE 15 BLUE 128GB BB I, E
+    '000000000100058169': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C MGSAFE 2M BCO MW613AM/A
+    '000000000100016259': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX STAND CNZ OIV0489
+    '000000000100060279': ('device', 'iPhone', None),  # IPHONE 16E BLK 256GB MD1T4BR/A
+    '000000100048227001': ('device', 'iPhone', None),  # IPHONE 15 PINK 128GB BB I, E
+    '000000000100047375': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX RING RSA OIV0477
+    '000000000100047171': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 RING ROSA OIV0474
+    '000000000100051730': ('device', 'iPhone', None),  # IPHONE 16 PLUS BLACK 256GB MXWN3BE/A
+    '000000000100051200': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI TO GO 2 GRF 920-012867
+    '000000000100041915': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15ANTIBAC OIV0239
+    '000000000100072546': ('device', 'Apple Watch', None),  # WATCH SE 3 44 S AL S SB SM C MEPE4AM/A
+    '000000000100046831': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 13 4 EM 1 OIV0356
+    '000000000100039056': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD AIR 13 OIV04081
+    '000000000100072611': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI NT TML MF0E4BE/A
+    '000000000100026386': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH PARTY 38-41 RSA OIV0529
+    '000000000100026987': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH COURO 40-41 MRM OIV0207
+    '000000000100038699': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD PRO 11 OIV0410
+    '000000000100072570': ('device', 'Apple Watch', None),  # WATCH 11 42 RG AL LB SB SM C MF8E4AM/A
+    '000000000100047710': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 13 AIRCUS OIV0327
+    '000000000100069408': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-C LIGH 1,5M PTO LCP1NVE
+    '000000000100072547': ('device', 'Apple Watch', None),  # WATCH SE 3 44 S AL S SB ML C MEPF4AM/A
+    '000000000100052304': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 ESP NIKE AREN MYJR3AM/A
+    '000000000100052307': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 ESP BLUSH MXLN3AM/A
+    '000000000100032573': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE PRO 13 PTO MWK33ZM/A
+    '000000000100079306': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE 780NC BRANCO 28914104
+    '000000000100035917': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL WIND 3 PTO 28913718
+    '000000000100036239': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 14 SIL ROSA GIZ MPRX3ZE/A
+    '000000000100072552': ('device', 'Apple Watch', None),  # WATCH 11 42 SG AL BK SB SM G MEQW4AM/A
+    '000000000100052115': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 ESP CNZ MXLY3AM/A
+    '000000000100056116': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 16 ANTIBAC OIV0626
+    '000000000100055245': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE LIA PTO OIV0644
+    '000000000100055033': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 2 STEAL OIV0605
+    '000000000100042368': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLUS PRIVACID OIV0426
+    '000000000100027045': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44/49 COURO PRETO OIV0204
+    '000000000100069407': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-A LIGH 1,5M BCO LAB1NVE
+    '000000000100071496': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 13 ESSENTIAL OIV0683
+    '000000000100064551': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TITANIU 42-49 PTO OIV0673
+    '000000100048148001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX D PURPLE 128GB BB I, E
+    '000000000100015667': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PRO NORON BRA OIV0226
+    '000000000100016187': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PROMX LIL BRI OIV0456
+    '000000000100080257': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB MDN 1TB MDHF4BZ/A
+    '000000000100031570': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH P2 1,5M BCO AUBOT1010
+    '000000000100067216': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA/CABO LACOSTE IPH17PRO PTO OIV0906
+    '000000000100051728': ('device', 'iPhone', None),  # IPHONE 16 PLUS ULTMARINE 128GB MXVX3BE/A
+    '000000000100047850': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPHONE IPLACE SCREEN PTO 15 OIV0402
+    '000000000100072568': ('device', 'Apple Watch', None),  # WATCH 11 42 SG AL BK SB SM C MF8A4AM/A
+    '000000000100067010': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 ESSENTIAL OIV0803
+    '000000000100072540': ('device', 'Apple Watch', None),  # WATCH SE 3 44 M AL M SB SM G MEHN4AM/A
+    '000000000100072519': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PRO PRETO MGFK4ZM/A
+    '000000000100080227': ('device', 'iPad', None),  # IPAD AIR M4 11 WF STL 128GB MH334BZ/A
+    '000000000100061167': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE AIR11 BCO MDFV4BZ/A
+    '000000000100060995': ('device', 'iPad', None),  # IPAD 11TH CELL 128GB BLUE MD7G4BZ/A
+    '000000100048717001': ('device', 'iPhone', None),  # IPHONE 13 MIDNIGHT 128GB BB N, E
+    '000000000100047411': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 FORCE PTO OIV0510
+    '000000000100040812': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI PEBBLE 2 M350S RSA 910-007048
+    '000000000100072610': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI NT TML MEWY4BE/A
+    '000000000100034980': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 3 PTO 2891362
+    '000000000100055319': ('device', 'Mac', None),  # IMAC 24 M4 SILVER 256GB 8GPU MWUC3BZ/A
+    '000000000100056105': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16PRO ANTIBAC/PRIV OIV0636
+    '000000000100047096': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 CANDY ROSA OIV0457
+    '000000000100054641': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI ERGO M575S PTO 910-007031
+    '000000000100032911': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE PRO11 BCO MWR03BZ/A
+    '000000000100035829': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI SILMAG WHT MHKV3ZE/A
+    '000000000100072524': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH AIR TRANSP FOSC MGH34ZM/A
+    '000000000100046750': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO SIL PRETO OIV0349
+    '000000000100041994': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15ANTI BLUE A.U OIV0544
+    '000000000100026980': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 40/41 COURO MARINHO OIV0209
+    '000000000100016910': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA SLIM IPAD IPLACE PAMPAS PRETO
+    '000000000100032787': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL ON TUNE 520 PTO 28913696
+    '000000100048340001': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX BLK TITAN 256GB BB, E
+    '000000000100043571': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON ZONE 300 BCO 981-001416
+    '000000000100027296': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE SAMPA CNZ OP5TB
+    '000000000100027566': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA AIRTAG IPLACE SPRING ROSA OIV0538
+    '000000000100036334': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE IN GAMER X220 BCO AUHEL5656
+    '000000000100040301': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE/F2 IP 12PMAX VIDR TRANS C/BDA
+    '000000000100037179': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PLUS TRANSPAR MT213ZM/A
+    '000000000100018449': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USBC USBC 1,2M PTO OP1DCMP1
+    '000000000100037209': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PRO ROSA CLAR MT1F3ZM/A
+    '000000000100075276': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM STAND AZUL OIV0923
+    '000000000100035540': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL PARTBOX110 AMA 58035030
+    '000000000100046221': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 12 TRANS SLIM OIV0131
+    '000000000100055382': ('acc_apple', 'Magic Keyboard', None),  # MAGIC TRACKPAD APPLE PTO MXKA3BE/A
+    '000000000100034657': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO ESSENT PTO 28913614
+    '000000000100040648': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12/12 PRO PRIV OIV0026
+    '000000000100072586': ('device', 'Apple Watch', None),  # WATCH 11 46 SG AL BK SB ML C MFCA4AM/A
+    '000000000100046947': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PLUS POLI PTO OVI0497
+    '000000000100072619': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BK TML MF1Q4BE/A
+    '000000000100036205': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 14 SIL AZUL TEM MPRV3ZE/A
+    '000000000100041933': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 ANTIBLUE OIV0243
+    '000000000100067213': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 BMW PTO OIV0901
+    '000000000100025293': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE 3 MK2A3BZ/A
+    '000000000100072551': ('device', 'Apple Watch', None),  # WATCH 11 42 JB AL BK SB ML G MEQU4AM/A
+    '000000000100046788': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP15 PRO MAX SIL PTO OIV0350
+    '000000000100080754': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX 2 ESTEL MHWL4BE/A
+    '000000000100080881': ('device', 'iPhone', None),  # IPHONE 17E BLACK 512GB MHRY4BR/A
+    '000000000100047025': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO STAND PTO OIV0485
+    '000000000100032781': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL ON TUNE 520 AZL 28913698
+    '000000000100053569': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA LOGI TEC 10TH GRF 920-011295
+    '000000000100025852': ('device', 'Apple TV', None),  # APPLE TV 4K 64GB MP7P2BZ/A
+    '000000000100060721': ('acc_apple', 'Adaptador', None),  # ADAPT APPLE USB-C TO USB BCO MW5L3AM/A
+    '000000000100015228': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPHONE IPLACE SIL AZU 14 PR OIV0053
+    '000000000100069412': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # APRESENTADOR IPLACE USB-A CNZ ACTRAPPCAB
+    '000000000100017142': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-C USBC 1,5 PTO MT1DCCP
+    '000000000100058249': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13,6 SHINE OIV0656
+    '000000000100016320': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA  SLIM IPAD IPLACE PAMPAS CAFE
+    '000000100048346001': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX TITANIUM 256GB BB I, E
+    '000000000100015810': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PRO MAX BRILHO OIV0272
+    '000000000100064790': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX PTO MWW43BE/A
+    '000000000100027113': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE SILIC 38/41MARR IMA OIV0379
+    '000000000100045760': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 11 SIL ROS CHA 303861
+    '000000000100065116': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL FLIP 7 BCO 28913862
+    '000000000100080160': ('device', 'iPad', None),  # IPAD AIR M4 13 WF SP GR 128GB MH5N4BZ/A
+    '000000000100046640': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO ALCA PTO OIV0276
+    '000000000100072459': ('device', 'iPhone', None),  # IPHONE AIR LIGHT GOLD 512GB MG2U4BE/A
+    '000000000100044247': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD 9 ANTIBAC OIV0108,
+    '000000000100072548': ('device', 'Apple Watch', None),  # WATCH SE 3 44 M AL M SB SM C MEPH4AM/A
+    '000000000100080755': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX 2 AZUL MHWM4BE/A
+    '000000100048839001': ('device', 'iPhone', None),  # IPHONE 14 PURPLE 128GB BB I, E
+    '000000000100032949': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 11 SIL BRANCO MWVX2ZM/A
+    '000000000100034283': ('acc_parceiro', 'Caixa de Som', 'Originais iPlace'),  # CAIXA DE SOM IPLACE CONNECT S50 PRETA/CI
+    '000000000100046866': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 SIL PTO OIV0361
+    '000000000100032104': ('device', 'iPhone', None),  # IPHONE 15 PINK 128GB MTP13BR/A
+    '000000000100016040': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO SHINE OIV0451
+    '000000000100073535': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C LIGH BEAT VER MFEH4LL/A
+    '000000100048343001': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX BLU TITAN 256GB BB, E
+    '000000000100034983': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 3WF PT 28913670
+    '000000000100040776': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI PEBBLE 2 M350S GFT 910-007049
+    '000000000100080251': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB  SIL 1TB MDH84BZ/A
+    '000000000100053036': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 13 POLI PTO OIV0589
+    '000000000100073509': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-A USB-C BEA VER MFEJ4LL/A
+    '000000000100027335': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA AIRTAG IPLACE TPU PET RSA PP0760
+    '000000000100045880': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 MS MARSALA O12191
+    '000000000100055032': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # SUPORTE IPLACE HEADSET MUL 3X1 IPLUM2121
+    '000000000100067209': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX MERC PTO OIV0902
+    '000000000100075679': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MALA IPLACE MAO C SLEEVE COUR PT OIV0928
+    '000000000100019050': ('acc_apple', 'Adaptador', None),  # ADAPT APPLE USB-C AV DIG BCO MW5M3AM/A
+    '000000000100052117': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 ESP NIKE CHAM MYLC3AM/A
+    '000000000100054161': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA LOGI TEC AIR 11 CNZ 920-012626
+    '000000000100017478': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 2M BCO OP1DLCB2
+    '000000000100037226': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHONE 15 PRO PRETO MT1A3ZM/A
+    '000000000100046753': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHO 15 PRO MAX SLIM OIV0354
+    '000000000100031853': ('acc_parceiro', 'Fone', 'JBL'),  # FONE OUVIDO JBL ENDURRACE BLKBR 28913810
+    '000000000100032870': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB 5GER APPLE 12.9 BCO MJQL3BZ/A
+    '000000000100019972': ('acc_parceiro', 'Carregador', 'Mister'),  # KIT VIAGEM MISTER 30W USB-C PTO MT4VCCP
+    '000000000100016245': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I16PROMAX CANDY ROSA OIV0460
+    '000000000100016146': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX DROP NUDE OIV0466
+    '000000000100015794': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PROMAX ALC PTO OIV0277
+    '000000100048811001': ('device', 'iPhone', None),  # IPHONE 14 MIDNIGHT 128GB BB N, E
+    '000000000100066663': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD MAG PRO 11 OIV0785
+    '000000100048109001': ('device', 'iPhone', None),  # IPHONE 14 PRO D PURPLE 128GB BB I, E
+    '000000000100051732': ('device', 'iPhone', None),  # IPHONE 16 PLUS PINK 256GB MXY13BE/A
+    '000000000100066838': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO STEAL OIV0854
+    '000000000100015941': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PLUS DROP NUDE OIV0465
+    '000000000100055386': ('device', 'Mac', None),  # IMAC 24 M4 SILVER 256GB 10GPU MWUU3BZ/A
+    '000000000100080226': ('device', 'iPad', None),  # IPAD AIR M4 11 WF BL 128GB MH314BZ/A
+    '000000100048695001': ('device', 'iPhone', None),  # IPHONE 13  PINK 128GB BB N, E
+    '000000000100027144': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40/41 METAL DOURADO OIV0255
+    '000000000100031290': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL ENDUR RACE BLU 289135
+    '000000000100031387': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL TUNE FLX PTO 28913646
+    '000000000100020235': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE IPLACE VEICULAR PTO 15W OP1BWFS
+    '000000000100027560': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # PULSEIRA IPLACE AIRTAG KIDS OIV0310
+    '000000000100041418': ('acc_parceiro', 'Outros', 'Logitech'),  # MOUSEPAD LOGI STUDIO GRF 956-000035
+    '000000000100045641': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # POCHETE IPLACE PRT OIV0342
+    '000000000100045883': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 MS VERDE O1241
+    '000000000100080163': ('device', 'iPad', None),  # IPAD AIR M4 13 WF SP GR 256GB MH5U4BZ/A
+    '000000000100043467': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON C/FIO H390 PTO 981-000014
+    '000000000100068321': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE BRANCO LOREFSTBCO
+    '000000000100046860': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 PRO 4 EM 1 OIV0359
+    '000000000100041360': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14PRIVACID OIV0007
+    '000000000100064925': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD A16 DROPP PTO OIV0770
+    '000000000100060361': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 3EM1 PORTATIL CNZ OIMWADC
+    '000000100048855001': ('device', 'iPhone', None),  # IPHONE 14 STARLIGHT 128GB BB I, E
+    '000000000100015202': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL CINZA OIV0065
+    '000000000100042552': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU ANTIBAC A.U OIV0550
+    '000000000100041610': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA TEC LOGITECH IPAD UNIPTO 920-008334
+    '000000000100019668': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ADA IPLACE PAR USB 2 SAID SMART IC2.4 BC
+    '000000000100074514': ('device', 'iPad', None),  # IPAD PRO 11 M5 WIFI 256GB SIL MDWL4BZ/A
+    '000000000100074515': ('device', 'iPad', None),  # IPAD PRO 11 M5 WIFI 512GB SB MDWM4BZ/A
+    '000000000100018415': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USBC USBC 1,2M BCO OP1DCMB1
+    '000000000100018456': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C USB-C15CM BCO OP1DCCB0
+    '000000000100052074': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PMAX TRANSP MA7F4ZM/A
+    '000000000100035973': ('acc_parceiro', 'Outros', 'JBL'),  # CAIXA SOM JBL ENCORE ESS PTO 28913611
+    '000000000100072620': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BK TML MF1T4BE/A
+    '000000000100072691': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 ROXO MGF04ZM/A
+    '000000000100042063': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PLU SANTIBAC OIV0240
+    '000000000100042028': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 PLUS ANTIBLUE OIV0244
+    '000000000100031804': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL TUNE FLX PTO 28913803
+    '000000000100042385': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO ANTIBAC OIV0423
+    '000000000100037103': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 15 TRANSPARENTE MT203ZM/A
+    '000000000100037065': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHON 15 ROSA CLARO MT0U3ZM/A
+    '000000000100042437': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU GAMER A.U OIV0553
+    '000000000100046643': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO BRIHO OIV0271
+    '000000000100046834': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 4 EM 1 OIV0357
+    '000000000100041323': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI WAVE KEYS BCO 920-012282
+    '000000000100080324': ('device', 'Mac', None),  # MACBOOK NEO 13 A18P BLS 512GB MHFJ4BZ/A
+    '000000000100034429': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL CLIP 5 PTO 28913768
+    '000000000100047416': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX BUBBLE PTO OIV0509
+    '000000000100047418': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX FORCE PTO OIV0512
+    '000000000100046979': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO POLI PTO OIV0498
+    '000000000100046675': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12 TRANS MAGNETICA OIV0309
+    '000000000100047177': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 STAND PTO OIV0483
+    '000000000100046976': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO POLI BCO OIV0502
+    '000000000100074513': ('device', 'iPad', None),  # IPAD PRO 11 M5 WIFI 256GB SB MDWK4BZ/A
+    '000000000100055243': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE AURORA PRETA OIV0642
+    '000000000100072795': ('acc_apple', 'MagSafe', None),  # CARREGADOR APPLE MAGSAFE 2M MGDM4BE/A
+    '000000000100074525': ('device', 'iPad', None),  # IPAD PRO 13 M5 WIFI 256GB SB MDYJ4BZ/A
+    '000000000100075070': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PRO PC SHINE PT OIV0914
+    '000000000100074880': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 PROSAFE OIV0694
+    '000000000100071497': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 ESSENTIAL OIV0684
+    '000000000100054577': ('device', 'iPad', None),  # IPAD MINI 7TH WF 128GB PURPLE MXN93BZ/A
+    '000000000100071981': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC PRO 14 PU MAR OIV0686
+    '000000000100024962': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 15,3 M2 TRAN OIV0297
+    '000000000100067210': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH17PMAX GUESS PTO OIV0897
+    '000000000100051734': ('device', 'iPhone', None),  # IPHONE 16 PLUS TEAL 256GB MXY53BE/A
+    '000000000100067025': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # PULSEIRA IPLACE COW 38-41MM OIV0860
+    '000000000100051946': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PRO SIL FUC MYYN3ZM/A
+    '000000000100054645': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE AURORA 14 NUDE OIV0609
+    '000000000100046105': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE WATCH USB-A 1M BCO MX2E2BE/A
+    '000000000100080264': ('device', 'Mac', None),  # MACB AIR 15 M5 24GB SIL 1TB MDVC4BZ/A
+    '000000000100016078': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX POLI BCO OIV0503
+    '000000000100014334': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I12/12PRO AIRCUSHION OIV0006
+    '000000000100067218': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO BMW PTO OIV0900
+    '000000000100024469': ('acc_apple', 'MagSafe', None),  # CARREG APPLE MAGSAFE COM IMA MHXH3BE/A
+    '000000000100047714': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 13 SLIM OIV0328
+    '000000000100047712': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 13 SILICONE PTO OIV0326
+    '000000000100080259': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB S BL 512GB MDHH4BZ/A
+    '000000000100080258': ('device', 'Mac', None),  # MACB AIR 13 M5 24GB MDN 1TB MDHG4BZ/A
+    '000000000100016163': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX RING AZL OIV0482
+    '000000000100051919': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PL SIL PTO MYY93ZM/A
+    '000000000100051930': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 49 LOOP T VRD MXTN3AM/A
+    '000000000100052114': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 ESPORTIVA PTO MXM43AM/A
+    '000000000100060115': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # CHAVEIRO IPLACE SMART TAG CNZ OIV0659
+    '000000000100056929': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 15 ROSA CLARO MXPH3ZM/A
+    '000000100048163001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX GOLD 256GB BB I, E
+    '000000000100060998': ('device', 'iPad', None),  # IPAD 11TH CELL 256GB SILVER MD7K4BZ/A
+    '000000000100051952': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PRO TRANSP MA7E4ZM/A
+    '000000000100052079': ('acc_apple', 'AirTag', None),  # CHAVEIRO APPLE AIRTAG TEC AMO MA7K4ZM/A
+    '000000000100017323': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C TO LIGH 15CM BCO 1799
+    '000000000100066791': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16E ANTIBAC A.U OIV0888
+    '000000000100060283': ('device', 'iPhone', None),  # IPHONE 16E BLK 128GB DEMO 3N762BE/A
+    '000000100048830001': ('device', 'iPhone', None),  # IPHONE 14 STARLIGHT 128GB BB N, E
+    '000000100049328001': ('device', 'Apple Watch', None),  # WATCH SE 2ND GPS 40MM STARLIGHT BB, E
+    '000000000100016491': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE TEC 10TH VERDE IPSTA1111
+    '000000000100060354': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16E SIL PTO MD3N4ZM/A
+    '000000100048127001': ('device', 'iPhone', None),  # IPHONE 14 PRO SILVER 128GB BB I, E
+    '000000000100015687': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PRO CANDY ROSA OIV0286
+    '000000000100015402': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL VER LIM 303858
+    '000000100048362001': ('device', 'iPhone', None),  # IPHONE 12 BLACK 128GB BB N, E
+    '000000100053744001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TITAN PRETO 256GB B, E
+    '000000100049420001': ('device', 'Apple Watch', None),  # WATCH S9 ALUM GPS 41MM PINK BB, E
+    '000000100048812001': ('device', 'iPhone', None),  # IPHONE 14 MIDNIGHT 256GB BB N, E
+    '000000100039301001': ('device', 'iPad', None),  # IPAD 9TH WF S. GRAY 64GB BB, E
+    '000000000100066661': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE MAG IPAD AIR 11 OIV0784
+    '000000000100080267': ('device', 'Mac', None),  # MACB AIR 15 M5 24GB STL 1TB MDVF4BZ/A
+    '000000100048167001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX SILVER 256GB BB I, E
+    '000000000100060988': ('device', 'iPad', None),  # IPAD 11TH WIFI 256GB YELLOW MD4J4BZ/A
+    '000000000100014951': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS ARTESAN PRETO
+    '000000000100020448': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPHONE 14 TRANSP SLIM OIV0364
+    '000000000100051941': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16PL ROX MCFK4LL/A
+    '000000000100051915': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16 TRANSP MA6A4ZM/A
+    '000000000100051918': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16PL PTO MCFG4LL/A
+    '000000000100052303': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 CAQUI MYJY3AM/A
+    '000000000100051861': ('device', 'Apple Watch', None),  # WATCH S10 DM 46 RG AL LB SB SM G 3N499BZ
+    '000000000100037130': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 AZUL TEMPESTA MT0N3ZM/A
+    '000000000100037172': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHON 15 PLUS PRETO MT103ZM/A
+    '000000000100036468': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PLUS TRANS MPU43ZE/A
+    '000000000100080280': ('device', 'Mac', None),  # MACB PRO 16 M5P 24GB SIL 1TB MGE44BZ/A
+    '000000000100061090': ('device', 'Mac', None),  # MAC STUDIO M4 MAX 512GB 36GB MU963BZ/A
+    '000000000100016064': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PRO BUBBLE PTO OIV0508
+    '000000100048307001': ('device', 'iPhone', None),  # IPHONE 15 PRO BLUE TITAN 128GB BB I, E
+    '000000000100046944': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PLUS POLI BCO OIV0501
+    '000000000100047816': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 CANDY RSA OIV0285
+    '000000000100047818': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 CANDY VERDE OIV0282
+    '000000000100024928': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13,3 M1 TRAN OIV0298
+    '000000000100024887': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE IPLACE MAC METAL PRATA OIV0111
+    '000000000100041826': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA LOGI TEC PRO 13 CNZ 920-010097
+    '000000000100051205': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12MINI VID TRAN C/BDA 1568
+    '000000000100047996': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12MI TRANS CLASS IP-1242PT
+    '000000000100072582': ('device', 'Apple Watch', None),  # WATCH 11 42 GOLD TI GD ML C MF8Y4AM/A
+    '000000000100072562': ('device', 'Apple Watch', None),  # WATCH 11 46 RG AL LB SB SM G MEV64AM/A
+    '000000000100072563': ('device', 'Apple Watch', None),  # WATCH 11 46 RG AL LB SB ML G MEV74AM/A
+    '000000000100041809': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA TC LOGITECH IPADPRO11 3R 920-010095
+    '000000000100051947': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PRO SIL PTO MYYJ3ZM/A
+    '000000000100039415': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 11 ANTIBAC OIV0032
+    '000000000100051618': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 4GER CAN MXP93BZ/A
+    '000000000100045918': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 AIRCUSHION OIV0001
+    '000000000100045925': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPTADOR IPLACE USB-C 6X1 G3.1 2011
+    '000000000100055381': ('acc_apple', 'Magic Keyboard', None),  # MAGIC TRACKPAD APPLE BCO MXK93BE/A
+    '000000000100017330': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C TO LIGH 15CM PRA 1800
+    '000000000100055026': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO 2 TRANSP OIV0608
+    '000000000100056104': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16PMAX ANTBAC/PRIV OIV0637
+    '000000000100056112': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16 PRO MAX ANTIBAC OIV0629
+    '000000000100055407': ('device', 'Mac', None),  # MACBOOK AIR 13 M2 MID 256GB MC7X4BZ/A
+    '000000000100040697': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI SIGNAT M650 BCO 910-006233
+    '000000000100072602': ('device', 'Apple Watch', None),  # WATCH 11 46 GD TI GD ML ML C MFD84AM/A
+    '000000000100038577': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM 14/14 PLUS SILVER OIV0088
+    '000000000100047508': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX PARTY BCO OIV0521
+    '000000000100047560': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX PARTY RSA OIV0525
+    '000000000100047174': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 STAND CNZ OIV0487
+    '000000000100054642': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX VERT GRF 910-005449
+    '000000000100032771': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB 11POL IPAD PRO 3TH MXQT2BZ/A
+    '000000000100052961': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL IMA 38-41 MRM OIV0592
+    '000000000100055244': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE LIA PRETA SNAKE OIV0645
+    '000000000100055312': ('acc_apple', 'Teclado', None),  # TECLADO APPLE TOUCH NUM EUA  MXK73BZ/A
+    '000000000100074508': ('device', 'Mac', None),  # MACB PRO 14 M5 SB 16GB 1TB MDE14BZ/A
+    '000000000100040690': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX MASTER 3S GRF 910-006561
+    '000000000100036263': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPHONE 14 SIL MID MPRU3ZE/A
+    '000000000100035880': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI SILMAG PNK MHKP3ZE/A
+    '000000000100079313': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL ENCOR ES 2 BCO 28914164
+    '000000000100054163': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA LOGI TEC PRO 13 GRF 920-012658
+    '000000000100066988': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO ESSENTIAL OIV0805
+    '000000000100066975': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PMAX PROMATTE OIV0814
+    '000000000100038534': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH14/14PLUS SIL OIV0092
+    '000000000100045454': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE IPLACE PRA GUIDAO PTO OIV0311
+    '000000000100042081': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PLU PRIVACID OIV0252
+    '000000000100042472': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO GAMER A.U OIV0557
+    '000000000100046869': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14AIR CUSHION OIV0362
+    '000000000100046756': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 PLUS SLIM OIV0352
+    '000000000100068338': ('acc_parceiro', 'Teclado', 'Originais iPlace'),  # TECLADO NUM IPLACE BT CNZ ACSARWKTAN
+    '000000000100068317': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE AZUL LOREFSTAZL
+    '000000000100080392': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL PBCLUB 120 PTO 58035038
+    '000000000100072558': ('device', 'Apple Watch', None),  # WATCH 11 46 JB AL BK SB SM G MEUW4AM/A
+    '000000000100072560': ('device', 'Apple Watch', None),  # WATCH 11 46 SG AL BK SB SM G MEV04AM/A
+    '000000000100015148': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL CINZA U 303843
+    '000000000100043597': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON ZONE 300 RSA 981-001411
+    '000000000100043654': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL TRANS IPLACE WATCH 42MM IP-1019VT
+    '000000000100043549': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL TRANS IPLACE WATCH 38MM IP-1018VT
+    '000000000100015883': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PRO RING ROSA OIV0476
+    '000000000100015907': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 SPRING ROSA OIV0533
+    '000000000100060414': ('acc_apple', 'Teclado', None),  # TECLADO APPLE NUM EUA BCO MXCJ3BZ/A
+    '000000000100061262': ('device', 'iPad', None),  # IPAD AIR 7TH 11 WF 128GB BL DM 3N671BZ/A
+    '000000000100046510': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHON 15 PRO SIL ORQ OIV0261
+    '000000000100046467': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO MAX ORQ OIV0262
+    '000000000100069613': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL OV TUNE 520C PTO 28914008
+    '000000000100045704': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 11 SIL CINZA U 303863
+    '000000000100072458': ('device', 'iPhone', None),  # IPHONE AIR CLOUD WHITE 512GB MG2T4BE/A
+    '000000000100072446': ('device', 'iPhone', None),  # IPHONE 17 LAVENDER 256GB MG6M4BE/A
+    '000000000100030563': ('device', 'iPhone', None),  # IPHONE 14 STARLIGHT 128GB MPUR3BR/A
+    '000000000100027209': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH TEC MAG 38-41 VRD OIV0413
+    '000000000100031710': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN TUNE 310C PTO 28913773
+    '000000000100031439': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL REF AERO WHT 28913628
+    '000000000100031293': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL ENDUR RACE COR 289135
+    '000000000100031299': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL LIVE PRO2 TWS SIL 289
+    '000000000100045837': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 MS LILAS O12201
+    '000000000100015018': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14PLUS SIL CINZA U 303842
+    '000000000100015542': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX AIRCUSHION OIV0004
+    '000000000100015292': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL AMA SIC 303854
+    '000000100048309001': ('device', 'iPhone', None),  # IPHONE 15 PRO BLUE TITAN 256GB BB I, E
+    '000000000100016180': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX STAND PTO OIV0486
+    '000000000100016023': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PRO DROP LILAS OIV0469
+    '000000000100015924': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PLUS DROP NUDE OIV0462
+    '000000000100061108': ('device', 'Mac', None),  # MACBOOK AIR M4 13 BL 256 16 DM MC6T4BZ/A
+    '000000000100015168': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL ROS CHA 303847
+    '000000000100015223': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL LAVANDA OIV005
+    '000000000100015053': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14PLUS SIL PRETO OIV0060
+    '000000000100015071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS SPRING ROSA OIV0537
+    '000000000100015103': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO AIR CUSHION 303737
+    '000000000100033398': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 3GER MME73BE/A
+    '000000000100034280': ('acc_parceiro', 'Caixa de Som', 'Originais iPlace'),  # CAIXA DE SOM IPLACE CONNECT S50 AZUL/AMA
+    '000000000100057681': ('device', 'Apple TV', None),  # APPLE TV 4K 64GB WI-FI MN873BZ/A
+    '000000000100056772': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BUDS 2 AZL 28913826
+    '000000000100060990': ('device', 'iPad', None),  # IPAD 11TH WIFI 512GB SILVER MD4Q4BZ/A
+    '000000100048225001': ('device', 'iPhone', None),  # IPHONE 15 GREEN 256GB BB I, E
+    '000000100048303001': ('device', 'iPhone', None),  # IPHONE 15 PRO BLK TITANIUM 128GB BB I, E
+    '000000100048305001': ('device', 'iPhone', None),  # IPHONE 15 PRO BLK TITANIUM 256GB BB I, E
+    '000000100048180001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX SPC BLK 128GB BB I, E
+    '000000000100080268': ('device', 'Mac', None),  # MACB AIR 15 M5 16GB MDN 512GB MDVH4BZ/A
+    '000000000100080277': ('device', 'Mac', None),  # MACB PRO 14 M5P 24GB SPB 1TB MGDR4BZ/A
+    '000000000100080262': ('device', 'Mac', None),  # MACB AIR 15 M5 16GB SIL 512GB MDV94BZ/A
+    '000000000100051856': ('device', 'Apple Watch', None),  # WATCH S10 DM 42 RG AL PLUM SL G 3N492BZ
+    '000000000100051859': ('device', 'Apple Watch', None),  # WATCH S10 DM 46 JB AL BK SB SM G 3N496BZ
+    '000000000100051879': ('device', 'Apple Watch', None),  # WATCH S10 46 RG AL LB SB ML G MWWU3AM/A
+    '000000000100052309': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 ESP NIKE PLAT MYJM3AM/A
+    '000000000100052302': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 LOOP E AZL MXKX3AM/A
+    '000000000100052305': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 MILANES DOU MXMN3AM/A
+    '000000000100052081': ('acc_apple', 'Outros', None),  # CARTEIRA APPLE TECIDO VRD MA6Y4ZM/A
+    '000000000100051949': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16PRO AZL MCFN4LL/A
+    '000000000100051938': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 LOOP E ESTL MYJE3AM/A
+    '000000000100051911': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16 SIL PTO MYY13ZM/A
+    '000000000100051913': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16 ROX MCFF4LL/A
+    '000000000100020044': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 2PORT 30W VRD OP1ANG3DBGG
+    '000000000100037404': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PRO MAX TRANS MT233ZM/A
+    '000000000100037196': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PRO AZUL TEMP MT1D3ZM/A
+    '000000000100052077': ('acc_apple', 'AirTag', None),  # CHAVEIRO APPLE AIRTAG TEC AZL MA7H4ZM/A
+    '000000000100066987': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PREMIUM OIV0816
+    '000000000100053768': ('device', 'iPhone', None),  # IPHONE 16 WHITE 512GB MYEP3BR/A
+    '000000000100054553': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 15 SIL PTO MXPD3ZM/A
+    '000000000100018128': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGHTN 15CM SPACE CIPMFI NEW
+    '000000000100017463': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M VRD OP1DLCGS
+    '000000000100017471': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M RSA OP1DLCRS
+    '000000000100036188': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 TRANS MPU13ZE/A
+    '000000000100035904': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI SILMAG KUM MHKN3ZE/A
+    '000000000100036012': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL ENCORE ESS PTO 58035033
+    '000000000100035546': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL PBCLUB 120 PTO 28913763
+    '000000000100032451': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE AIR 11 CNZ MWK53ZM/A
+    '000000000100073429': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # DESKPAD IPLACE GAMER INDUC PTO IPGUA2929
+    '000000000100072614': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BK ALP MF0V4BE/A
+    '000000000100039423': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 11 PRIV OIV0025
+    '000000000100051828': ('device', 'Apple Watch', None),  # WATCH SE 2 44 SI AL DN SB ML G MXER3BE/A
+    '000000000100051645': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE WATCH SIL 42/45 PTO OIV0596
+    '000000000100066999': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH AIR ESSENTIAL OIV0804
+    '000000000100051944': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PL TRANSP MA7D4ZM/A
+    '000000000100072587': ('device', 'Apple Watch', None),  # WATCH 11 46 RG AL LB SB SM C MFCG4AM/A
+    '000000000100072584': ('device', 'Apple Watch', None),  # WATCH 11 46 JB AL BK SB ML C MFC44AM/A
+    '000000000100072566': ('device', 'Apple Watch', None),  # WATCH 11 42 JB AL BK SB SM C MF834AM/A
+    '000000000100050716': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI LIFT CANHTO GRF 910-006467
+    '000000000100051617': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 4GER USB-C MXP63BZ/A
+    '000000000100025061': ('acc_apple', 'Magic Mouse', None),  # MAGIC MOUSE 3 APPLE BLACK DEMO MMMQ3BE/A
+    '000000000100025300': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE TOUCH NUM MK2C3BZ/A
+    '000000000100032434': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE AIR 11 DENIM MWK63ZM/A
+    '000000000100047562': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO PARTY BCO OIV0520
+    '000000000100047564': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO PARTY RSA OIV0524
+    '000000000100067219': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PRO MERC PTO OIV0903
+    '000000000100067220': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 GUESS MRM OIV0896
+    '000000000100040769': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX ANYW 3S GRF 910-006932
+    '000000000100040684': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12/12 PRO PRIV OIV0026
+    '000000000100072609': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI NT TML MEWW4BE/A
+    '000000000100053010': ('acc_parceiro', 'Outros', 'Logitech'),  # WEBCAM LOGI F HD BRIO 100 GRF 960-001586
+    '000000000100055242': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE AURORA 13 PTO SNK OIV0643
+    '000000000100047210': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16 PLUS RING AZUL OIV0480
+    '000000000100047213': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16 PLUS STAND PTO OIV0484
+    '000000000100047258': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PLUS ESSEN PTO OIV0442
+    '000000000100047093': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 CANDY AZUL OIV0461
+    '000000000100047099': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 DROP LILAS OIV0468
+    '000000000100047145': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 DROP VRD OIV0471
+    '000000000100047061': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 SILICONE PINK OIV0490
+    '000000000100046908': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP14 NORONHA MAG PTO OIV0420
+    '000000000100041072': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI MX MINI CNZ 920-010506
+    '000000000100072545': ('device', 'Apple Watch', None),  # WATCH SE 3 40 M AL M SB ML C MEPC4AM/A
+    '000000000100080756': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX 2 LARA MHWN4BE/A
+    '000000000100080757': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX 2 ROXO MHWP4BE/A
+    '000000000100080390': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL SENSEPRO PRETO 28914038
+    '000000000100068323': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE ROSA LOREFSTRSA
+    '000000000100046759': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 PRO SLIM OIV0353
+    '000000000100046779': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE FLORIPA MAC13 VERMELHA
+    '000000000100042360': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU GAMER OIV0434
+    '000000000100042393': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO ANTIBLU OIV0431
+    '000000000100042055': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PLU GAMER OIV0248
+    '000000000100027058': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE RAFA BEGE OIV0369
+    '000000000100045678': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 AIR CUSHION 303735
+    '000000000100046591': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 ALCA PTO OIV278
+    '000000000100041262': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGITECH KEYSTOGO AZL 920-010040
+    '000000000100080180': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17E TRANSP MHWC4ZM/A
+    '000000000100080153': ('device', 'iPad', None),  # IPAD AIR M4 13 CL SP GR 128GB MH9D4BZ/A
+    '000000000100034989': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 3 SQD 58035032
+    '000000000100035132': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 13 SIL ROSA GIZ MM283ZE/A
+    '000000000100034843': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BAR 180 PTO 28913746
+    '000000000100046097': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 12 SIL ROSA OIV0119
+    '000000000100046196': ('acc_apple', 'MagSafe', None),  # CABO APPLE USB-C/MAGSAFE 2M  MLYV3AM/A
+    '000000000100045967': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 SIL ROSA OIV0047
+    '000000000100046048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 12 SIL CINZA OIV0118
+    '000000000100046091': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 12 SIL LAVAN OIV0121
+    '000000000100045834': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 MS LARANJA O1251
+    '000000000100027332': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA AIRTAG IPLACE TPU PET PTO PP0760
+    '000000000100027612': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE (PACOTE COM 4)MX542BE/A
+    '000000000100027260': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE SPRING 38-41MM ROSA OIV0536
+    '000000000100027161': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44/45 METAL PTO OIV0256
+    '000000000100043579': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI ON ZONE 300 GRF 981-001406
+    '000000000100042516': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PL PRIVACID A.U OIV0551
+    '000000000100042631': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PM ANTIBLU A.U OIV0560
+    '000000000100072486': ('device', 'iPhone', None),  # IPHONE 17 P MAX DP BL 256GB DM 3P129BE/A
+    '000000000100080883': ('device', 'iPhone', None),  # IPHONE 17E SOFT PINK 512GB MHU34BR/A
+    '000000000100045475': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA MAO IPLACE 30CM TRANS OIV0314
+    '000000000100045603': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA MAO IPLACE 22CM TRANSP OIV0399
+    '000000000100045003': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12MINI AZU ROYAL IP-1263SA
+    '000000000100044490': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP XR SILIC CORAL IP-1123SC
+    '000000000100072449': ('device', 'iPhone', None),  # IPHONE 17 WHITE 512GB MG6Q4BE/A
+    '000000000100016747': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE FOLIO IPAD 10 PTO OIV0068
+    '000000000100016944': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE FOLIO IPAD 9 PTO OIV0067
+    '000000100047599001': ('device', 'iPhone', None),  # IPHONE 13 PRO GRAPHITE 128GB BB, E
+    '000000100041571001': ('device', 'iPad', None),  # IPAD PRO 11 2ND WF S. GRAY 128GB BB, E
+    '000000100038395001': ('device', 'iPad', None),  # IPAD 10TH WF BLUE 64GB BB, E
+    '000000100038462001': ('device', 'iPad', None),  # IPAD 10TH WF SVR 64GB BB, E
+    '000000000100066790': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16E BAC/PRIV A.U OIV0889
+    '000000000100060282': ('device', 'iPhone', None),  # IPHONE 16E WHT 512GB MD274BR/A
+    '000000100049360001': ('device', 'Apple Watch', None),  # WATCH SE GPS 40MM SPC GRAY BB, E
+    '000000100049408001': ('device', 'Apple Watch', None),  # WATCH ULTRA CEL 49MM BB, E
+    '000000100048183001': ('device', 'iPhone', None),  # IPHONE 15 BLACK 128GB BB N, E
+    '000000000100015522': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO MS MARROM 304116
+    '000000000100015422': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO MS LARANJA O1253
+    '000000000100015612': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX TRANS SLIM OIV0129
+    '000000000100016286': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX SPRING ROS OIV0535
+    '000000000100015582': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL ROSA OIV0050
+    '000000100048457001': ('device', 'iPhone', None),  # IPHONE 11 BLACK 64GB BB N, E
+    '000000100048798001': ('device', 'iPhone', None),  # IPHONE 14 BLUE 128GB BB N, E
+    '000000100048754001': ('device', 'iPhone', None),  # IPHONE 13 GREEN 128GB BB I, E
+    '000000100048439001': ('device', 'iPhone', None),  # IPHONE 11 WHITE 128GB BB I, E
+    '000000100048435001': ('device', 'iPhone', None),  # IPHONE 11 PURPLE 64GB BB I, E
+    '000000100048750001': ('device', 'iPhone', None),  # IPHONE 13  RED 256GB BB I, E
+    '000000100053829001': ('device', 'iPhone', None),  # IPHONE 16 ROSA 128GB BB N, E
+    '000000000100045766': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 SIL AZUL CI 303849
+    '000000000100069614': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL OV TUNE 520C BCO 28914009
+    '000000000100017437': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE LIGH USB-C 1,2M PTO OP1DLCCK
+    '000000000100046130': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 13 AIRCUSHION OIV0005
+    '000000000100046045': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 12 SIL AZUL OIV0117
+    '000000000100017883': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB USB-C 1,2M BCO OP1DACB1
+    '000000000100018276': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB/LIGHT 3.1G 3M BCO 1814
+    '000000000100044132': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPSE2ND/8/7 CLA TR IP-1006PT
+    '000000000100044037': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPSE2ND/8/7 SUP MAG CMAGIP7
+    '000000000100047644': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA SAMPA IPLACE CINZA IP-1099TC
+    '000000000100080287': ('device', 'Mac', None),  # MACB PRO 16 M5M 48GB SPB 2TB MGEE4BZ/A
+    '000000000100080156': ('device', 'iPad', None),  # IPAD AIR M4 13 CL SP GR 256GB MH9H4BZ/A
+    '000000000100072509': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PMAX CINZA G MGJD4LL/A
+    '000000000100072492': ('device', 'iPhone', None),  # IPHONE 17 PRO SILVER 256GB DM 3P170BE/A
+    '000000000100033447': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS 3GER LIGHT MPNY3BE/A
+    '000000000100080232': ('device', 'iPad', None),  # IPAD AIR M4 11 WF PUR 256GB MH394BZ/A
+    '000000000100043451': ('acc_parceiro', 'Fone', 'Logitech'),  # FONE LOGI OV ZONEVIBE 100 GRF 981-001214
+    '000000000100080252': ('device', 'Mac', None),  # MACB AIR 13 M5 24GB SIL 1TB MDH94BZ/A
+    '000000000100032737': ('acc_apple', 'Capa/Case', None),  # CAPA TECL APPLE IPADPRO 11 PTO MU8G2LL/A
+    '000000000100045701': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 11 SIL AZUL CI 303862
+    '000000000100046461': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO AZUL PETR OIV0264
+    '000000000100080228': ('device', 'iPad', None),  # IPAD AIR M4 11 WF PUR 128GB MH344BZ/A
+    '000000000100045886': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 MS PRETA 304115
+    '000000000100043532': ('device', 'Apple Watch', None),  # WATCH S9 GPS 45 MID SB S/M DM 3M589BZ/A
+    '000000000100051855': ('device', 'Apple Watch', None),  # WATCH S10 DM 42 RG AL LB SB SM G 3N490BZ
+    '000000000100032492': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE AIR 13 CNZ MWK93ZM/A
+    '000000100039956001': ('device', 'iPad', None),  # IPAD AIR 5TH WF S. GRAY 256GB BB, E
+    '000000000100051790': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 41 NIKE CIN/AZUL MC1G4AM/A
+    '000000100045261001': ('device', 'iPhone', None),  # IPHONE 11 PRO MAX MID GREEN 512GB BB, E
+    '000000000100047920': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE RIO MAC16 PRETA OIV0124
+    '000000100046606001': ('device', 'iPhone', None),  # IPHONE 12 PRO MAX GRPHT 256GB BB, E
+    '000000100046708001': ('device', 'iPhone', None),  # IPHONE 12 PRO MAX PBLUE 256GB BB, E
+    '000000000100047502': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP14 NORONHA AZUL OIV0526
+    '000000000100050717': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI LIFT GRF 910-006466
+    '000000100039321001': ('device', 'iPad', None),  # IPAD 9TH WF S. GRAY 256GB BB, E
+    '000000000100032108': ('device', 'iPhone', None),  # IPHONE 15 PINK 256GB MTP73BR/A
+    '000000000100047329': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP16 PROMAX DROP VRD OIV0473
+    '000000000100067215': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA/CABO LACOSTE IPH17 PTO OIV0907
+    '000000000100032475': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE AIR 11 VERDE MWK73ZM/
+    '000000000100067211': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 GUESS PTO OIV0898
+    '000000000100032631': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB 5GER APPLE 12.9 P PTO MJQK3BZ
+    '000000000100047452': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP16 PRO FORCE PTO OIV0511
+    '000000000100047294': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP16 PRO DROP VRD OIV0472
+    '000000000100047219': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 LILAS BRIL OIV0453
+    '000000000100047148': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 RING AZUL OIV0479
+    '000000000100047022': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PRO RING AZUL OIV0481
+    '000000000100047832': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS COURO VERMELHA
+    '000000000100046765': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 8NP NE E
+    '000000000100080278': ('device', 'Mac', None),  # MACB PRO 14 M5P 24GB SPB 2TB MGDT4BZ/A
+    '000000000100031296': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL LIVE PRO2 TWS BLK 289
+    '000000000100069410': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-A LIGH 1,5M PTO LAP1NVE
+    '000000000100068088': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17PMAX EDGE OFF OIV0910
+    '000000000100046897': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 COURO CAFE
+    '000000000100080265': ('device', 'Mac', None),  # MACB AIR 15 M5 16GB STL 512GB MDVD4BZ/A
+    '000000000100046717': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP15PRO TR MAGNETICA OIV0304
+    '000000000100072683': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH AIR BEATS AZUL MGJW4LL/A
+    '000000000100072660': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 TRANSP MGF24ZM/A
+    '000000000100072617': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BC TL  MF1H4BE/A
+    '000000000100072583': ('device', 'Apple Watch', None),  # WATCH 11 46 JB AL BK SB SM C MFC24AM/A
+    '000000000100072567': ('device', 'Apple Watch', None),  # WATCH 11 42 JB AL BK SB ML C MF854AM/A
+    '000000000100072564': ('device', 'Apple Watch', None),  # WATCH 11 46 SI AL PF SB SM G MEV94AM/A
+    '000000000100045459': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA IPL IP ACRILI120 OWHI OIV0313
+    '000000000100072598': ('device', 'Apple Watch', None),  # WATCH 11 46 SL TI SL ML ML C MFD44AM/A
+    '000000000100034840': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BAR 800PRO PTO 28913592
+    '000000000100072589': ('device', 'Apple Watch', None),  # WATCH 11 46 SI AL PF SB SM C MFCP4AM/A
+    '000000000100072585': ('device', 'Apple Watch', None),  # WATCH 11 46 SG AL BK SB SM C MFC94AM/A
+    '000000000100040640': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12/12 PRO ANTIBAC OIV0033
+    '000000000100034986': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL BOOMBOX 3 PTO 58035031
+    '000000000100040554': ('device', 'iPad', None),  # IPAD PRO 13 M4 WF 256GB SB DM 3M780BZ/A
+    '000000000100074526': ('device', 'iPad', None),  # IPAD PRO 13 M5 WIFI 256GB SIL MDYK4BZ/A
+    '000000000100074908': ('acc_parceiro', 'Fone', 'JBL'),  # MICROFONE JBL PARTY BOX WL PTO 28913769
+    '000000000100026847': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 SILI AZUL ROYAL IP-1280SA
+    '000000000100026922': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40 SILICONE VERMEL IP-1325SV
+    '000000000100038716': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL TRANS IPLACE IPAD PRO 12.9 IP-1022VT
+    '000000000100027013': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE MIA COURO PRETA BCI001PTO
+    '000000000100024370': ('acc_apple', 'MagSafe', None),  # MAGSAFE APPLE 45W POWER ADAPT MC747BZ/A
+    '000000000100024148': ('acc_apple', 'Carregador Apple', None),  # CARREGADOR APPLE USB-C 61W MRW22BZ/A
+    '000000000100024840': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PELICULA IPLACE MACBOOK 13,6 OIV0415
+    '000000000100024847': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PELICULA IPLACE MACBOOK 14,2 OIV0416
+    '000000000100024874': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PELICULA IPLACE MACBOOK 15,3 OIV0417
+    '000000000100072616': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BC TL  MF1D4BE/A
+    '000000000100040204': ('acc_parceiro', 'Caneta', 'Logitech'),  # CANETA DIG LOGITECH CRYON BRA 914-000033
+    '000000000100074509': ('device', 'Mac', None),  # MACB PRO 14 M5 SB 24GB 1TB MDE34BZ/A
+    '000000000100036386': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PLUS SIL AZUL MPT53ZE/A
+    '000000000100039482': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12/PRO SIMAG VERM MHL63ZE/A
+    '000000000100041064': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI ERGO K860 PTO 920-009169
+    '000000000100041036': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI 400 PLU CNZ 920-007125
+    '000000000100072517': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH AIR BEATS CALCA MGJU4LL/A
+    '000000000100072514': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PMAX TRANSP MGFW4ZM/A
+    '000000000100042498': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU ANTIBLU A.U OIV0552
+    '000000000100079328': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE 730BT AZUL 28914082
+    '000000000100034286': ('acc_parceiro', 'Caixa de Som', 'Originais iPlace'),  # CAIXA DE SOM IPLACE ENERGIE L55 PTO/AZUL
+    '000000000100034999': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12/PRO SILMAG KUM MHKY3ZE/A
+    '000000000100045253': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 12 MINI CLASSICA TR 1587
+    '000000000100035886': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI SILMAG PLM MHKQ3ZE/A
+    '000000000100035961': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI COUMAG VRM MHK73ZE/A
+    '000000000100044756': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PRO NANSIL PTO IP-1167SP
+    '000000000100032935': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLE PRO13 BCO MWR43BZ/A
+    '000000000100072461': ('device', 'iPhone', None),  # IPHONE AIR SPACE BLACK 1TB MG2W4BE/A
+    '000000000100035875': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL AUTH 300 PTO 28913719
+    '000000000100035126': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL CHARGE 5 AZUL 28913427
+    '000000000100034322': ('acc_parceiro', 'Caixa de Som', 'Originais iPlace'),  # CAIXA DE SOM IPLACE ENERGIE L55 AZUL/AMA
+    '000000000100040796': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 13 MINI ESPELHO 302032
+    '000000000100040771': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 13 MINI ANTIBACT 302029
+    '000000000100040676': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12/12 PRO ANTIBAC OIV0033
+    '000000000100040674': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGITECH MX ANY3 ROSA 910-005994
+    '000000000100040646': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGITECH MX ANY3 CINZA 910-005993
+    '000000000100021836': ('device', 'iPad', None),  # IPAD AIR 13 6TH M2 CL 128GB SG MV6Q3BZ/A
+    '000000000100034347': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 11PROMAX SIL ROS MWYY2ZM/A
+    '000000000100041079': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI MX MINI GRF 920-010505
+    '000000000100042002': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15GAMER A.U OIV0545
+    '000000000100042342': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PLU ANTIBLU OIV0430
+    '000000000100042306': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16 PRIVACID A.U OIV0547
+    '000000000100042212': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP16 ANTIBACTERIA OIV0421
+    '000000000100042176': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 15 PROMAX ANTBLUE OIV0246
+    '000000000100036197': ('acc_parceiro', 'Fone', 'JBL'),  # MICROFONE JBL QUANT STREAM PTO 28913617
+    '000000000100042135': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 PRO GAMER OIV0249
+    '000000000100031521': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL WAV FLEX WHT 28913666
+    '000000100047588001': ('device', 'iPhone', None),  # IPHONE 13 PRO GOLD 256GB BB I, E
+    '000000000100027062': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # PULSEIRA WATCH IPLACE METAL PRAT OIV0341
+    '000000000100052070': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH16PMAX ROX MCFU4LL/A
+    '000000000100031488': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL WAV FLEX BLK 28913665
+    '000000000100054592': ('device', 'iPad', None),  # IPAD MINI 7TH CEL 256GB PURPLE MXPY3BZ/A
+    '000000000100054594': ('device', 'iPad', None),  # IPAD MINI 7TH WF+CEL 512GB BLU MYHD3BZ/A
+    '000000100048733001': ('device', 'iPhone', None),  # IPHONE 13  STARLIGHT 128GB BB N, E
+    '000000100048438001': ('device', 'iPhone', None),  # IPHONE 11 RED 64GB BB I, E
+    '000000000100031482': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL WAV BUDS BLK 28913661
+    '000000000100031381': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL TUNE FLX AZU 28913648
+    '000000000100015839': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 SCREEN PTO OIV0404
+    '000000100048009001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX S. BLUE 128GB BB, E
+    '000000000100056765': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN WAVE BEAM 2 AZL 28913848
+    '000000100047969001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX GOLD 512GB BB, E
+    '000000100047962001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX GOLD 128GB BB, E
+    '000000000100031807': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TOURPROWIRELESS2 PRETO 28913802
+    '000000000100016344': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA ENVELOPE IPAD IPLACE  PAMPAS CAFE
+    '000000100048168001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX SILVER 512GB BB I, E
+    '000000000100054586': ('device', 'iPad', None),  # IPAD MINI 7TH WF+CEL 128GB BLU MXPP3BZ/A
+    '000000100048474001': ('device', 'iPhone', None),  # IPHONE 11 RED 128GB BB N, E
+    '000000100048161001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX GOLD 1TB BB I, E
+    '000000100048149001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX D PURPLE 256GB BB I, E
+    '000000000100015048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14PLUS SIL ROS CHA 303846
+    '000000000100060997': ('device', 'iPad', None),  # IPAD 11TH CELL 128GB PINK MD7J4BZ/A
+    '000000000100060999': ('device', 'iPad', None),  # IPAD 11TH CELL 256GB BLUE MD7L4BZ/A
+    '000000000100061001': ('device', 'iPad', None),  # IPAD 11TH CELL 256GB PINK MD7N4BZ/A
+    '000000100048122001': ('device', 'iPhone', None),  # IPHONE 14 PRO GOLD 1TB BB I, E
+    '000000000100061253': ('device', 'iPad', None),  # IPAD AIR 7TH 13 WF 128GB SG DM 3N727BZ/A
+    '000000000100061264': ('device', 'iPad', None),  # IPAD AIR 7TH 11 WF 128GB PU DM 3N673BZ/A
+    '000000000100061326': ('acc_apple', 'Outros', None),  # MAGIC APPLE IPAD AIR13 M3 DEMO MDFW4BZ/A
+    '000000000100015032': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS MARROM
+    '000000000100015297': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL AZUL CI 303852
+    '000000000100015263': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO TRANS SLIM OIV0128
+    '000000100048735001': ('device', 'iPhone', None),  # IPHONE 13  STARLIGHT 256GB BB N, E
+    '000000100048222001': ('device', 'iPhone', None),  # IPHONE 15 BLUE 256GB BB I, E
+    '000000000100061091': ('device', 'Mac', None),  # MAC STUDIO M3 ULTRA 1TB 96GB MU973BZ/A
+    '000000000100057274': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PMAX ANTB A.U OIV0655
+    '000000100048325001': ('device', 'iPhone', None),  # IPHONE 15 PRO WHT TITANIUM 128GB BB I, E
+    '000000000100064792': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX AZL MWW63BE/A
+    '000000000100066977': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH AIR PROSAFE OIV0808
+    '000000000100015948': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PLUS RING ROSA OIV0475
+    '000000000100015377': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL VER CER 303857
+    '000000000100015392': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS 3 SIL PRETA OIV0074
+    '000000000100015547': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL AZUL OIV0054
+    '000000000100018917': ('acc_apple', 'Adaptador', None),  # ADAP APPLE USB-C/AV DIGITAL MUF82AM/A
+    '000000000100015979': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PRO CANDY AZUL OIV0463
+    '000000000100015207': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL PRETO OIV0061
+    '000000000100051881': ('device', 'Apple Watch', None),  # WATCH S10 46 RG AL PLUM SL C MWY83AM/A
+    '000000000100018835': ('acc_apple', 'Adaptador', None),  # ADAPTADOR APPLE USB-C TO VGA MJ1L2AM/A
+    '000000000100051933': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 49 LOOP A AZL MYPW3AM/A
+    '000000000100051733': ('device', 'iPhone', None),  # IPHONE 16 PLUS ULTMARINE 256GB MXY23BE/A
+    '000000000100015567': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL PRETO OIV0062
+    '000000000100018753': ('acc_apple', 'Adaptador', None),  # ADAP APPLE THUNDER/ETHERNET MD463BE/A
+    '000000000100015035': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS PRETO
+    '000000000100015143': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO SIL AZUL CI 303851
+    '000000000100030566': ('device', 'iPhone', None),  # IPHONE 14 STARLIGHT 256GB MPW43BR/A
+    '000000000100015108': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO ANTIBAC BLK 303784
+    '000000000100014139': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12PMAX TR AIRCUS IP-1247PT
+    '000000000100052306': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 NIKE CIN/AZUL MXTX3AM/A
+    '000000100048710001': ('device', 'iPhone', None),  # IPHONE 13  BLUE 128GB BB I, E
+    '000000000100052308': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 NIKE BRAS MAG MYL23AM/A
+    '000000000100052310': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 42 LOOP NIKE EST MYJC3AM/A
+    '000000000100051936': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 LOOP E AZL MXL53AM/A
+    '000000000100016047': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PRO LILAS BRI OIV0455
+    '000000100048064001': ('device', 'iPhone', None),  # IPHONE 14 PLUS MIDNIGHT 256GB BB N, E
+    '000000000100031222': ('device', 'iPhone', None),  # IPHONE 15 PLUS PINK 128GB MU103BE/A
+    '000000000100055451': ('device', 'Mac', None),  # MACBOOK PRO 14 M4 DM SB 512GB MW2U3BZ/A
+    '000000000100055454': ('device', 'Mac', None),  # IMAC 24 M4 BLUE 256GB DEMO MWV13BZ/A
+    '000000100053728001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TIT DESERTO 256GB B, E
+    '000000100048047001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX ALP GREEN 1TB BB, E
+    '000000000100055321': ('device', 'Mac', None),  # IMAC 24 M4 BLUE 256GB 8GPU MWUF3BZ/A
+    '000000000100051760': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX WHITE 512GB MYX13BE/A
+    '000000100053667001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TIT BRANCO 256GB BB, E
+    '000000100053796001': ('device', 'iPhone', None),  # IPHONE 16 ROSA 128GB BB I, E
+    '000000000100055387': ('device', 'Mac', None),  # IMAC 24 M4 SILVER 512GB 10GPU MWUV3BZ/A
+    '000000000100014954': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS AMARELO
+    '000000000100051707': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX DESERT 256GB MYWX3BE/A
+    '000000000100067012': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17PRO PROMATTE OIV0813
+    '000000000100017125': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-C USB 1,5 PTO MT1DCAP
+    '000000000100016804': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA TC IPLACE IPAD PRO11 ROSA IPSTA1212
+    '000000000100016958': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE FOLIO IPAD 9 VERDE OIV0072
+    '000000000100016985': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPAD POLVO KIDS OIV0321
+    '000000100053775001': ('device', 'iPhone', None),  # IPHONE 16 PRO TITAN PRETO 256GB BB, E
+    '000000000100080889': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE MAG MAC NEO OIV0945
+    '000000000100027667': ('acc_apple', 'AirTag', None),  # LACO APPLE PARA AIRTAG BCO MX4F2ZM/A
+    '000000000100028118': ('device', 'iPhone', None),  # IPHONE 12 BLACK 128GB MGJA3BR/A
+    '000000000100027661': ('acc_apple', 'AirTag', None),  # CHAV APPLE COURO P AIRTAG AZUL MHJ23ZM/A
+    '000000000100029242': ('acc_apple', 'Pulseira', None),  # P APPLE 42/44 ESP AZUL A MX0M2AM/A
+    '000000000100029131': ('device', 'iPhone', None),  # IPHONE 13 BLUE 512GB MLQG3BZ/A
+    '000000000100029017': ('acc_apple', 'Pulseira', None),  # P APPLE 38/40 ESP VERDE MWUR2AM/A
+    '000000000100030392': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL T110 BLK JBLT110BLK
+    '000000000100029274': ('device', 'iPhone', None),  # IPHONE 13 MIDNIGHT 512GB MLQC3BZ/A
+    '000000000100029593': ('device', 'iPhone', None),  # IPHONE 13 GREEN 256GB MNGL3BR/A
+    '000000000100029522': ('acc_apple', 'Pulseira', None),  # P APPLE 42/44 NIKE LOOP ROY/PT MWU32AM/A
+    '000000000100029277': ('device', 'iPhone', None),  # IPHONE 13 STARLIGHT 512GB MLQD3BZ/A
+    '000000000100030913': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL T215TWS BLACK 28913346
+    '000000000100030916': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL T215TWS WHITE 28913347
+    '000000000100031143': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 41 WHITE DEMO 3K926AM/A
+    '000000000100031150': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL WAVE 200 TWS BCO 28913520
+    '000000000100030815': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL T125TWS PRETO 28913334
+    '000000000100030560': ('device', 'iPhone', None),  # IPHONE 14 RED 512GB MPXG3BR/A
+    '000000000100031198': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL T130NC TWS BLACK 2891
+    '000000000100025825': ('device', 'Apple TV', None),  # APPLE TV 4K 32GB MQD22BZ/A
+    '000000000100025908': ('device', 'Apple TV', None),  # APPLE TV 4K 64GB WI-FI MN873BZ/A
+    '000000000100027156': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # PASTA ENVEL MAC13 IPLACE PAMPAS OIV0573
+    '000000000100027198': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE GISELE COURO PRETA BI001PTO
+    '000000000100027241': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE GISELE COURO CREME BI002CRE
+    '000000000100027387': ('acc_parceiro', 'AirTag', 'Originais iPlace'),  # CHAV AIRTAG IPLACE TPU ORQUIDEA VTP0065
+    '000000000100027569': ('acc_apple', 'AirTag', None),  # AIRTAG APPLE (PACOTE COM 1)MX532BE/A
+    '000000000100026833': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40 SILI AZUL ROYAL IP-1279SA
+    '000000000100027055': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE RIO PRETA IP0006160323
+    '000000000100026502': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 ESPORT AZUL IP-1146SA
+    '000000000100026559': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 SILIC MARSALA IP-1133SM
+    '000000000100027019': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE MIA VERDE LIMAO BCI003VDL
+    '000000000100026584': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40 NYLON ARCO-IRIS IP-1222NC
+    '000000000100026706': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 NYLON ARCO-IRIS IP-1223NC
+    '000000000100026723': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 NYLON VERDE MIL IP-1220NV
+    '000000000100026765': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 SIL AZUL OCEANO IP-1214SA
+    '000000000100026328': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE SIL ESP WATCH42/44ROS IP-1051SR
+    '000000000100018582': ('acc_apple', 'Adaptador', None),  # ADAP APPLE LIGHT/USB CAMERA MD821BZ/A
+    '000000000100018828': ('acc_apple', 'Adaptador', None),  # ADAPTADOR APPLE USB-C TO USB MJ1M2AM/A
+    '000000100048101001': ('device', 'iPhone', None),  # IPHONE 14 PLUS YELLOW 128GB BB I, E
+    '000000000100016777': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA TC IPLACE IPADPRO11 VERDE IPSTA1111
+    '000000000100028233': ('device', 'Apple Watch', None),  # P AW 38 PSD SB RGP SM/ML TRYON 3C579BZ/A
+    '000000000100017098': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB-C LIGH 1,5 BCO MT1DLCB
+    '000000100048041001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX S. BLUE 256GB BB, E
+    '000000100048049001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX ALP GREEN 128GB BB, E
+    '000000100048060001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX ALP GREEN 256GB BB, E
+    '000000100048063001': ('device', 'iPhone', None),  # IPHONE 14 PLUS MIDNIGHT 128GB BB N, E
+    '000000100048066001': ('device', 'iPhone', None),  # IPHONE 14 PLUS BLUE 128GB BB I, E
+    '000000100048082001': ('device', 'iPhone', None),  # IPHONE 14 PLUS PURPLE 128GB BB I, E
+    '000000100047626001': ('device', 'iPhone', None),  # IPHONE 13 PRO GRAPHITE 1TB BB I, E
+    '000000100047653001': ('device', 'iPhone', None),  # IPHONE 13 PRO S. BLUE 128GB BB I, E
+    '000000100047685001': ('device', 'iPhone', None),  # IPHONE 13 PRO S. BLUE 256GB BB I, E
+    '000000100047925001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX SILVER 1TB BB, E
+    '000000000100017091': ('acc_parceiro', 'Cabo', 'Mister'),  # CABO MISTER USB LIGHT 1,5M BCO MT1DLAB
+    '000000100039966001': ('device', 'iPad', None),  # IPAD AIR 5TH WF PURPLE 64GB BB, E
+    '000000100043250001': ('device', 'iPad', None),  # IPAD PRO 12.9 6TH CEL SVR 256GB BB, E
+    '000000100045193001': ('device', 'iPhone', None),  # IPHONE 11 PRO MAX GOLD 256GB BB, E
+    '000000100038773001': ('device', 'iPad', None),  # IPAD 7TH CEL GOLD 32GB BB, E
+    '000000100038822001': ('device', 'iPad', None),  # IPAD 7TH CEL S. GRAY 32GB BB, E
+    '000000100039116001': ('device', 'iPad', None),  # IPAD 8TH WF GOLD 32GB BB, E
+    '000000100039155001': ('device', 'iPad', None),  # IPAD 8TH WF S. GRAY 32GB BB, E
+    '000000100039565001': ('device', 'iPad', None),  # IPAD AIR 4TH CEL SKY BLUE 256GB BB, E
+    '000000100039763001': ('device', 'iPad', None),  # IPAD AIR 4TH WF SILVER 64GB BB, E
+    '000000100039947001': ('device', 'iPad', None),  # IPAD AIR 5TH WF S. GRAY 64GB BB, E
+    '000000100040045001': ('device', 'iPad', None),  # IPAD AIR 5TH WF BLUE 64GB BB, E
+    '000000000100016006': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 16 PRO CANDY ROSA OIV0459
+    '000000000100016010': ('device', 'Mac', None),  # MACBOOK PRO 13 M18C SPGR 256GB MYD82BZ/A
+    '000000000100014986': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS TERRACOTA
+    '000000100048711001': ('device', 'iPhone', None),  # IPHONE 13  BLUE 128GB BB N, E
+    '000000100048719001': ('device', 'iPhone', None),  # IPHONE 13 MIDNIGHT 256GB BB N, E
+    '000000100048731001': ('device', 'iPhone', None),  # IPHONE 13 MIDNIGHT 512GB BB N, E
+    '000000100048738001': ('device', 'iPhone', None),  # IPHONE 13  RED 128GB BB I, E
+    '000000000100014957': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS IPLACE PAMPAS BEGE
+    '000000100048368001': ('device', 'iPhone', None),  # IPHONE 12 BLUE 128GB BB N, E
+    '000000100048410001': ('device', 'iPhone', None),  # IPHONE 12 WHITE 64GB BB N, E
+    '000000100048415001': ('device', 'iPhone', None),  # IPHONE 12 PURPLE 64GB BB I, E
+    '000000100048001001': ('device', 'iPhone', None),  # IPHONE 13 PRO MAX GRAPHITE 128GB BB, E
+    '000000100048451001': ('device', 'iPhone', None),  # IPHONE 11 WHITE 64GB BB I, E
+    '000000100048697001': ('device', 'iPhone', None),  # IPHONE 13  PINK 256GB BB N, E
+    '000000000100015682': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PRO NORONHA PTO OIV0232
+    '000000000100015772': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PROMAX CDY ROSA OIV0287
+    '000000000100015778': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PROMAX CNDY VRD OIV0284
+    '000000000100015816': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PRMX CART MARI OIV0281
+    '000000100048347001': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX TITANIUM 512GB BB I, E
+    '000000100048363001': ('device', 'iPhone', None),  # IPHONE 12 BLACK 256GB BB I, E
+    '000000100048366001': ('device', 'iPhone', None),  # IPHONE 12 BLACK 64GB BB N, E
+    '000000000100015347': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL ROS CHA 303848
+    '000000000100015359': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE AIRPODS PRO2 SIL RSA OIV0257
+    '000000100048433001': ('device', 'iPhone', None),  # IPHONE 11 PURPLE 128GB BB I, E
+    '000000100046777001': ('device', 'iPhone', None),  # IPHONE 12 PRO MAX SILVR 256GB BB, E
+    '000000100046846001': ('device', 'iPhone', None),  # IPHONE 13 MINI PINK 128GB BB N, E
+    '000000100046851001': ('device', 'iPhone', None),  # IPHONE 13 MINI PINK 256GB BB I, E
+    '000000100046915001': ('device', 'iPhone', None),  # IPHONE 13 MINI BLUE 128GB BB I, E
+    '000000100047012001': ('device', 'iPhone', None),  # IPHONE 13 MINI MIDNIGHT 128GB BB, E
+    '000000100047033001': ('device', 'iPhone', None),  # IPHONE 13 MINI MIDNIGHT 256GB BB, E
+    '000000100047181001': ('device', 'iPhone', None),  # IPHONE 13 MINI STARLIGHT 128GB BB, E
+    '000000100048323001': ('device', 'iPhone', None),  # IPHONE 15 PRO TITANIUM 256GB BB I, E
+    '000000100048342001': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX BLU TITAN 1TB BB I, E
+    '000000000100015233': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS PRO IPLACE PAMPAS ARTE PRET
+    '000000000100015236': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CASE AIRPODS PRO IPLACE PAMPAS AMARELO
+    '000000000100015965': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PLUS TRA BRIL OIV0450
+    '000000100048121001': ('device', 'iPhone', None),  # IPHONE 14 PRO D PURPLE 512GB BB I, E
+    '000000100048142001': ('device', 'iPhone', None),  # IPHONE 14 PRO SPC BLK 256GB BB I, E
+    '000000100048181001': ('device', 'iPhone', None),  # IPHONE 14 PRO MAX SPC BLK 256GB BB I, E
+    '000000000100016071': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH16PMAX SCREEN PTO OIV0406
+    '000000000100016112': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I16 PRO MAX SIL AZUL OIV0495
+    '000000000100016218': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I16PROMAX CANDY AZUL OIV0464
+    '000000000100016252': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I16PROMAX DROP LILAS OIV0470
+    '000000000100016358': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA ENV IPAD IPLACE 11 PRETO OIV0570
+    '000000100048108001': ('device', 'iPhone', None),  # IPHONE 14 PRO D PURPLE 1TB BB I, E
+    '000000100048120001': ('device', 'iPhone', None),  # IPHONE 14 PRO D PURPLE 256GB BB I, E
+    '000000000100014472': ('acc_apple', 'Caneta', None),  # APPLE PENCIL DEMO PRO MX2D3AM/A
+    '000000000100019955': ('acc_parceiro', 'Carregador', 'Mister'),  # KIT VIAGEM MISTER 30W LIGHT BCO MT4VLCB
+    '000000000100020228': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE VEICULAR IPLACE PTO 15W OP1BWFS
+    '000000000100020757': ('device', 'iPad', None),  # IPAD PRO 12.9 M2CL 1TB SILVR MP253BZ/A
+    '000000000100021784': ('device', 'iPad', None),  # IPAD AIR 13 6TH M2 WF 256GB SG MV2D3BZ/A
+    '000000000100019330': ('acc_parceiro', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE USB-C 20W BCO OP1ANG2D1UC
+    '000000000100021976': ('device', 'iPad', None),  # IPAD PRO 11 M4 CELL 256GB SB MVW13BZ/A
+    '000000000100026840': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40 SILICONE ORQUID IP-1281SR
+    '000000000100026888': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 38/40 SILICON AMARELO IP-1324SA
+    '000000000100026956': ('acc_parceiro', 'Pulseira', 'Originais iPlace'),  # P IPLACE 42/44 SIL VERMELHO IP-1326SV
+    '000000000100027016': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # BOLSA IPLACE MIA COURO CREME BCI002CRE
+    '000000000100024377': ('acc_apple', 'MagSafe', None),  # CARREGADOR APPLE MAGSAFE 1 85W MC556BZ/B
+    '000000000100024749': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ORGANIZADOR DE ACESSORI IPLACE IP-1152TC
+    '000000000100024880': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SUPORTE IPLACE MAC/IPAD BRANCO IP-1073PB
+    '000000000100024175': ('acc_apple', 'Carregador Apple', None),  # CARREGADOR APPLE 96W USB-C MX0J2BZ/A
+    '000000000100024969': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # SUPORTE ADAP IPLACE MULT 8EM1 OP1GSLHU3
+    '000000000100022012': ('device', 'iPad', None),  # IPAD PRO 11 M4 CELL 512GB SB MVW33BZ/A
+    '000000000100022018': ('device', 'iPad', None),  # IPAD PRO 13 M4 WIFI 256GB SB MVX23BZ/A
+    '000000000100018408': ('acc_parceiro', 'Cabo', 'Originais iPlace'),  # CABO IPLACE USB-C 3 GERAC 1,2M BCO 1555
+    '000000000100025314': ('acc_apple', 'Magic Mouse', None),  # MAGIC MOUSE APPLE 3 BRANCO-BES MK2E3BE/A
+    '000000000100051831': ('device', 'Apple Watch', None),  # WATCH SE 2 44 ST AL ST SB ML G MXEV3BE/A
+    '000000000100051834': ('device', 'Apple Watch', None),  # WATCH SE 2 40 MI AL MI SB SM C MXGC3BE/A
+    '000000000100051850': ('device', 'Apple Watch', None),  # WATCH SE 2 44 ST AL LG SL C MXGV3BE/A
+    '000000000100046782': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 SIL PRETO OIV0348
+    '000000000100046785': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 SLIM OIV0351
+    '000000000100046843': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 COURO AMARELA
+    '000000000100046857': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 COURO TERRACOTA
+    '000000000100046308': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PLUS SIL PRET OIV0219
+    '000000000100046649': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 PTA CAR MARI OIV0280
+    '000000000100046694': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 2NP RJ E
+    '000000000100015617': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PLUS NORON BRA OIV0225
+    '000000000100046699': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 5NP RS E
+    '000000000100046774': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE FLORIPA MAC13 AZUL
+    '000000000100047814': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 NORONHA PTO OIV0230
+    '000000000100046917': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 MARINHO
+    '000000000100046966': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 15 MARINHO
+    '000000000100047504': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PARTY BCO OIV0522
+    '000000000100047506': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PARTY BCO OIV0519
+    '000000000100047566': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16PRO SPRING ROS OIV0534
+    '000000000100047768': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 NORONHA PTO OIV0234
+    '000000000100047812': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 NORONHA BCO OIV0224
+    '000000000100072457': ('device', 'iPhone', None),  # IPHONE AIR SPACE BLACK 512GB MG2Q4BE/A
+    '000000000100043897': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 12 NORONH PTO OIV0236
+    '000000000100046697': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 4NP PR E
+    '000000000100052082': ('acc_apple', 'Outros', None),  # CARTEIRA APPLE TECIDO AMORA MA7A4ZM/A
+    '000000000100052116': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 46 LOOP E VRD MXL83AM/A
+    '000000000100052638': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # MALA IPLACE C/TEXTURA RSA OIV0598
+    '000000000100051860': ('device', 'Apple Watch', None),  # WATCH S10 DM 46 JB AL INK SL G 3N498BZ/A
+    '000000000100051199': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI TO GO 2 BCO 920-012919
+    '000000000100067212': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 17 MERC PTO OIV0904
+    '000000000100067214': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA/CABO LACOSTE IPH17PMAX PTO OIV0905
+    '000000000100047320': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP16 PRO SIL AZUL OIV0494
+    '000000000100047323': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP16 PRO SIL PINK OIV0491
+    '000000000100047994': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PMAX VERDFLRST IP-1199SV
+    '000000000100047995': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12MI TRA AIRCUSH IP-1245PT
+    '000000000100050474': ('device', 'iPad', None),  # IPAD AIR 11 6TH M2 CL 512GB BL MUXN3BZ/A
+    '000000000100051805': ('device', 'Apple Watch', None),  # WATCH ULT2 49 BK TI DG ALP L MX4T3BE/A
+    '000000000100050623': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN LIVE BEAM 3 PRATA 28913777
+    '000000000100050624': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL IN LIVE BEAM 3 PTO 28913776
+    '000000000100050718': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI LIFT ROS 910-006472
+    '000000000100047876': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS 15 MARINHO
+    '000000000100047894': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PRONANSIL VERD IP-1172SV
+    '000000000100047908': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE RIO MAC13 PRETA OIV0125
+    '000000000100047941': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11 PRO DUPLA PTO IP-1185PP
+    '000000000100047943': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PRO AZU COBLTO IP-1196SA
+    '000000000100047945': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 11PRO LAVANDA IP-1198SL
+    '000000000100047949': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PMAX DUPLA PTO IP-1187PP
+    '000000000100051794': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 41 NIKE ESTELAR MC1Q4AM/A
+    '000000000100051799': ('device', 'Apple Watch', None),  # WATCH ULT2 49 N TI BLU TL SM MX4J3BE/A
+    '000000000100050564': ('device', 'iPad', None),  # IPAD PRO 11 M4 CELL 2TB SB MVW73BZ/A
+    '000000000100072488': ('device', 'iPhone', None),  # IPHONE AIR SP BLACK 256GB DM 3P149BE/A
+    '000000000100072489': ('device', 'iPhone', None),  # IPHONE AIR CL WHITE 256GB DM 3P150BE/A
+    '000000000100072490': ('device', 'iPhone', None),  # IPHONE AIR LIGHT GOLD 256GB DM 3P151BE/A
+    '000000000100072493': ('device', 'iPhone', None),  # IPHONE 17 PRO DP BL 256GB DM 3P171BE/A
+    '000000000100072496': ('device', 'iPhone', None),  # IPHONE 17 WHITE 256GB DM 3P195BE/A
+    '000000000100072497': ('device', 'iPhone', None),  # IPHONE 17 MIST BLUE 256GB DM 3P196BE/A
+    '000000000100045491': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA OMBRO IPLACE ACRILI120CM PR OIV0312
+    '000000000100045497': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # ALCA OMBRO IPLACE 120CM BEGE OIV0315
+    '000000000100072460': ('device', 'iPhone', None),  # IPHONE AIR SKY BLUE 512GB MG2V4BE/A
+    '000000000100044206': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPAD 10 ANTIBAC OIV0109
+    '000000000100044753': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PRONANSIL PPAI IP-1169SL
+    '000000000100044834': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE 11PMAX NAN SIL PTO IP-1179SP
+    '000000000100045048': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 12MINI VRD FLRS IP-1266SV
+    '000000000100045259': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 12 PMAX CLAS TRANS 1589
+    '000000000100041201': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGI MX S GRF 920-011563
+    '000000000100041475': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 14 PLUS PRIV 303804
+    '000000000100041554': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 14 PRO ANTIBACTERIA 303793
+    '000000000100041562': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 14 PRO ANTIBLUE 303797
+    '000000000100041636': ('device', 'iPhone', None),  # IPHONE 12 MINI WHITE 64GB DEMO 3H481BZ/A
+    '000000000100041647': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 14 PRO GAMER OIV0010
+    '000000000100072487': ('device', 'iPhone', None),  # IPHONE 17 P MAX C ORG 256GB DM 3P130BE/A
+    '000000000100044314': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPXS MAX CLAS TRAN IP-1070PT
+    '000000000100044317': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPXS MAX CUSH TRAN IP-1071PT
+    '000000000100044750': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP11PRONANSIL MRSL IP-1170SM
+    '000000000100046127': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE LIGH 3,5MM 1,2M BCO MXK22BZ/A
+    '000000000100046227': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 TRANS SLIM OIV0126
+    '000000000100072448': ('device', 'iPhone', None),  # IPHONE 17 BLACK 512GB MG6P4BE/A
+    '000000000100072450': ('device', 'iPhone', None),  # IPHONE 17 MIST BLUE 512GB MG6T4BE/A
+    '000000000100072452': ('device', 'iPhone', None),  # IPHONE 17 SAGE 512GB MG6V4BE/A
+    '000000000100045716': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAPT IPLACE MULTIPORTAS 8X1 OP1GHCHU3
+    '000000000100045763': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 SIL AMA SIC 303853
+    '000000000100045792': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 14 SIL PTO ONX 303837
+    '000000000100043586': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 11  AIR CUSHION IP-1143PT
+    '000000000100046031': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE LIGHTNING TO USB 2M MD819BZ/A
+    '000000000100046337': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO SIL PRETO OIV0220
+    '000000000100046425': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 12 NORONHA BRA OIV0229
+    '000000000100046464': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PRO MAX AZL OIV0265
+    '000000000100046516': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 15 PLUS SLIM OIV0267
+    '000000000100046594': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 BRILHO OIV0273
+    '000000000100045710': ('acc_parceiro', 'Adaptador', 'Originais iPlace'),  # ADAP IPLACE USB-C MULTIPOR 6X1 G3 1880
+    '000000000100042506': ('device', 'iPhone', None),  # IPHONE 15 PRO BLU T 128GB DEMO 3M441BE/A
+    '000000000100042559': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PMAX ANTIBAC OIV0424
+    '000000000100042585': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PMAX GAMER OIV0436
+    '000000000100043333': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL VID IPLACE IP XS MAX TRAN IP-1067VT
+    '000000000100043433': ('device', 'Apple Watch', None),  # WATCH S6 GPS 44 BLU AL DEMO 3H263BZ/A
+    '000000000100045989': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE THUNDERBOLT 2M MD861BE/A
+    '000000100053792001': ('device', 'iPhone', None),  # IPHONE 16 PLUS VERDE ACIZ 512GB BB I, E
+    '000000100053808001': ('device', 'iPhone', None),  # IPHONE 16 BRANCO 128GB BB N, E
+    '000000100053809001': ('device', 'iPhone', None),  # IPHONE 16 BRANCO 256GB BB N, E
+    '000000100053740001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TITAN NAT 1TB BB, E
+    '000000100053742001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TITAN NAT 512GB BB, E
+    '000000100053743001': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX TITAN PRETO 1TB BB, E
+    '000000100053756001': ('device', 'iPhone', None),  # IPHONE 16 PRO TIT BRANCO 256GB BB, E
+    '000000100053770001': ('device', 'iPhone', None),  # IPHONE 16 PRO TIT DESERTO 512GB BB, E
+    '000000100053771001': ('device', 'iPhone', None),  # IPHONE 16 PRO TITAN NAT 1TB BB, E
+    '000000000100052075': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PMAX SIL FUC MYYX3ZM/A
+    '000000000100065286': ('acc_parceiro', 'Outros', 'JBL'),  # CAIXA SOM JBL ENCOR 2 2MIC PTO 28913879
+    '000000000100065871': ('device', 'Mac', None),  # IMAC M4 CTO 32GB 1TB NUM SLV Z1K1
+    '000000000100055393': ('device', 'Mac', None),  # IMAC 24 M4 PINK 512GB 10GPU MWV53BZ/A
+    '000000000100055394': ('device', 'Mac', None),  # IMAC 24 M4 SILVER 512GB 10GPU MCR24BZ/A
+    '000000000100055409': ('device', 'Mac', None),  # MACBOOK AIR 13 M3 SG 256GB MC8G4BZ/A
+    '000000000100061054': ('device', 'iPad', None),  # IPAD AIR 7TH 13 WIFI 128GB SPG MCNH4BZ/A
+    '000000000100061073': ('device', 'iPad', None),  # IPAD AIR 7TH 13 WIFI 512GB PUR MCNY4BZ/A
+    '000000000100061081': ('device', 'Mac', None),  # MACBOOK AIR 15 M4 BLU 256GB 16 MC7A4BZ/A
+    '000000000100056928': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 15 TRANSP MXRK3ZM/A
+    '000000000100058000': ('acc_parceiro', 'Outros', 'Originais iPlace'),  # SMART TAG IPLACE SAMPA CNZ OP5TB
+    '000000000100058250': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE MAC AIR 13 M1 SHINE OIV0657
+    '000000000100059473': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 40 STARLIGHT SP MYJ33AM/A
+    '000000000100060281': ('device', 'iPhone', None),  # IPHONE 16E BLK 512GB MD1X4BR/A
+    '000000000100015182': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 14 PRO MAGSAFE PTA 303492
+    '000000000100015194': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE SIL AIRPODS 2 VERDE IP-1234S
+    '000000100048853001': ('device', 'iPhone', None),  # IPHONE 14 RED 256GB BB I, E
+    '000000100049220001': ('device', 'Apple Watch', None),  # WATCH S7 ALUM GPS 45MM GREEN BB, E
+    '000000100049221001': ('device', 'Apple Watch', None),  # WATCH S7 ALUM GPS 45MM MIDNIGHT BB, E
+    '000000100049287001': ('device', 'Apple Watch', None),  # WATCH S8 GPS 41MM STARLIGHT BB, E
+    '000000100049423001': ('device', 'Apple Watch', None),  # WATCH S9 ALUM GPS 41MM STARLIGHT BB, E
+    '000000100049429001': ('device', 'Apple Watch', None),  # WATCH ULTRA 2 49MM TITANIUM BB, E
+    '000000100049445001': ('device', 'Apple Watch', None),  # WATCH S9 ALUM CELL 45MM MIDNIGHT BB, E
+    '000000000100061223': ('device', 'Mac', None),  # MACBOOK AIR 13 M4 BLU 512GB 16 MC6U4BZ/A
+    '000000000100015642': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15PLUS NORONH PTO OIV0231
+    '000000000100015323': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE I14PROMAX SIL CINZA U 303844
+    '000000100053846001': ('device', 'iPhone', None),  # IPHONE 16 VERDE ACIZ 128GB BB N, E
+    '000000000100014238': ('acc_apple', 'Bolsa/Mochila', None),  # SLEEVE APPLE IPADPRO 12.9 CAST MQ0Q2ZM/A
+    '000000000100014249': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP12/12P TR CLAS IP-1243PT
+    '000000000100014352': ('acc_parceiro', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 16 CAFE OIV0439
+    '000000000100014355': ('acc_apple', 'Caneta', None),  # APPLE PENCIL MK0C2BE/A
+    '000000000100014407': ('acc_apple', 'Caneta', None),  # APPLE PENCIL 2GER MU8F2BZ/A
+    '000000000100064609': ('acc_apple', 'AirPods', None),  # FONE APPLE AIRPODS MAX ROXO MWW83BE/A
+    '000000000100061110': ('device', 'Mac', None),  # MACBOOK AIR M4 15 MN 256 16 DM MW1L3BZ/A
+    '000000000100061112': ('device', 'Mac', None),  # MACBOOK AIR M4 15 BL 256 16 DM MC7A4BZ/A
+    '000000000100061209': ('device', 'Mac', None),  # MACBOOK AIR 13 M4 SLV 512GB 24 MC654BZ/A
+    '000000000100061222': ('device', 'Mac', None),  # MACBOOK AIR 13 M4 BLU 256GB 16 MC6T4BZ/A
+    '000000100053791001': ('device', 'iPhone', None),  # IPHONE 16 PLUS VERDE ACIZ 256GB BB I, E
+    '000000000100054585': ('device', 'iPad', None),  # IPAD MINI 7TH WF+CEL 128GB SPG MXPN3BZ/A
+    '000000000100055429': ('device', 'Mac', None),  # MACBOOK PRO 14 M4 PRO SL 512GB MX2E3BZ/A
+    '000000000100055442': ('device', 'Mac', None),  # MACBOOK PRO 16 M4 PRO SB 512GB MX2Y3BZ/A
+    '000000000100055447': ('device', 'Mac', None),  # MACBOOK AIR 13 M3 DM MID 256GB MC8K4BZ/A
+    '000000000100055448': ('device', 'Mac', None),  # MACBOOK AIR 15 M3 DM STA 256GB MC9F4BZ/A
+    '000000000100055450': ('device', 'Mac', None),  # MACBOOK PRO 14 M4P DM SL 512GB MX2E3BZ/A
+    '000000000100055452': ('device', 'Mac', None),  # MACBOOK PRO 16 M4 DM SB 512GB MX2X3BZ/A
+    '000000000100051740': ('device', 'iPhone', None),  # IPHONE 16 PRO BLACK 128GB MYND3BE/A
+    '000000000100051758': ('device', 'Apple Watch', None),  # WATCH SE 2 40 MI AL MI SB SM G MXE73BE/A
+    '000000000100051759': ('device', 'Apple Watch', None),  # WATCH SE 2 40 MI AL MI SB ML G MXE93BE/A
+    '000000000100051762': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX NATURA 512GB MYX33BE/A
+    '000000000100051775': ('device', 'iPhone', None),  # IPHONE 16 ULTRAMARINE 128GB DM 3N399BE/A
+    '000000000100051787': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 41 CAQUI MC2G4AM/A
+    '000000000100051940': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PL SIL DENIN MYYA3ZM/A
+    '000000000100051942': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16 AZL MYY73ZM/A
+    '000000000100051953': ('acc_apple', 'Pulseira', None),  # P APPLE W DEM 49 AZUL MXTW3AM/A
+    '000000000100051729': ('device', 'iPhone', None),  # IPHONE 16 PLUS TEAL 128GB MXVY3BE/A
+    '000000000100051738': ('device', 'iPhone', None),  # IPHONE 16 PLUS ULTMARINE 512GB MY2D3BE/A
+    '000000000100051865': ('device', 'Apple Watch', None),  # WATCH S10 42MM SI AL BC SL G MWWD3AM/A
+    '000000000100051866': ('device', 'Apple Watch', None),  # WATCH S10 42 JB AL BK SB SM G MWWE3AM/A
+    '000000000100051910': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16 PTO MCFC4LL/A
+    '000000000100051917': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PL SIL FUC MYYE3ZM/A
+    '000000000100051939': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH 16 AZL MCFE4LL/A
+    '000000000100051764': ('device', 'iPhone', None),  # IPHONE 16 PRO MAX WHITE 1TB MYX53BE/A
+    '000000000100060358': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16E SIL VRD MD3X4ZM/A
+    '000000000100060991': ('device', 'iPad', None),  # IPAD 11TH WIFI 512GB BLUE MD4Y4BZ/A
+    '000000000100061012': ('device', 'iPad', None),  # IPAD AIR 7TH 11 WIFI 256GB STL MCA44BZ/A
+    '000000000100061032': ('device', 'iPad', None),  # IPAD AIR 7TH 11 CELL 512GB STL MCG64BZ/A
+    '000000000100061273': ('acc_apple', 'Outros', None),  # MAGIC APPLE IPAD AIR11 M3 DEMO MDFV4BZ/A
+    '000000000100061508': ('device', 'Mac', None),  # MACBOOK AIR 13 M2 STA 256GB DM MC7W4BZ/A
+    '000000000100063300': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 14ANTIBAC OIV0663
+    '000000000100053733': ('device', 'Apple Watch', None),  # WATCH S10 46 RG AL LB SB ML CL MWY73AM/A
+    '000000000100054575': ('device', 'iPad', None),  # IPAD MINI 7TH WF 128GB BLU MXN73BZ/A
+    '000000000100066978': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 17 PROMATTE OIV0811
+    '000000000100054581': ('device', 'iPad', None),  # IPAD MINI 7TH WF 256GB PURPLE MXNE3BZ/A
+    '000000000100052069': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH16PMAX AZL MCFT4LL/A
+    '000000000100052071': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 16PMAX SIL PTO MYYT3ZM/A
+    '000000000100054596': ('device', 'iPad', None),  # IPAD MINI 7TH CEL 512GB PURPLE MYHF3BZ/A
+    '000000000100055291': ('device', 'iPhone', None),  # IPHONE 16 PRO WHITE 128GB MYNE3BE/A
+    '000000000100055296': ('device', 'iPhone', None),  # IPHONE 16 PRO WHITE 256GB MYNJ3BE/A
+    '000000000100052654': ('acc_parceiro', 'Capa/Case', 'Logitech'),  # CAPA TC LOGI PRO 13 M4 GRAF 920-012658
+    '000000000100053012': ('acc_parceiro', 'Outros', 'Logitech'),  # WEBCAM LOGI U HD 4K MX GRF 960-001548
+    '000000000100053013': ('acc_parceiro', 'Outros', 'Logitech'),  # WEBCAM LOGI F HD BRIO 500 BCO 960-001426
+    '000000000100056094': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH16PM ANT/BL/R A.U. OIV0625
+    '000000000100054576': ('device', 'iPad', None),  # IPAD MINI 7TH WF 128GB STELLA MXN83BZ/A
+    '000000000100054579': ('device', 'iPad', None),  # IPAD MINI 7TH WF 256GB BLU MXNC3BZ/A
+    '000000000100054580': ('device', 'iPad', None),  # IPAD MINI 7TH WF 256GB STELLA MXND3BZ/A
+    '000000000100052068': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE BEATS IPH16PMAX PTO MCFQ4LL/A
+    '000000000100080285': ('device', 'Mac', None),  # MACB PRO 16 M5P 48GB SPB 1TB MGEC4BZ/A
+    '000000000100080288': ('device', 'Mac', None),  # MACB PRO 14 M5P 24GB SIL 2TB MJLV4BZ/A
+    '000000000100080309': ('device', 'Mac', None),  # MACB PRO 14 M5 32GB SPB 1TB MJ3D4BZ/A
+    '000000000100080310': ('device', 'Mac', None),  # MACB PRO 14 M5 32GB SIL 1TB MJ3E4BZ/A
+    '000000000100031316': ('device', 'iPhone', None),  # IPHONE 15 PLUS YLW 512GB MU1M3BE/A
+    '000000000100080255': ('device', 'Mac', None),  # MACB AIR 13 M5 24GB STL 1TB MDHD4BZ/A
+    '000000000100080260': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB S BL 1TB MDHJ4BZ/A
+    '000000000100080266': ('device', 'Mac', None),  # MACB AIR 15 M5 16GB STL 1TB MDVE4BZ/A
+    '000000000100080269': ('device', 'Mac', None),  # MACB AIR 15 M5 16GB MDN 1TB MDVK4BZ/A
+    '000000000100080279': ('device', 'Mac', None),  # MACB PRO 14 M5M 36GB SPB 2TB MGDU4BZ/A
+    '000000000100080281': ('device', 'Mac', None),  # MACB PRO 16 M5P 48GB SIL 1TB MGE64BZ/A
+    '000000000100041828': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 14 PRO MAX ANTIBAC OIV0031
+    '000000000100032507': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL GAMER QUANTUM 600 BLK 28913168
+    '000000000100032550': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL GAMER QUANTUM 800 BLK 28913169
+    '000000000100032566': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE PRO 13 BCO MWK23ZM/A
+    '000000000100032590': ('device', 'iPad', None),  # SMART KEYB IPAD PRO 12.9 DEMO MU8H2LL/A
+    '000000000100080254': ('device', 'Mac', None),  # MACB AIR 13 M5 16GB STL 1TB MDHC4BZ/A
+    '000000000100034027': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 11PRO SIL AZUL M MWYJ2ZM/A
+    '000000000100034251': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP11PROMAX COU VERM MX0F2ZM/A
+    '000000000100032383': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE 10TH CEU MQDU3ZM/A
+    '000000000100032458': ('acc_apple', 'Capa/Case', None),  # SMART FOLIO APPLE AIR 11 LIILAS MWK83ZM
+    '000000000100032468': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL GAMER QUANTUM 200 BLK 28913167
+    '000000000100032501': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL GAMER QUANTUM 300 BLK 28913177
+    '000000000100035979': ('acc_parceiro', 'Outros', 'JBL'),  # CAIXA SOM JBL ENCOR 2MIC PTO 58035034
+    '000000000100032986': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 11 SIL PRETO MWVU2ZM/A
+    '000000000100032993': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 11 TRANSP MWVG2ZM/A
+    '000000000100033272': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE SIL IPSE2ND/8/7 RED MMWN2ZM/A
+    '000000000100080240': ('device', 'iPad', None),  # IPAD AIR M4 11 WF PUR 1TB MH3K4BZ/A
+    '000000000100032655': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB APPLE DEMO PRO13BCO MWR43BZ/A
+    '000000000100032662': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB APPLE DEMO PRO13PTO MWR53BZ/A
+    '000000000100032778': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYB 12POL IPAD PRO 4TH MXQU2BZ/A
+    '000000000100032833': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL OV TUNE 770NC AZL 28913712
+    '000000000100032839': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IPLACE OVER N370 PTO AUHEL4545
+    '000000000100080284': ('device', 'Mac', None),  # MACB PRO 16 M5P 24GB SPB 1TB MGEA4BZ/A
+    '000000000100080210': ('device', 'iPad', None),  # IPAD AIR M4 11 CL BL 128GB MH794BZ/A
+    '000000000100080230': ('device', 'iPad', None),  # IPAD AIR M4 11 WF BL 256GB MH364BZ/A
+    '000000000100080231': ('device', 'iPad', None),  # IPAD AIR M4 11 WF STL 256GB MH374BZ/A
+    '000000000100080233': ('device', 'iPad', None),  # IPAD AIR M4 11 WF SPG 512GB MH3A4BZ/A
+    '000000000100080234': ('device', 'iPad', None),  # IPAD AIR M4 11 WF BLU 512GB MH3C4BZ/A
+    '000000000100035139': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP13 SI AZU ABISSAL MM293ZE/A
+    '000000000100080152': ('device', 'iPhone', None),  # IPHONE 17E SOFT PINK 512GB MHU34BE/A
+    '000000000100080166': ('device', 'iPad', None),  # IPAD AIR M4 13 WF PUR 256GB MH5X4BZ/A
+    '000000000100080187': ('device', 'iPad', None),  # IPAD AIR M4 13 CL STL 128GB MH9F4BZ/A
+    '000000000100080196': ('device', 'iPad', None),  # IPAD AIR M4 13 WF STL 128GB MH5Q4BZ/A
+    '000000000100080198': ('device', 'iPad', None),  # IPAD AIR M4 13 WF BL 512GB MH604BZ/A
+    '000000000100080199': ('device', 'iPad', None),  # IPAD AIR M4 13 WF STL 512GB MH614BZ/A
+    '000000000100080200': ('device', 'iPad', None),  # IPAD AIR M4 13 WF PUR 512GB MH624BZ/A
+    '000000000100029652': ('device', 'iPhone', None),  # IPHONE SE 3RD STARLIGHT 64GB MMXG3BZ/A
+    '000000000100029941': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 49 TRAIL YEL S/M MQEG3AM/A
+    '000000000100030187': ('acc_apple', 'Pulseira', None),  # P APPLE WATCH 49 BLUE ALPINE MT5M3AM/A
+    '000000000100030384': ('device', 'iPhone', None),  # IPHONE 14 BLUE 512GB MPXN3BE/A
+    '000000000100030387': ('device', 'iPhone', None),  # IPHONE 14 BLUE 128GB MPVN3BR/A
+    '000000000100080882': ('device', 'iPhone', None),  # IPHONE 17E WHITE 512GB MHU04BR/A
+    '000000000100031573': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TOURPROWIRELESS2 PRETO 28913689
+    '000000000100031596': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX BLU TT 256GB MU7A3BE/A
+    '000000000100031645': ('device', 'iPhone', None),  # IPHONE 15 PRO MAX WHT TT 256GB MU783BE/A
+    '000000000100031721': ('device', 'iPad', None),  # IPAD MINI SMART COVER BLACK MX4R2ZM/A
+    '000000000100031859': ('acc_parceiro', 'Fone', 'JBL'),  # FONE OUVIDO JBL ENDURRACE CORBR 28913812
+    '000000000100031922': ('device', 'iPhone', None),  # IPHONE 15 GREEN 128GB MTP53BE/A
+    '000000000100031332': ('device', 'iPad', None),  # IPAD AIR 2 SMART COVER YELLOW MGXN2BZ/A
+    '000000000100031485': ('acc_parceiro', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL WAV BUDS WHT 28913662
+    '000000000100031496': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPADPRO12.9 COV PTO MPV62ZM/A
+    '000000000100031524': ('acc_parceiro', 'Fone', 'Originais iPlace'),  # FONE IN EAR TWS GAMER IPLACE AUHEL3131
+    '000000000100031694': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPADPRO11SMARFOLAZU MX4X2ZM/A
+    '000000000100072601': ('device', 'Apple Watch', None),  # WATCH 11 46 GD TI GD ML SM C MFD74AM/A
+    '000000000100072565': ('device', 'Apple Watch', None),  # WATCH 11 46 SI AL PF SB ML G MEVA4AM/A
+    '000000000100072569': ('device', 'Apple Watch', None),  # WATCH 11 42 SG AL BK SB ML C MF8C4AM/A
+    '000000000100072576': ('device', 'Apple Watch', None),  # WATCH 11 42 NT TI NT ML C MF8P4AM/A
+    '000000000100072577': ('device', 'Apple Watch', None),  # WATCH 11 42 SL TI BK SB SM C MF8R4AM/A
+    '000000000100072580': ('device', 'Apple Watch', None),  # WATCH 11 42 GD TI LB SB SM C MF8W4AM/A
+    '000000000100072664': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 SUP CALC MGTL4LL/A
+    '000000000100072687': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 VD MUSGO MGEX4ZM/A
+    '000000000100073532': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-A USB-C CURT PT MEQL4LL/A
+    '000000000100073533': ('acc_apple', 'Cabo Apple', None),  # CABO APPLE USB-C LIGHT BEAT PT MDGK4LL/A
+    '000000000100036379': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PLUS SIL AURO MPTD3ZE/A
+    '000000000100035815': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI SIL MAG PT MHKX3ZE/A
+    '000000000100040159': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PELICULA IPLACE IP12MIN TR C/B IP-1248VT
+    '000000000100040160': ('device', 'iPad', None),  # IPAD 9TH WIFI 64GB SPGR DEMO 3K2K3BZ/A
+    '000000000100040166': ('device', 'iPad', None),  # IPAD AIR 11 6 M2 WF 128GB S DM 3M672BZ/A
+    '000000000100040212': ('acc_parceiro', 'Caneta', 'Logitech'),  # CANETA LOGITECH CRAYON USBC 914-000083
+    '000000000100072615': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 BK TI BK ALP MF0X4BE/A
+    '000000000100039104': ('device', 'Mac', None),  # MACBOOK PRO 14 M3 SIL 512 DEMO MR7J3BZ/A
+    '000000000100039370': ('acc_apple', 'Outros', None),  # MAGIC APPLE KEYB 11 PRO 2 QDEMO
+    '000000000100039379': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPHONE 11 ANTIBAC OIV0032
+    '000000000100039413': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBO IPAD PRO 11 3TH AIR 4TH DEMO
+    '000000000100039456': ('acc_apple', 'Magic Keyboard', None),  # MAGIC KEYBOARD APPLEIPAD10 DEM MQDP3BZ/A
+    '000000000100039561': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 12PMAX SI MAG WH MHLE3ZE/A
+    '000000000100039648': ('device', 'Mac', None),  # MACBOOK PRO 16 M1PRO SG DEM512 MK183BZ/A
+    '000000000100041959': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PRIVACID OIV0251
+    '000000000100072515': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 17 PRO AZUL MGF44ZM/A
+    '000000000100041179': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 13 PRIV OIV0027
+    '000000000100042164': ('device', 'iPhone', None),  # IPHONE 13 GREEN 128GB DEMO 3K584BZ/A
+    '000000000100042299': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16GAMER A.U OIV0549
+    '000000000100042415': ('device', 'iPhone', None),  # IPHONE 15 BLUE 128GB DEMO 3M425BE/A
+    '000000000100042429': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 16PRO PRIV OIV0427
+    '000000000100043636': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE WATCH 41MM C/B OIV0083
+    '000000000100043735': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL XTREME 4 AZL 28913741
+    '000000000100043768': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE 2GER IP11 AZU ROYL IP-1318SA
+    '000000000100042097': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15 PRO ANTIBLUE OIV0245
+    '000000000100042150': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PRO ANTIBAC OIV0241
+    '000000000100072600': ('device', 'Apple Watch', None),  # WATCH 11 46 GD TI LB SB ML C MFD64AM/A
+    '000000000100040808': ('device', 'iPad', None),  # IPAD WI-FI 32GB SPGR DEMO 3C668BZ/A
+    '000000000100040830': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI MX ANYW 3S RSA 910-006934
+    '000000000100040883': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 13 PMAX ANTIBACTE 302031
+    '000000000100072604': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI LB ALP MEWK4BE/A
+    '000000000100072606': ('device', 'Apple Watch', None),  # WATCH ULTRA3 49 NT TI LB ALP MEWP4BE/A
+    '000000000100040528': ('device', 'iPad', None),  # IPAD PRO 11 M4 WF 256GB SB DM 3M772BZ/A
+    '000000000100040543': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 12/12 PRO ANTI BACT 301221
+    '000000000100040577': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGITECH BLU PEBLE ROSE 910-005894
+    '000000000100040613': ('acc_parceiro', 'Mouse', 'Logitech'),  # MOUSE LOGI LIFT CANHTO GRAF 910-006467
+    '000000000100072590': ('device', 'Apple Watch', None),  # WATCH 11 46 SI AL PF SB ML C MFCR4AM/A
+    '000000000100072591': ('device', 'Apple Watch', None),  # WATCH 11 46 NT TI SG SB SM C MFCW4AM/A
+    '000000000100072594': ('device', 'Apple Watch', None),  # WATCH 11 46 NT TI NT ML ML C MFD04AM/A
+    '000000000100042158': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IPH 15PMAX PRIVACID OIV0254
+    '000000000100036461': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PLUS SIL SUCU MPTC3ZE/A
+    '000000000100036519': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PRO SIL AZUL MPTF3ZE/A
+    '000000000100036526': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 PRO SIL LILAS MPTJ3ZE/A
+    '000000000100036608': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 14 PRO SIL SUCU MPTL3ZE/A
+    '000000000100036789': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14PRO MX SI SUCU MPTY3ZE/A
+    '000000000100037092': ('device', 'Mac', None),  # MACBOOK AIR 13 M3 ST DM 256GB MRXT3BZ/A
+    '000000000100037260': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15 PRO AZUL INVE MT1L3ZM/A
+    '000000000100034700': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO ESSENT AZL 28913615
+    '000000000100034885': ('acc_parceiro', 'Outros', 'JBL'),  # OCULOS JBL SOUNDGEARS PEARL 28913766
+    '000000000100034992': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12/PRO SI MAG WHT MHL53ZE/A
+    '000000000100035033': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12/PRO SIMAG PLUM MHL23ZE/A
+    '000000000100034299': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP11PRO MAX SIL AZU MWYW2ZM/A
+    '000000000100040911': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE IP 13 PRO MAX ANTIBLUE 302028
+    '000000000100034420': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL CLIP 4 PRETA 28913316
+    '000000000100034566': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO 3 VERDE 28913281
+    '000000000100034569': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL GO 3 VERMELHA 28913275
+    '000000000100036182': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 14 SIL SUCULENTA MPT13ZE/A
+    '000000000100036305': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IPH 14 COU LARAN MPP83ZE/A
+    '000000000100078949': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL ENDURANCE PEAK 4 PTO 28914030
+    '000000000100079308': ('acc_parceiro', 'Fone', 'JBL'),  # FONE JBL TUNE T530BT BRANCO 28914076
+    '000000000100079335': ('acc_parceiro', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 17PM LACOSTE PT OIV0937
+    '000000000100035543': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL PBSTAG 320 PTO 28913745
+    '000000000100035798': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP12MINI MAGSAFE TR MHLL3ZE/A
+    '000000000100035807': ('device', 'Apple Watch', None),  # WATCH S9 GPS 45 PINK SB M/L MR9H3BZ/A
+    '000000000100034340': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP11 PROMAX SIL PTO MX002ZM/A
+    '000000000100040962': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE ANTIBAC CB IP13PMAX IP-1392VA
+    '000000000100041028': ('acc_parceiro', 'Teclado', 'Logitech'),  # TECLADO LOGITECH BT K480 PRET 920-006348
+    '000000000100038542': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM 14PRO14PROMAX GRY OIV0093
+    '000000000100074549': ('device', 'iPad', None),  # IPAD PRO 13 M5 CELL 256GB SB ME7W4BZ/A
+    '000000000100074557': ('device', 'iPad', None),  # IPAD PRO 13 M5 CELL 2TB SB ME8J4BZ/A
+    '000000000100035146': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 13 SIL M NOITE MM2A3ZE/A
+    '000000000100035165': ('acc_parceiro', 'Outros', 'JBL'),  # CX DE SOM JBL CHARG ESSENT CINZ 28913283
+    '000000000100035351': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL FLIP 6 BLK 28913556
+    '000000000100035403': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL FLIP ESS 2 PTO 28913643
+    '000000000100035497': ('acc_parceiro', 'Caixa de Som', 'JBL'),  # CAIXA DE SOM JBL PARTYB 710 PTO 28913523
+    '000000000100038527': ('acc_parceiro', 'Película', 'Originais iPlace'),  # PEL IPLACE CAM IPH15 6.7/6.7 PRT OIV0302
+    '000000000100074516': ('device', 'iPad', None),  # IPAD PRO 11 M5 WIFI 512GB SIL MDWN4BZ/A
+    '000000000100074529': ('device', 'iPad', None),  # IPAD PRO 13 M5 WIFI 1TB SB MDYN4BZ/A
+    '000000000100074537': ('device', 'iPad', None),  # IPAD PRO 11 M5 CELL 256GB SB ME2N4BZ/A
+    '000000000100074538': ('device', 'iPad', None),  # IPAD PRO 11 M5 CELL 256GB SIL ME2P4BZ/A
+    '000000000100074539': ('device', 'iPad', None),  # IPAD PRO 11 M5 CELL 512GB SB ME2Q4BZ/A
+    '000000000100074540': ('device', 'iPad', None),  # IPAD PRO 11 M5 CELL 512GB SIL ME2T4BZ/A
+    '000000000100037308': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15PRO MAX AZL TP MT1P3ZM/A
+    '000000000100037336': ('device', 'Apple Watch', None),  # AW S3 GPS 38MM GOLD ALU DEMO 3D211BZ/A
+    '000000000100037363': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15PRO MAX VRD CP MT1X3ZM/A
+    '000000000100037390': ('acc_apple', 'Capa/Case', None),  # CAPA APPLE IP 15PRO MAX AZL IN MT1Y3ZM/A
+    '000000000100037635': ('device', 'Apple Watch', None),  # WATCH SE 2ND GPS 44 STRL M/L MRE53BZ/A
+    '000000000100038374': ('device', 'Mac', None),  # MACBOOK AIR 13 M28C SLVR 512GB MLY03BZ/A
+    '000000000100074511': ('device', 'Mac', None),  # MACB PRO 14 M5 SIL 16GB 1TB MDE54BZ/A
 }
 
 
