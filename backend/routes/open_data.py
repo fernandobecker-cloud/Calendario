@@ -6350,327 +6350,188 @@ ORDER BY valor_real DESC
     }
 
 
-def _build_acessorios_matriz_sql(start_date: str, end_date: str, canal_order_ids: list | None = None) -> str:
-    """Retorna attach rate por linha Apple × categoria de acessório (apple e parceiro) + pool de oportunidade."""
-    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
-    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    pt = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-
-    if canal_order_ids is not None:
-        if canal_order_ids:
-            ids_literal = ", ".join(f"'{str(oid).replace(chr(39), '')}'" for oid in canal_order_ids)
-            order_id_filter = f"AND CAST(order_id AS STRING) IN UNNEST([{ids_literal}])"
-        else:
-            order_id_filter = "AND FALSE"
-    else:
-        order_id_filter = ""
+def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
+    """Attach rate de acessórios por linha Apple usando vendas_iplace (Desc_Produto)."""
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table   = _quote_identifier(VENDAS_BQ_TABLE)
+    canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
 
     return f"""
 WITH
--- Dispositivos Apple comprados no período (denominador)
-apple_devices AS (
+all_items AS (
   SELECT
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    CAST(order_id AS STRING)      AS order_id,
-    DATE(purchase_date)           AS purchase_date,
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    UPPER(COALESCE(Desc_Produto, '')) AS produto_upper
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    {canal_clause}
+),
+device_rows AS (
+  SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPHONE')                                   THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPAD')                                     THEN 'iPad'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'APPLE WATCH')                              THEN 'Apple Watch'
+      WHEN REGEXP_CONTAINS(produto_upper, r'IPHONE')                                   THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'IPAD')                                     THEN 'iPad'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE WATCH')                              THEN 'Apple Watch'
     END AS linha_apple
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-    AND sales_amount > 0
-    {order_id_filter}
-    AND REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')),
-          r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
+  FROM all_items
+  WHERE REGEXP_CONTAINS(produto_upper, r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
 ),
--- Um registro por (contato, linha Apple) — primeiro pedido como referência
-apple_por_contato AS (
-  SELECT
-    si_contact_id,
-    linha_apple,
-    ARRAY_AGG(order_id ORDER BY purchase_date LIMIT 1)[SAFE_OFFSET(0)] AS first_order_id,
-    MIN(purchase_date) AS first_purchase_date
-  FROM apple_devices
-  GROUP BY 1, 2
+pedidos_device AS (
+  SELECT DISTINCT pedido_key, linha_apple
+  FROM device_rows
+  WHERE linha_apple IS NOT NULL
 ),
--- Denominadores
-total_por_linha AS (
-  SELECT linha_apple, COUNT(DISTINCT si_contact_id) AS total_clientes
-  FROM apple_por_contato
-  GROUP BY 1
-),
--- Acessórios Apple (janela estendida: período + 30 dias)
-apple_acc AS (
-  SELECT
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    CAST(order_id AS STRING)      AS order_id,
-    DATE(purchase_date)           AS purchase_date,
+acc_apple AS (
+  SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'AIRPOD')                                            THEN 'AirPods'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'AIRTAG|AIR TAG')                                    THEN 'AirTag'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'EARPODS')                                           THEN 'EarPods'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'MAGSAFE')                                           THEN 'MagSafe'
-      WHEN UPPER(product_name) LIKE '%MAGIC MOUSE%'                                                   THEN 'Magic Mouse'
-      WHEN UPPER(product_name) LIKE '%MAGIC KEYBOARD%'                                                THEN 'Magic Keyboard'
-      WHEN UPPER(product_name) LIKE '%CABO%' AND UPPER(product_name) LIKE '%APPLE%'                  THEN 'Cabo Apple'
-      WHEN UPPER(product_name) LIKE '%CARREGADOR%' AND UPPER(product_name) LIKE '%APPLE%'            THEN 'Carregador Apple'
+      WHEN REGEXP_CONTAINS(produto_upper, r'AIRPOD')                                         THEN 'AirPods'
+      WHEN REGEXP_CONTAINS(produto_upper, r'AIRTAG|AIR TAG')                                 THEN 'AirTag'
+      WHEN REGEXP_CONTAINS(produto_upper, r'EARPODS')                                        THEN 'EarPods'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MAGSAFE')                                        THEN 'MagSafe'
+      WHEN produto_upper LIKE '%MAGIC MOUSE%'                                                THEN 'Magic Mouse'
+      WHEN produto_upper LIKE '%MAGIC KEYBOARD%'                                             THEN 'Magic Keyboard'
+      WHEN produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%'                     THEN 'Cabo Apple'
+      WHEN produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%'               THEN 'Carregador Apple'
     END AS categoria
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE_ADD(DATE('{end_date}'), INTERVAL 30 DAY)
-    AND sales_amount > 0
-    AND (
-      REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'AIRPOD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
-      OR (UPPER(COALESCE(product_name,'')) LIKE '%CABO%'        AND UPPER(COALESCE(product_name,'')) LIKE '%APPLE%')
-      OR (UPPER(COALESCE(product_name,'')) LIKE '%CARREGADOR%'  AND UPPER(COALESCE(product_name,'')) LIKE '%APPLE%')
-    )
+  FROM all_items
+  WHERE (
+    REGEXP_CONTAINS(produto_upper, r'AIRPOD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
+    OR (produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%')
+    OR (produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%')
+  )
 ),
--- Acessórios parceiros: JBL, Logitech, Originais iPlace (janela estendida)
-partner_acc AS (
-  SELECT
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    CAST(order_id AS STRING)      AS order_id,
-    DATE(purchase_date)           AS purchase_date,
+acc_parceiro AS (
+  SELECT pedido_key,
     CASE
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'CARREGADOR')                          THEN 'Carregador'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCABO\\b')                           THEN 'Cabo'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'CAIXA DE SOM|SOUNDBAR')              THEN 'Caixa de Som'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'FONE DE OUVIDO|EARPODS|HEADPHONE|ON-EAR|OVER-EAR') THEN 'Fone'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bMOUSE\\b')                         THEN 'Mouse'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'TECLADO|KEYBOARD')                   THEN 'Teclado'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'PELICULA|PELÍCULA')                  THEN 'Película'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'ADAPTADOR')                          THEN 'Adaptador'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCANETA\\b')                        THEN 'Caneta'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bCAPA\\b|\\bCASE\\b')               THEN 'Capa/Case'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'\\bPULSEIRA\\b')                      THEN 'Pulseira'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'BOLSA|MOCHILA|\\bMALA\\b|\\bSLEEVE\\b') THEN 'Bolsa/Mochila'
+      WHEN REGEXP_CONTAINS(produto_upper, r'CARREGADOR')                              THEN 'Carregador'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCABO\\b')                               THEN 'Cabo'
+      WHEN REGEXP_CONTAINS(produto_upper, r'CAIXA DE SOM|SOUNDBAR')                  THEN 'Caixa de Som'
+      WHEN REGEXP_CONTAINS(produto_upper, r'FONE DE OUVIDO|EARPODS|HEADPHONE|ON-EAR|OVER-EAR') THEN 'Fone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bMOUSE\\b')                             THEN 'Mouse'
+      WHEN REGEXP_CONTAINS(produto_upper, r'TECLADO|KEYBOARD')                       THEN 'Teclado'
+      WHEN REGEXP_CONTAINS(produto_upper, r'PELICULA|PELÍCULA')                      THEN 'Película'
+      WHEN REGEXP_CONTAINS(produto_upper, r'ADAPTADOR')                              THEN 'Adaptador'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCANETA\\b')                            THEN 'Caneta'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bCAPA\\b|\\bCASE\\b')                   THEN 'Capa/Case'
+      WHEN REGEXP_CONTAINS(produto_upper, r'\\bPULSEIRA\\b')                          THEN 'Pulseira'
+      WHEN REGEXP_CONTAINS(produto_upper, r'BOLSA|MOCHILA|\\bMALA\\b|\\bSLEEVE\\b')  THEN 'Bolsa/Mochila'
       ELSE 'Outros'
     END AS categoria
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE_ADD(DATE('{end_date}'), INTERVAL 30 DAY)
-    AND sales_amount > 0
-    AND (
-      UPPER(COALESCE(product_name,'')) LIKE '%JBL%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%LOGITECH%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%ORIGINAIS IPLACE%'
-    )
+  FROM all_items
+  WHERE produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGITECH%' OR produto_upper LIKE '%ORIGINAIS IPLACE%'
 ),
--- Matriz unificada: attach por linha × categoria × grupo
-matrix_raw AS (
-  SELECT
-    apc.linha_apple,
-    acc.categoria,
-    acc.grupo,
-    COUNT(DISTINCT CASE
-      WHEN acc.order_id = apc.first_order_id THEN apc.si_contact_id
-    END) AS clientes_mesmo_pedido,
-    COUNT(DISTINCT CASE
-      WHEN acc.order_id != apc.first_order_id
-       AND acc.purchase_date > apc.first_purchase_date
-       AND acc.purchase_date <= DATE_ADD(apc.first_purchase_date, INTERVAL 30 DAY)
-      THEN apc.si_contact_id
-    END) AS clientes_janela
-  FROM apple_por_contato apc
-  JOIN (
-    SELECT si_contact_id, order_id, purchase_date, categoria, 'apple' AS grupo
-    FROM apple_acc WHERE categoria IS NOT NULL
-    UNION ALL
-    SELECT si_contact_id, order_id, purchase_date, categoria, 'parceiro' AS grupo
-    FROM partner_acc
-  ) acc ON acc.si_contact_id = apc.si_contact_id
+total_por_linha AS (
+  SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
+  FROM pedidos_device GROUP BY 1
+),
+matrix_apple AS (
+  SELECT pd.linha_apple, aa.categoria, 'apple' AS grupo,
+    COUNT(DISTINCT pd.pedido_key) AS pedidos_com_acessorio
+  FROM pedidos_device pd
+  JOIN acc_apple aa ON aa.pedido_key = pd.pedido_key
+  WHERE aa.categoria IS NOT NULL
   GROUP BY 1, 2, 3
 ),
-matrix AS (
-  SELECT
-    mr.linha_apple,
-    mr.categoria,
-    mr.grupo,
-    mr.clientes_mesmo_pedido,
-    mr.clientes_janela,
-    tpl.total_clientes,
-    ROUND(mr.clientes_mesmo_pedido * 100.0 / NULLIF(tpl.total_clientes, 0), 1) AS rate_mesmo_pedido,
-    ROUND(mr.clientes_janela       * 100.0 / NULLIF(tpl.total_clientes, 0), 1) AS rate_janela
-  FROM matrix_raw mr
-  JOIN total_por_linha tpl ON tpl.linha_apple = mr.linha_apple
+matrix_parceiro AS (
+  SELECT pd.linha_apple, ap.categoria, 'parceiro' AS grupo,
+    COUNT(DISTINCT pd.pedido_key) AS pedidos_com_acessorio
+  FROM pedidos_device pd
+  JOIN acc_parceiro ap ON ap.pedido_key = pd.pedido_key
+  GROUP BY 1, 2, 3
 ),
--- Pool de oportunidade: compradores Apple SEM nenhum acessório
-todos_acc_contatos AS (
-  SELECT DISTINCT si_contact_id FROM apple_acc WHERE categoria IS NOT NULL
+todos_acc AS (
+  SELECT DISTINCT pedido_key FROM acc_apple WHERE categoria IS NOT NULL
   UNION DISTINCT
-  SELECT DISTINCT si_contact_id FROM partner_acc
+  SELECT DISTINCT pedido_key FROM acc_parceiro
 ),
 oportunidade AS (
-  SELECT
-    apc.linha_apple,
-    COUNT(DISTINCT apc.si_contact_id)  AS sem_acessorio,
-    ANY_VALUE(tpl.total_clientes)      AS total_clientes,
-    ROUND(COUNT(DISTINCT apc.si_contact_id) * 100.0 / NULLIF(ANY_VALUE(tpl.total_clientes), 0), 1) AS pct_sem_acessorio
-  FROM apple_por_contato apc
-  JOIN total_por_linha tpl ON tpl.linha_apple = apc.linha_apple
-  LEFT JOIN todos_acc_contatos tac ON tac.si_contact_id = apc.si_contact_id
-  WHERE tac.si_contact_id IS NULL
+  SELECT pd.linha_apple,
+    COUNT(DISTINCT pd.pedido_key)  AS sem_acessorio,
+    ANY_VALUE(tpl.total_pedidos)   AS total_pedidos,
+    ROUND(COUNT(DISTINCT pd.pedido_key) * 100.0 / NULLIF(ANY_VALUE(tpl.total_pedidos), 0), 1) AS pct_sem_acessorio
+  FROM pedidos_device pd
+  JOIN total_por_linha tpl ON tpl.linha_apple = pd.linha_apple
+  LEFT JOIN todos_acc ta ON ta.pedido_key = pd.pedido_key
+  WHERE ta.pedido_key IS NULL
   GROUP BY 1
-),
--- Segmentos: flags por contato (janela 30 dias)
-all_relevant_contacts AS (
-  SELECT DISTINCT si_contact_id FROM apple_por_contato
-  UNION DISTINCT
-  SELECT si_contact_id FROM apple_acc WHERE categoria IS NOT NULL
-  UNION DISTINCT
-  SELECT si_contact_id FROM partner_acc
-),
-contact_flags AS (
-  SELECT
-    c.si_contact_id,
-    CASE WHEN d.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_device,
-    CASE WHEN a.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_apple_acc,
-    CASE WHEN p.si_contact_id IS NOT NULL THEN 1 ELSE 0 END AS has_partner_acc
-  FROM all_relevant_contacts c
-  LEFT JOIN (SELECT DISTINCT si_contact_id FROM apple_por_contato) d ON d.si_contact_id = c.si_contact_id
-  LEFT JOIN (SELECT DISTINCT si_contact_id FROM apple_acc WHERE categoria IS NOT NULL) a ON a.si_contact_id = c.si_contact_id
-  LEFT JOIN (SELECT DISTINCT si_contact_id FROM partner_acc) p ON p.si_contact_id = c.si_contact_id
-),
-segmentos_agg AS (
-  SELECT
-    CASE
-      WHEN has_device=1 AND has_apple_acc=0 AND has_partner_acc=0 THEN 'Device Apple + Sem acessório'
-      WHEN has_device=0 AND has_apple_acc=1 AND has_partner_acc=0 THEN 'Somente acess. Apple (sem device)'
-      WHEN has_device=0 AND has_apple_acc=0 AND has_partner_acc=1 THEN 'Somente acess. parceiros (sem device)'
-      WHEN has_device=1 AND has_apple_acc=1 AND has_partner_acc=0 THEN 'Device Apple + Acess. Apple'
-      WHEN has_device=1 AND has_apple_acc=0 AND has_partner_acc=1 THEN 'Device Apple + Acess. parceiros'
-      WHEN has_device=1 AND has_apple_acc=1 AND has_partner_acc=1 THEN 'Device Apple + Acess. Apple + Parceiros'
-      WHEN has_device=0 AND has_apple_acc=1 AND has_partner_acc=1 THEN 'Somente acess. Apple + Parceiros (sem device)'
-    END AS segmento,
-    COUNT(*) AS clientes
-  FROM contact_flags
-  GROUP BY 1
-),
-segmentos_total AS (
-  SELECT SUM(clientes) AS total FROM segmentos_agg WHERE segmento IS NOT NULL
 )
--- Resultado: linhas de matriz + linhas de oportunidade (grupo = 'oportunidade') + totais + segmentos
-SELECT linha_apple, categoria, grupo,
-       clientes_mesmo_pedido, clientes_janela, total_clientes,
-       rate_mesmo_pedido, rate_janela
-FROM matrix
+SELECT ma.linha_apple, ma.categoria, ma.grupo,
+       ma.pedidos_com_acessorio,
+       tpl.total_pedidos,
+       ROUND(ma.pedidos_com_acessorio * 100.0 / NULLIF(tpl.total_pedidos, 0), 1) AS rate
+FROM matrix_apple ma JOIN total_por_linha tpl ON tpl.linha_apple = ma.linha_apple
 UNION ALL
-SELECT linha_apple,
-       'OPORTUNIDADE' AS categoria,
-       'oportunidade' AS grupo,
-       sem_acessorio  AS clientes_mesmo_pedido,
-       0              AS clientes_janela,
-       total_clientes,
-       pct_sem_acessorio AS rate_mesmo_pedido,
-       0              AS rate_janela
+SELECT mp.linha_apple, mp.categoria, mp.grupo,
+       mp.pedidos_com_acessorio,
+       tpl.total_pedidos,
+       ROUND(mp.pedidos_com_acessorio * 100.0 / NULLIF(tpl.total_pedidos, 0), 1) AS rate
+FROM matrix_parceiro mp JOIN total_por_linha tpl ON tpl.linha_apple = mp.linha_apple
+UNION ALL
+SELECT linha_apple, 'OPORTUNIDADE', 'oportunidade',
+       sem_acessorio, total_pedidos, pct_sem_acessorio
 FROM oportunidade
 UNION ALL
-SELECT linha_apple,
-       'TOTAL'        AS categoria,
-       'total'        AS grupo,
-       total_clientes AS clientes_mesmo_pedido,
-       0, total_clientes, 100.0, 0
+SELECT linha_apple, 'TOTAL', 'total',
+       total_pedidos, total_pedidos, 100.0
 FROM total_por_linha
-UNION ALL
-SELECT
-  s.segmento        AS linha_apple,
-  'SEGMENTO'        AS categoria,
-  'segmento'        AS grupo,
-  s.clientes        AS clientes_mesmo_pedido,
-  0                 AS clientes_janela,
-  t.total           AS total_clientes,
-  ROUND(s.clientes * 100.0 / NULLIF(t.total, 0), 1) AS rate_mesmo_pedido,
-  0                 AS rate_janela
-FROM segmentos_agg s
-CROSS JOIN segmentos_total t
-WHERE s.segmento IS NOT NULL
 ORDER BY linha_apple, grupo, categoria
 """.strip()
 
 
-def _build_acessorios_marcas_sql(start_date: str, end_date: str, canal_order_ids: list | None = None) -> str:
-    """Retorna cards de marca (JBL/Logitech/Originais iPlace) com CRM e top produtos."""
-    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
-    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    pt = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    rt = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
-
-    if canal_order_ids is not None:
-        if canal_order_ids:
-            ids_literal = ", ".join(f"'{str(oid).replace(chr(39), '')}'" for oid in canal_order_ids)
-            order_id_filter = f"AND CAST(order_id AS STRING) IN UNNEST([{ids_literal}])"
-        else:
-            order_id_filter = "AND FALSE"
-    else:
-        order_id_filter = ""
+def _build_acessorios_marcas_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
+    """Cards de marca (JBL/Logitech/Originais iPlace) com top produtos via vendas_iplace."""
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table   = _quote_identifier(VENDAS_BQ_TABLE)
+    canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
 
     return f"""
 WITH
 brand_items AS (
   SELECT
-    CAST(order_id AS STRING)      AS order_id,
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    COALESCE(NULLIF(TRIM(product_name),''), 'Sem nome') AS product_name,
-    sales_amount,
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto,
     CASE
-      WHEN UPPER(product_name) LIKE '%JBL%'              THEN 'JBL'
-      WHEN UPPER(product_name) LIKE '%LOGITECH%'          THEN 'Logitech'
-      WHEN UPPER(product_name) LIKE '%ORIGINAIS IPLACE%' THEN 'Originais iPlace'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'              THEN 'JBL'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'         THEN 'Logitech'
+      WHEN UPPER(COALESCE(Desc_Produto, '')) LIKE '%ORIGINAIS IPLACE%' THEN 'Originais iPlace'
     END AS marca
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-    {order_id_filter}
-    AND sales_amount > 0
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    {canal_clause}
     AND (
-      UPPER(COALESCE(product_name,'')) LIKE '%JBL%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%LOGITECH%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%ORIGINAIS IPLACE%'
+      UPPER(COALESCE(Desc_Produto, '')) LIKE '%JBL%'
+      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%LOGITECH%'
+      OR UPPER(COALESCE(Desc_Produto, '')) LIKE '%ORIGINAIS IPLACE%'
     )
 ),
 por_marca AS (
-  SELECT marca, COUNT(DISTINCT order_id) AS pedidos, COUNT(*) AS itens, ROUND(SUM(sales_amount),2) AS receita
+  SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
   FROM brand_items GROUP BY 1
 ),
-attr_orders AS (
-  SELECT DISTINCT CAST(r.order_id AS STRING) AS order_id
-  FROM `{project_id}.{dataset}.{rt}` r
-  CROSS JOIN UNNEST(r.treatments) AS t
-  WHERE DATE(r.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
-    AND t.attributed_amount > 0
-    AND DATE(r.event_time, 'America/Sao_Paulo') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
-),
-crm_por_marca AS (
-  SELECT bi.marca, COUNT(DISTINCT bi.order_id) AS pedidos_crm, ROUND(SUM(bi.sales_amount),2) AS receita_crm
-  FROM brand_items bi INNER JOIN attr_orders ao ON ao.order_id = bi.order_id
-  GROUP BY 1
-),
 top_jbl AS (
-  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount),2) AS receita
+  SELECT desc_produto AS nome, COUNT(*) AS qtd
   FROM brand_items WHERE marca = 'JBL' GROUP BY 1
 ),
 top_log AS (
-  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount),2) AS receita
+  SELECT desc_produto AS nome, COUNT(*) AS qtd
   FROM brand_items WHERE marca = 'Logitech' GROUP BY 1
 ),
 top_ori AS (
-  SELECT product_name AS nome, COUNT(*) AS qtd, ROUND(SUM(sales_amount),2) AS receita
+  SELECT desc_produto AS nome, COUNT(*) AS qtd
   FROM brand_items WHERE marca = 'Originais iPlace' GROUP BY 1
 )
 SELECT
-  pm.marca, pm.pedidos, pm.itens, pm.receita,
-  COALESCE(cpm.pedidos_crm, 0) AS pedidos_crm,
-  COALESCE(cpm.receita_crm, 0) AS receita_crm,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY qtd DESC LIMIT 10)) FROM top_jbl)  AS top_jbl_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY qtd DESC LIMIT 10)) FROM top_log)  AS top_log_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY receita DESC LIMIT 10)) FROM top_jbl)  AS top_jbl_receita_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY receita DESC LIMIT 10)) FROM top_log)  AS top_log_receita_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY qtd DESC LIMIT 10)) FROM top_ori)  AS top_ori_json,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome,qtd,receita) ORDER BY receita DESC LIMIT 10)) FROM top_ori)  AS top_ori_receita_json
+  pm.marca, pm.pedidos, pm.itens,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_jbl) AS top_jbl_json,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_log) AS top_log_json,
+  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) FROM top_ori) AS top_ori_json
 FROM por_marca pm
-LEFT JOIN crm_por_marca cpm ON cpm.marca = pm.marca
-ORDER BY pm.receita DESC
+ORDER BY pm.pedidos DESC
 """.strip()
 
 
@@ -6686,37 +6547,20 @@ def acessorios(
         e = _validate_optional_iso_date(end) or end
         canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
 
-        # Step 1: fetch order_ids from vendas project (different BQ location — cannot JOIN inline)
-        canal_order_ids: list | None = None
-        if canal_filter and BASE_VENDAS_BQ_PROJECT:
-            safe_canal = canal_filter.replace("'", "''")
-            sql_canal = f"""
-SELECT DISTINCT CAST(Numero_Pedido AS STRING) AS order_id
-FROM `{BASE_VENDAS_BQ_PROJECT}.{VENDAS_BQ_DATASET}.{VENDAS_BQ_TABLE}`
-WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
-  AND Data_Completa BETWEEN '{s}' AND '{e}'
-"""
-            canal_records = run_bigquery_records(sql_canal, BASE_VENDAS_BQ_PROJECT, location=None)
-            canal_order_ids = [str(r["order_id"]) for r in canal_records if r.get("order_id")]
+        sql_matriz = _build_acessorios_vendas_sql(s, e, canal_filter)
+        sql_marcas = _build_acessorios_marcas_vendas_sql(s, e, canal_filter)
+        matriz_records = run_bigquery_records(sql_matriz, BASE_VENDAS_BQ_PROJECT, location=None)
+        marcas_records = run_bigquery_records(sql_marcas, BASE_VENDAS_BQ_PROJECT, location=None)
 
-        # Step 2: run Emarsys queries filtered by pre-fetched order_ids
-        sql_matriz = _build_acessorios_matriz_sql(s, e, canal_order_ids)
-        sql_marcas = _build_acessorios_marcas_sql(s, e, canal_order_ids)
-        matriz_records = run_bigquery_records(sql_matriz, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
-        marcas_records = run_bigquery_records(sql_marcas, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
-
-        # Parse matrix rows by grupo
-        matrix_apple, matrix_parceiro, oportunidade, total_por_linha, segmentos = [], [], [], [], []
+        matrix_apple, matrix_parceiro, oportunidade, total_por_linha = [], [], [], []
         for row in matriz_records:
             grupo = str(row.get("grupo") or "")
             item = {
                 "linha_apple":           str(row.get("linha_apple") or ""),
                 "categoria":             str(row.get("categoria") or ""),
-                "clientes_mesmo_pedido": int(row.get("clientes_mesmo_pedido") or 0),
-                "clientes_janela":       int(row.get("clientes_janela") or 0),
-                "total_clientes":        int(row.get("total_clientes") or 0),
-                "rate_mesmo_pedido":     float(row.get("rate_mesmo_pedido") or 0),
-                "rate_janela":           float(row.get("rate_janela") or 0),
+                "pedidos_com_acessorio": int(row.get("pedidos_com_acessorio") or 0),
+                "total_pedidos":         int(row.get("total_pedidos") or 0),
+                "rate":                  float(row.get("rate") or 0),
             }
             if grupo == "apple":
                 matrix_apple.append(item)
@@ -6724,67 +6568,40 @@ WHERE UPPER(TRIM(Canal)) = '{safe_canal}'
                 matrix_parceiro.append(item)
             elif grupo == "oportunidade":
                 oportunidade.append({
-                    "linha_apple":     item["linha_apple"],
-                    "sem_acessorio":   item["clientes_mesmo_pedido"],
-                    "total_clientes":  item["total_clientes"],
-                    "pct_sem_acessorio": item["rate_mesmo_pedido"],
+                    "linha_apple":       item["linha_apple"],
+                    "sem_acessorio":     item["pedidos_com_acessorio"],
+                    "total_pedidos":     item["total_pedidos"],
+                    "pct_sem_acessorio": item["rate"],
                 })
             elif grupo == "total":
                 total_por_linha.append({
-                    "linha_apple":   item["linha_apple"],
-                    "total_clientes": item["total_clientes"],
-                })
-            elif grupo == "segmento":
-                segmentos.append({
-                    "segmento":   item["linha_apple"],
-                    "clientes":   item["clientes_mesmo_pedido"],
-                    "total":      item["total_clientes"],
-                    "pct":        item["rate_mesmo_pedido"],
+                    "linha_apple":  item["linha_apple"],
+                    "total_pedidos": item["total_pedidos"],
                 })
 
-        # Parse brand cards
         por_marca = []
-        top_jbl_qtd, top_jbl_rec, top_log_qtd, top_log_rec, top_ori_qtd, top_ori_rec = [], [], [], [], [], []
+        top_jbl, top_log, top_ori = [], [], []
         for row in marcas_records:
             por_marca.append({
-                "marca":      str(row.get("marca") or ""),
-                "pedidos":    int(row.get("pedidos") or 0),
-                "itens":      int(row.get("itens") or 0),
-                "receita":    float(row.get("receita") or 0),
-                "pedidos_crm": int(row.get("pedidos_crm") or 0),
-                "receita_crm": float(row.get("receita_crm") or 0),
+                "marca":   str(row.get("marca") or ""),
+                "pedidos": int(row.get("pedidos") or 0),
+                "itens":   int(row.get("itens") or 0),
             })
         first = marcas_records[0] if marcas_records else {}
-        top_jbl_qtd  = _json.loads(first.get("top_jbl_json") or "[]")
-        top_jbl_rec  = _json.loads(first.get("top_jbl_receita_json") or "[]")
-        top_log_qtd  = _json.loads(first.get("top_log_json") or "[]")
-        top_log_rec  = _json.loads(first.get("top_log_receita_json") or "[]")
-        top_ori_qtd  = _json.loads(first.get("top_ori_json") or "[]")
-        top_ori_rec  = _json.loads(first.get("top_ori_receita_json") or "[]")
-
-        # Ordem de exibição dos segmentos
-        SEG_ORDER = [
-            'Device Apple + Sem acessório',
-            'Device Apple + Acess. Apple',
-            'Device Apple + Acess. parceiros',
-            'Device Apple + Acess. Apple + Parceiros',
-            'Somente acess. Apple (sem device)',
-            'Somente acess. parceiros (sem device)',
-            'Somente acess. Apple + Parceiros (sem device)',
-        ]
-        segmentos.sort(key=lambda x: SEG_ORDER.index(x['segmento']) if x['segmento'] in SEG_ORDER else 99)
+        top_jbl = _json.loads(first.get("top_jbl_json") or "[]")
+        top_log = _json.loads(first.get("top_log_json") or "[]")
+        top_ori = _json.loads(first.get("top_ori_json") or "[]")
 
         return {
             "matrix_apple":    matrix_apple,
             "matrix_parceiro": matrix_parceiro,
             "oportunidade":    oportunidade,
             "total_por_linha": total_por_linha,
-            "segmentos":       segmentos,
             "por_marca":       por_marca,
             "top_produtos": {
-                "JBL":               {"qtd": top_jbl_qtd, "receita": top_jbl_rec},
-                "Logitech":          {"qtd": top_log_qtd, "receita": top_log_rec},
-                "Originais iPlace":  {"qtd": top_ori_qtd, "receita": top_ori_rec},
+                "JBL":              {"qtd": top_jbl},
+                "Logitech":         {"qtd": top_log},
+                "Originais iPlace": {"qtd": top_ori},
             },
             "start_date": s,
             "end_date":   e,
@@ -6801,72 +6618,76 @@ def acessorios_oportunidade_export(
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     linha: str = Query(default=""),
 ) -> dict[str, Any]:
-    """Retorna lista de contatos Apple sem acessório (com CPF) para disparo CRM."""
-    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
-    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    pt  = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
-    ct  = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    """Retorna pedidos com device Apple sem acessório no período (via vendas_iplace)."""
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table   = _quote_identifier(VENDAS_BQ_TABLE)
     try:
         s = _validate_optional_iso_date(start) or start
         e = _validate_optional_iso_date(end) or end
-        linha_filter = f"AND linha_apple = '{linha}'" if linha.strip() else ""
+        safe_linha = linha.strip().replace("'", "''")
+        linha_filter = f"AND pd.linha_apple = '{safe_linha}'" if safe_linha else ""
         sql = f"""
 WITH
-apple_devices AS (
+all_items AS (
   SELECT
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    CAST(order_id AS STRING)      AS order_id,
-    DATE(purchase_date)           AS purchase_date,
-    CASE
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPHONE')                                   THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'IPAD')                                     THEN 'iPad'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
-      WHEN REGEXP_CONTAINS(UPPER(product_name), r'APPLE WATCH')                              THEN 'Apple Watch'
-    END AS linha_apple
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{s}') AND DATE('{e}')
-    AND sales_amount > 0
-    AND REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')),
-          r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Filial,
+    Numero_Pedido,
+    Data_Completa,
+    Canal,
+    UPPER(COALESCE(Desc_Produto, '')) AS produto_upper
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{s}' AND '{e}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
 ),
-apple_por_contato AS (
-  SELECT si_contact_id, linha_apple, MIN(purchase_date) AS purchase_date
-  FROM apple_devices GROUP BY 1, 2
+device_rows AS (
+  SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal,
+    CASE
+      WHEN REGEXP_CONTAINS(produto_upper, r'IPHONE')                                   THEN 'iPhone'
+      WHEN REGEXP_CONTAINS(produto_upper, r'IPAD')                                     THEN 'iPad'
+      WHEN REGEXP_CONTAINS(produto_upper, r'MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO') THEN 'Mac'
+      WHEN REGEXP_CONTAINS(produto_upper, r'APPLE WATCH')                              THEN 'Apple Watch'
+    END AS linha_apple
+  FROM all_items
+  WHERE REGEXP_CONTAINS(produto_upper, r'IPHONE|IPAD|MACBOOK|IMAC|MAC MINI|MAC PRO|MAC STUDIO|APPLE WATCH')
+),
+pedidos_device AS (
+  SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal, linha_apple
+  FROM device_rows WHERE linha_apple IS NOT NULL
 ),
 todos_acc AS (
-  SELECT DISTINCT CAST(si_contact_id AS STRING) AS si_contact_id
-  FROM `{project_id}.{dataset}.{pt}`
-  WHERE DATE(purchase_date) BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 30 DAY)
-    AND sales_amount > 0
-    AND (
-      REGEXP_CONTAINS(UPPER(COALESCE(product_name,'')), r'AIRPOD|AIRTAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
-      OR (UPPER(COALESCE(product_name,'')) LIKE '%CABO%'       AND UPPER(COALESCE(product_name,'')) LIKE '%APPLE%')
-      OR (UPPER(COALESCE(product_name,'')) LIKE '%CARREGADOR%' AND UPPER(COALESCE(product_name,'')) LIKE '%APPLE%')
-      OR UPPER(COALESCE(product_name,'')) LIKE '%JBL%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%LOGITECH%'
-      OR UPPER(COALESCE(product_name,'')) LIKE '%ORIGINAIS IPLACE%'
-    )
+  SELECT DISTINCT pedido_key FROM all_items
+  WHERE (
+    REGEXP_CONTAINS(produto_upper, r'AIRPOD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|MAGIC MOUSE|MAGIC KEYBOARD')
+    OR (produto_upper LIKE '%CABO%' AND produto_upper LIKE '%APPLE%')
+    OR (produto_upper LIKE '%CARREGADOR%' AND produto_upper LIKE '%APPLE%')
+    OR produto_upper LIKE '%JBL%'
+    OR produto_upper LIKE '%LOGITECH%'
+    OR produto_upper LIKE '%ORIGINAIS IPLACE%'
+  )
 )
 SELECT
-  apc.si_contact_id,
-  CAST(c.external_id AS STRING) AS cpf,
-  apc.linha_apple,
-  CAST(apc.purchase_date AS STRING) AS purchase_date
-FROM apple_por_contato apc
-LEFT JOIN todos_acc ta ON ta.si_contact_id = apc.si_contact_id
-LEFT JOIN `{project_id}.{dataset}.{ct}` c ON CAST(c.si_contact_id AS STRING) = apc.si_contact_id
-WHERE ta.si_contact_id IS NULL
+  pd.Cod_Filial     AS cod_filial,
+  pd.Numero_Pedido  AS numero_pedido,
+  pd.linha_apple,
+  pd.Data_Completa  AS data_pedido,
+  pd.Canal          AS canal
+FROM pedidos_device pd
+LEFT JOIN todos_acc ta ON ta.pedido_key = pd.pedido_key
+WHERE ta.pedido_key IS NULL
   {linha_filter}
-ORDER BY apc.linha_apple, apc.purchase_date
+ORDER BY pd.linha_apple, pd.Data_Completa
 LIMIT 50000
 """.strip()
-        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=None)
         items = [
             {
-                "si_contact_id": str(r.get("si_contact_id") or ""),
-                "cpf":           str(r.get("cpf") or ""),
+                "cod_filial":    str(r.get("cod_filial") or ""),
+                "numero_pedido": str(r.get("numero_pedido") or ""),
                 "linha_apple":   str(r.get("linha_apple") or ""),
-                "purchase_date": str(r.get("purchase_date") or ""),
+                "data_pedido":   str(r.get("data_pedido") or ""),
+                "canal":         str(r.get("canal") or ""),
             }
             for r in records
         ]

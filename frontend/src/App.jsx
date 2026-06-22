@@ -335,8 +335,6 @@ export default function App({ mode = 'campanhas' }) {
   const [acessoriosError, setAcessoriosError] = useState('')
   const [acessoriosStart, setAcessoriosStart] = useState(currentMonthRange.start)
   const [acessoriosEnd, setAcessoriosEnd] = useState(currentMonthRange.end)
-  const [acessoriosModo, setAcessoriosModo] = useState('mesmo_pedido')
-  const [acessoriosTopSort, setAcessoriosTopSort] = useState('qtd')
   const [acessoriosExportLoading, setAcessoriosExportLoading] = useState(false)
   const [acessoriosCanal, setAcessoriosCanal] = useState('')
 
@@ -2601,7 +2599,6 @@ export default function App({ mode = 'campanhas' }) {
   )
 
   const renderAcessoriosView = () => {
-    const fmt  = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
     const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
     const fmtPct = (n) => `${(n ?? 0).toFixed(1)}%`
     const d = acessoriosData
@@ -2644,10 +2641,8 @@ export default function App({ mode = 'campanhas' }) {
     const MatrizTable = ({ titulo, rows }) => {
       if (!rows?.length) return null
       const { linhas, cats, lookup } = buildMatrix(rows)
-      const rateKey = acessoriosModo === 'mesmo_pedido' ? 'rate_mesmo_pedido' : 'rate_janela'
-      const clientesKey = acessoriosModo === 'mesmo_pedido' ? 'clientes_mesmo_pedido' : 'clientes_janela'
       const totalPorLinha = {}
-      ;(d?.total_por_linha || []).forEach((t) => { totalPorLinha[t.linha_apple] = t.total_clientes })
+      ;(d?.total_por_linha || []).forEach((t) => { totalPorLinha[t.linha_apple] = t.total_pedidos })
       return (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-soft overflow-hidden">
           <div className="border-b border-slate-100 px-5 py-3 flex items-center gap-3">
@@ -2659,7 +2654,7 @@ export default function App({ mode = 'campanhas' }) {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2 whitespace-nowrap">Linha Apple</th>
-                  <th className="px-4 py-2 text-right">Total</th>
+                  <th className="px-4 py-2 text-right">Total Pedidos</th>
                   {cats.map((c) => <th key={c} className="px-3 py-2 text-center whitespace-nowrap">{c}</th>)}
                 </tr>
               </thead>
@@ -2670,13 +2665,13 @@ export default function App({ mode = 'campanhas' }) {
                     <td className="px-4 py-2 text-right text-slate-500">{fmtN(totalPorLinha[linha] ?? 0)}</td>
                     {cats.map((cat) => {
                       const cell = lookup[`${linha}|${cat}`]
-                      const rate = cell ? cell[rateKey] : 0
-                      const clientes = cell ? cell[clientesKey] : 0
+                      const rate = cell ? cell.rate : 0
+                      const pedidos = cell ? cell.pedidos_com_acessorio : 0
                       return (
                         <td key={cat} className="px-3 py-2 text-center" style={heatBg(rate)}>
                           <span className="font-bold">{fmtPct(rate)}</span>
                           <br />
-                          <span className="opacity-70">{fmtN(clientes)}</span>
+                          <span className="opacity-70">{fmtN(pedidos)}</span>
                         </td>
                       )
                     })}
@@ -2698,8 +2693,8 @@ export default function App({ mode = 'campanhas' }) {
         const json = await res.json()
         if (!res.ok) throw new Error(json.detail || 'Erro ao exportar')
         const items = json.items || []
-        if (!items.length) { alert('Nenhum contato encontrado.'); return }
-        const cols = ['si_contact_id','cpf','linha_apple','purchase_date']
+        if (!items.length) { alert('Nenhum pedido encontrado.'); return }
+        const cols = ['cod_filial','numero_pedido','linha_apple','data_pedido','canal']
         const esc  = (v) => { const s = String(v ?? ''); return s.includes(',') ? `"${s}"` : s }
         const csv  = [cols.join(','), ...items.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n')
         const a    = document.createElement('a')
@@ -2714,7 +2709,7 @@ export default function App({ mode = 'campanhas' }) {
     }
 
     const TopProdutosTable = ({ marca }) => {
-      const dados = d?.top_produtos?.[marca]?.[acessoriosTopSort] || []
+      const dados = d?.top_produtos?.[marca]?.qtd || []
       return (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
           <div className="border-b border-slate-100 px-4 py-3">
@@ -2727,8 +2722,7 @@ export default function App({ mode = 'campanhas' }) {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2">Produto</th>
-                  <th className="px-4 py-2 text-right">Qtd</th>
-                  <th className="px-4 py-2 text-right">Receita</th>
+                  <th className="px-4 py-2 text-right">Pedidos</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -2736,7 +2730,6 @@ export default function App({ mode = 'campanhas' }) {
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-4 py-2 text-slate-800">{p.nome}</td>
                     <td className="px-4 py-2 text-right text-slate-700">{fmtN(p.qtd)}</td>
-                    <td className="px-4 py-2 text-right font-medium text-slate-900">{fmt(p.receita)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2754,7 +2747,7 @@ export default function App({ mode = 'campanhas' }) {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Acessórios</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Attach rate de acessórios por linha de dispositivo Apple — mesmo pedido e janela 30 dias
+                Attach rate de acessórios por linha de dispositivo Apple — pedidos faturados
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
@@ -2820,151 +2813,6 @@ export default function App({ mode = 'campanhas' }) {
         {/* Results */}
         {!acessoriosLoading && d && (
           <>
-            {/* Toggle modo */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Visualizar:</span>
-              {[
-                { key: 'mesmo_pedido', label: 'Mesmo Pedido' },
-                { key: 'janela',       label: 'Janela 30 dias' },
-              ].map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setAcessoriosModo(opt.key)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                    acessoriosModo === opt.key
-                      ? 'bg-slate-800 text-white'
-                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-              <span className="ml-auto text-xs text-slate-400">
-                {acessoriosModo === 'mesmo_pedido'
-                  ? 'Acessório comprado no mesmo pedido do dispositivo'
-                  : 'Acessório comprado até 30 dias após o dispositivo (pedido diferente)'}
-              </span>
-            </div>
-
-            {/* Composição de clientes */}
-            {d.segmentos?.length > 0 && (() => {
-              const SEG_CFG = {
-                'Device Apple + Sem acessório':                    { color: '#f59e0b', tw: 'bg-amber-400',   label: 'Sem acessório',              group: 'device' },
-                'Device Apple + Acess. Apple':                     { color: '#3b82f6', tw: 'bg-blue-500',    label: 'Acess. Apple',               group: 'device' },
-                'Device Apple + Acess. parceiros':                 { color: '#8b5cf6', tw: 'bg-violet-500',  label: 'Acess. Parceiros',           group: 'device' },
-                'Device Apple + Acess. Apple + Parceiros':         { color: '#14b8a6', tw: 'bg-teal-500',    label: 'Acess. Apple + Parceiros',   group: 'device' },
-                'Somente acess. Apple (sem device)':               { color: '#94a3b8', tw: 'bg-slate-300',   label: 'Somente Acess. Apple',       group: 'sem' },
-                'Somente acess. parceiros (sem device)':           { color: '#64748b', tw: 'bg-slate-400',   label: 'Somente Acess. Parceiros',   group: 'sem' },
-                'Somente acess. Apple + Parceiros (sem device)':   { color: '#475569', tw: 'bg-slate-600',   label: 'Somente Acess. Apple + Parceiros', group: 'sem' },
-              }
-              const total = d.segmentos[0]?.total ?? 1
-              const devSegs = d.segmentos.filter(s => SEG_CFG[s.segmento]?.group === 'device')
-              const semSegs = d.segmentos.filter(s => SEG_CFG[s.segmento]?.group === 'sem')
-              const devTotal = devSegs.reduce((a, s) => a + s.clientes, 0)
-              const semTotal = semSegs.reduce((a, s) => a + s.clientes, 0)
-              return (
-                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                  <p className="mb-3 text-sm font-semibold text-slate-800">Composição de clientes no período</p>
-
-                  {/* Barra de composição */}
-                  <div className="mb-1 flex h-7 w-full overflow-hidden rounded-full">
-                    {d.segmentos.map((s) => {
-                      const cfg = SEG_CFG[s.segmento]
-                      if (!cfg || s.pct === 0) return null
-                      return (
-                        <div
-                          key={s.segmento}
-                          title={`${cfg.label}: ${fmtN(s.clientes)} (${fmtPct(s.pct)})`}
-                          className={`${cfg.tw} cursor-default transition-opacity hover:opacity-80`}
-                          style={{ width: `${s.pct}%` }}
-                        />
-                      )
-                    })}
-                  </div>
-                  {/* Legenda da barra */}
-                  <div className="mb-5 flex flex-wrap gap-x-4 gap-y-1">
-                    {d.segmentos.map((s) => {
-                      const cfg = SEG_CFG[s.segmento]
-                      if (!cfg) return null
-                      return (
-                        <span key={s.segmento} className="flex items-center gap-1.5 text-xs text-slate-500">
-                          <span className={`inline-block h-2 w-2 rounded-full ${cfg.tw}`} />
-                          {cfg.label} {fmtPct(s.pct)}
-                        </span>
-                      )
-                    })}
-                  </div>
-
-                  {/* Dois grupos */}
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {/* Com Device */}
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                      <div className="mb-3 flex items-baseline justify-between">
-                        <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Com Device Apple</p>
-                        <p className="text-sm font-bold text-blue-900">
-                          {fmtN(devTotal)} <span className="text-xs font-normal text-blue-600">({fmtPct(devTotal / total * 100)})</span>
-                        </p>
-                      </div>
-                      <div className="space-y-2.5">
-                        {devSegs.map((s) => {
-                          const cfg = SEG_CFG[s.segmento]
-                          if (!cfg) return null
-                          const pctOfGroup = devTotal > 0 ? s.clientes / devTotal * 100 : 0
-                          return (
-                            <div key={s.segmento}>
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.tw}`} />
-                                <span className="flex-1 text-xs text-slate-700">{cfg.label}</span>
-                                <span className="text-xs font-semibold text-slate-900">{fmtN(s.clientes)}</span>
-                                <span className="w-10 text-right text-xs text-slate-400">{fmtPct(s.pct)}</span>
-                              </div>
-                              <div className="ml-4 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
-                                <div className={`h-full rounded-full ${cfg.tw}`} style={{ width: `${pctOfGroup}%` }} />
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Sem Device */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="mb-3 flex items-baseline justify-between">
-                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Sem Device Apple</p>
-                        <p className="text-sm font-bold text-slate-700">
-                          {fmtN(semTotal)} <span className="text-xs font-normal text-slate-400">({fmtPct(semTotal / total * 100)})</span>
-                        </p>
-                      </div>
-                      <div className="space-y-2.5">
-                        {semSegs.map((s) => {
-                          const cfg = SEG_CFG[s.segmento]
-                          if (!cfg) return null
-                          const pctOfGroup = semTotal > 0 ? s.clientes / semTotal * 100 : 0
-                          return (
-                            <div key={s.segmento}>
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.tw}`} />
-                                <span className="flex-1 text-xs text-slate-700">{cfg.label}</span>
-                                <span className="text-xs font-semibold text-slate-900">{fmtN(s.clientes)}</span>
-                                <span className="w-10 text-right text-xs text-slate-400">{fmtPct(s.pct)}</span>
-                              </div>
-                              <div className="ml-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-                                <div className={`h-full rounded-full ${cfg.tw}`} style={{ width: `${pctOfGroup}%` }} />
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="mt-3 text-right text-xs text-slate-400">
-                    Total: {fmtN(total)} clientes únicos · janela 30 dias
-                  </p>
-                </section>
-              )
-            })()}
 
             {/* Matriz — Acessórios Apple */}
             {d.matrix_apple?.length > 0 && (
@@ -2989,7 +2837,7 @@ export default function App({ mode = 'campanhas' }) {
                   <div>
                     <h3 className="text-base font-semibold text-amber-900">Pool de Oportunidade</h3>
                     <p className="mt-0.5 text-xs text-amber-700">
-                      Compradores de dispositivo Apple que não adquiriram nenhum acessório no período (incluindo janela de 30 dias)
+                      Pedidos faturados com dispositivo Apple que não tiveram nenhum acessório no mesmo pedido
                     </p>
                   </div>
                   <button
@@ -3007,7 +2855,7 @@ export default function App({ mode = 'campanhas' }) {
                       <p className="text-xs font-semibold text-amber-800">{op.linha_apple}</p>
                       <p className="mt-1 text-2xl font-bold text-amber-900">{fmtN(op.sem_acessorio)}</p>
                       <p className="text-xs text-amber-600">
-                        {fmtPct(op.pct_sem_acessorio)} do total ({fmtN(op.total_clientes)})
+                        {fmtPct(op.pct_sem_acessorio)} do total ({fmtN(op.total_pedidos)})
                       </p>
                       <button
                         type="button"
@@ -3024,65 +2872,26 @@ export default function App({ mode = 'campanhas' }) {
             )}
 
             {/* Cards de marca + top produtos */}
-            <div className="flex items-center gap-2 pt-2">
-              <h3 className="text-sm font-semibold text-slate-700">Marcas Parceiras</h3>
-              <div className="ml-auto flex items-center gap-1.5">
-                <span className="text-xs text-slate-400">Ordenar top por:</span>
-                {[{ key: 'qtd', label: 'Qtd' }, { key: 'receita', label: 'Receita' }].map((opt) => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setAcessoriosTopSort(opt.key)}
-                    className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
-                      acessoriosTopSort === opt.key
-                        ? 'bg-slate-800 text-white'
-                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <h3 className="pt-2 text-sm font-semibold text-slate-700">Marcas Parceiras</h3>
 
             {d.por_marca?.length > 0 ? (
               <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                 {d.por_marca.map((m) => {
                   const cfg = MARCA_CONFIG[m.marca] || { bg: 'from-slate-600 to-slate-500', badge: 'bg-slate-100 text-slate-700' }
-                  const pctCrm = m.pedidos > 0 ? Math.round((m.pedidos_crm / m.pedidos) * 100) : 0
                   return (
                     <div key={m.marca} className="flex flex-col gap-3">
                       <section className={`rounded-2xl bg-gradient-to-r ${cfg.bg} p-5 text-white shadow-soft`}>
-                        <div className="mb-4 flex items-center justify-between">
-                          <h3 className="text-xl font-bold">{m.marca}</h3>
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cfg.badge}`}>
-                            {pctCrm}% via CRM
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <h3 className="mb-4 text-xl font-bold">{m.marca}</h3>
+                        <div className="grid grid-cols-2 gap-3">
                           {[
                             { label: 'Pedidos', value: fmtN(m.pedidos) },
-                            { label: 'Receita',  value: fmt(m.receita) },
-                            { label: 'Itens',    value: fmtN(m.itens) },
+                            { label: 'Itens',   value: fmtN(m.itens) },
                           ].map((c) => (
                             <div key={c.label}>
                               <p className="text-xs text-white/70">{c.label}</p>
                               <p className="text-base font-semibold">{c.value}</p>
                             </div>
                           ))}
-                        </div>
-                        <div className="mt-4 rounded-xl bg-black/20 p-3">
-                          <p className="mb-1 text-xs font-semibold text-white/80 uppercase tracking-wide">Atribuição CRM</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <p className="text-xs text-white/70">Pedidos</p>
-                              <p className="font-semibold">{fmtN(m.pedidos_crm)}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-white/70">Receita</p>
-                              <p className="font-semibold">{fmt(m.receita_crm)}</p>
-                            </div>
-                          </div>
                         </div>
                       </section>
                       <TopProdutosTable marca={m.marca} />
