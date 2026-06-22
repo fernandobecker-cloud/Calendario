@@ -2619,18 +2619,22 @@ export default function App({ mode = 'campanhas' }) {
     }
 
     // Build matrix rows grouped by linha_apple for a given grupo
-    const LINHA_ORDER = ['iPhone', 'Mac', 'iPad', 'Apple Watch']
-    const CAT_ORDER = [
+    const LINHA_ORDER = ['iPhone', 'Mac', 'iPad', 'Apple Watch', 'Apple TV']
+    const CAT_ORDER_PARCEIRO = [
       'Capa/Case', 'Carregador', 'Película', 'Cabo', 'Adaptador',
-      'Bolsa/Mochila', 'Teclado', 'Mouse', 'Fone', 'Caneta', 'Pulseira', 'Caixa de Som',
+      'Bolsa/Mochila', 'Teclado', 'Mouse', 'Fone', 'Caneta', 'Pulseira', 'Caixa de Som', 'AirTag',
     ]
-    const buildMatrix = (rows) => {
+    const CAT_ORDER_APPLE = [
+      'AirPods', 'AirTag', 'EarPods', 'Carregador Apple', 'Cabo Apple', 'MagSafe',
+      'Magic Mouse', 'Magic Keyboard', 'Caneta', 'Pulseira', 'Capa/Case', 'Adaptador', 'Teclado',
+    ]
+    const buildMatrix = (rows, catOrder) => {
       const linhasSet = new Set(rows.map((r) => r.linha_apple))
       const linhas = LINHA_ORDER.filter((l) => linhasSet.has(l))
       const catsSet = new Set(rows.map((r) => r.categoria))
       const cats = [
-        ...CAT_ORDER.filter((c) => catsSet.has(c)),
-        ...[...catsSet].filter((c) => !CAT_ORDER.includes(c) && c !== 'Outros').sort(),
+        ...catOrder.filter((c) => catsSet.has(c)),
+        ...[...catsSet].filter((c) => !catOrder.includes(c) && c !== 'Outros').sort(),
         ...( catsSet.has('Outros') ? ['Outros'] : [] ),
       ]
       const lookup = {}
@@ -2638,9 +2642,9 @@ export default function App({ mode = 'campanhas' }) {
       return { linhas, cats, lookup }
     }
 
-    const MatrizTable = ({ titulo, rows }) => {
+    const MatrizTable = ({ titulo, rows, catOrder }) => {
       if (!rows?.length) return null
-      const { linhas, cats, lookup } = buildMatrix(rows)
+      const { linhas, cats, lookup } = buildMatrix(rows, catOrder)
       const totalPorLinha = {}
       ;(d?.total_por_linha || []).forEach((t) => { totalPorLinha[t.linha_apple] = t.total_pedidos })
       return (
@@ -2817,8 +2821,9 @@ export default function App({ mode = 'campanhas' }) {
             {/* Matriz — Acessórios Apple */}
             {d.matrix_apple?.length > 0 && (
               <MatrizTable
-                titulo="Acessórios Apple (AirPods, AirTag, EarPods, MagSafe, Magic Mouse, Magic Keyboard, Cabo Apple, Carregador Apple)"
+                titulo="Acessórios Apple (AirPods, AirTag, EarPods, Carregador Apple, Cabo Apple, MagSafe, Magic Mouse, Magic Keyboard, Caneta, Pulseira, Capa/Case)"
                 rows={d.matrix_apple}
+                catOrder={CAT_ORDER_APPLE}
               />
             )}
 
@@ -2827,6 +2832,7 @@ export default function App({ mode = 'campanhas' }) {
               <MatrizTable
                 titulo="Acessórios Parceiros (JBL, Logitech, Originais iPlace)"
                 rows={d.matrix_parceiro}
+                catOrder={CAT_ORDER_PARCEIRO}
               />
             )}
 

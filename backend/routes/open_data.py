@@ -8158,8 +8158,8 @@ acc_apple AS (
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'MAGIC KEY(?:BOARD|B)|TECLADO APPLE')       THEN 'Magic Keyboard'
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'CABO APPLE')                               THEN 'Cabo Apple'
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'(?:CARREG|CARREGADOR) APPLE')              THEN 'Carregador Apple'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'APPLE PENCIL')                             THEN 'Apple Pencil'
-        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^P APPLE WATCH')                           THEN 'Pulseira Apple'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'APPLE PENCIL')                             THEN 'Caneta'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'^PU[LS]*[. ]APPLE WATCH|^P APPLE WATCH')  THEN 'Pulseira'
       END
     ) AS categoria
   FROM all_items ai
@@ -8190,6 +8190,7 @@ acc_parceiro AS (
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bCAPA\\b|\\bCASE\\b|\\bWALLET\\b')      THEN 'Capa/Case'
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'\\bPULSEIRA\\b|\\bALCA\\b|^P IPLACE WATCH|^KIT P IPLACE') THEN 'Pulseira'
         WHEN REGEXP_CONTAINS(ai.produto_upper, r'BOLSA|MOCHILA|\\bSLEEVE\\b|\\bMALA\\b')   THEN 'Bolsa/Mochila'
+        WHEN REGEXP_CONTAINS(ai.produto_upper, r'AIRTAG|AIR TAG')                          THEN 'AirTag'
         ELSE 'Outros'
       END
     ) AS categoria
