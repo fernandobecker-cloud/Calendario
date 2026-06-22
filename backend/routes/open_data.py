@@ -8102,7 +8102,12 @@ def _acessorios_sku_lookup_cte() -> str:
 
 
 def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Attach rate de acessórios por linha Apple — classificação 100% via SKU map (CSV)."""
+    """Attach rate de acessórios por linha Apple — classificação 100% via SKU map (CSV).
+
+    O filtro de canal é aplicado apenas nos devices (define os pedidos do universo).
+    Os acessórios são buscados em todos os itens desses pedidos, sem filtro de canal,
+    para evitar subcontagem causada por Canal NULL ou diferente em linhas de acessório.
+    """
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
@@ -8112,7 +8117,18 @@ def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: s
     return f"""
 WITH
 {sku_cte},
+-- Todos os itens faturados no período (sem filtro de canal) — base para acessórios
 all_items AS (
+  SELECT
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Produto
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
+),
+-- Devices filtrados pelo canal — define o universo de pedidos
+device_items AS (
   SELECT
     CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
     Cod_Produto
@@ -8122,25 +8138,31 @@ all_items AS (
     AND Cod_Produto NOT LIKE '000000010000%'
     {canal_clause}
 ),
-classified AS (
-  SELECT ai.pedido_key, lk.tipo, lk.categoria, lk.marca
-  FROM all_items ai
-  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+classified_devices AS (
+  SELECT di.pedido_key, lk.categoria AS linha_apple
+  FROM device_items di
+  JOIN sku_lookup lk ON lk.sku = di.Cod_Produto AND lk.tipo = 'device'
 ),
 pedidos_device AS (
-  SELECT DISTINCT pedido_key, categoria AS linha_apple
-  FROM classified
-  WHERE tipo = 'device'
+  SELECT DISTINCT pedido_key, linha_apple
+  FROM classified_devices
+),
+-- Acessórios buscados em TODOS os itens dos pedidos com device (sem filtro de canal)
+classified_acc AS (
+  SELECT ai.pedido_key, lk.tipo, lk.categoria, lk.marca
+  FROM all_items ai
+  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acessorio'
+  WHERE ai.pedido_key IN (SELECT pedido_key FROM pedidos_device)
 ),
 acc_apple AS (
   SELECT pedido_key, categoria
-  FROM classified
-  WHERE tipo = 'acessorio' AND marca = 'Apple'
+  FROM classified_acc
+  WHERE marca = 'Apple'
 ),
 acc_parceiro AS (
   SELECT pedido_key, categoria
-  FROM classified
-  WHERE tipo = 'acessorio' AND marca != 'Apple'
+  FROM classified_acc
+  WHERE marca != 'Apple'
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -8335,8 +8357,9 @@ def acessorios_oportunidade_export(
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     linha: str = Query(default=""),
+    canal: str = Query(default=""),
 ) -> dict[str, Any]:
-    """Retorna pedidos com device Apple sem acessório no período (via vendas_iplace)."""
+    """Retorna pedidos com device Apple sem acessório no período — usa SKU map, respeita canal."""
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
@@ -8345,8 +8368,12 @@ def acessorios_oportunidade_export(
         e = _validate_optional_iso_date(end) or end
         safe_linha = linha.strip().replace("'", "''")
         linha_filter = f"AND pd.linha_apple = '{safe_linha}'" if safe_linha else ""
+        canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
+        canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
+        sku_cte = _acessorios_sku_lookup_cte()
         sql = f"""
 WITH
+{sku_cte},
 all_items AS (
   SELECT
     CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
@@ -8354,41 +8381,39 @@ all_items AS (
     Numero_Pedido,
     Data_Completa,
     Canal,
-    UPPER(COALESCE(Desc_Produto, '')) AS produto_upper
+    Cod_Produto
   FROM `{project}.{dataset}.{table}`
   WHERE Data_Completa BETWEEN '{s}' AND '{e}'
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
     AND Cod_Produto NOT LIKE '000000010000%'
 ),
-device_rows AS (
-  SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal,
-    CASE
-      WHEN REGEXP_CONTAINS(produto_upper, r'^IPHONE')                                                    THEN 'iPhone'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^IPAD')                                                      THEN 'iPad'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR))')             THEN 'Mac'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^(?:WATCH\\s|APPLE WATCH)')                                  THEN 'Apple Watch'
-      WHEN REGEXP_CONTAINS(produto_upper, r'^APPLE TV')                                                  THEN 'Apple TV'
-    END AS linha_apple
-  FROM all_items
-  WHERE REGEXP_CONTAINS(produto_upper, r'^(?:IPHONE|IPAD|MACB|IMAC|MAC\\s+(?:MINI|PRO|STUDIO|AIR)|WATCH\\s|APPLE\\s+(?:WATCH|TV))')
+device_items AS (
+  SELECT
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Filial, Numero_Pedido, Data_Completa, Canal, Cod_Produto
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{s}' AND '{e}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
+    {canal_clause}
 ),
 pedidos_device AS (
-  SELECT DISTINCT pedido_key, Cod_Filial, Numero_Pedido, Data_Completa, Canal, linha_apple
-  FROM device_rows WHERE linha_apple IS NOT NULL
+  SELECT DISTINCT
+    di.pedido_key,
+    ANY_VALUE(di.Cod_Filial)     AS Cod_Filial,
+    ANY_VALUE(di.Numero_Pedido)  AS Numero_Pedido,
+    ANY_VALUE(di.Data_Completa)  AS Data_Completa,
+    ANY_VALUE(di.Canal)          AS Canal,
+    lk.categoria                 AS linha_apple
+  FROM device_items di
+  JOIN sku_lookup lk ON lk.sku = di.Cod_Produto AND lk.tipo = 'device'
+  GROUP BY di.pedido_key, lk.categoria
 ),
 todos_acc AS (
-  SELECT DISTINCT pedido_key FROM all_items
-  WHERE (
-    (
-      REGEXP_CONTAINS(produto_upper, r'AIR\\s*POD|AIRTAG|AIR TAG|EARPODS|MAGSAFE|CARTEIRA APPLE|MAGIC MOUSE|MOUSE MAGIC|MAGIC KEY(?:BOARD|B)|TECLADO APPLE|CABO APPLE|(?:CARREG|CARREGADOR) APPLE|APPLE PENCIL')
-      OR REGEXP_CONTAINS(produto_upper, r'^P APPLE WATCH')
-    )
-    AND NOT REGEXP_CONTAINS(produto_upper, r'IPLACE|JBL|LOGI|MISTER')
-  )
-  OR (
-    (produto_upper LIKE '%JBL%' OR produto_upper LIKE '%LOGI%' OR produto_upper LIKE '%IPLACE%' OR produto_upper LIKE '%MISTER%')
-    AND NOT REGEXP_CONTAINS(produto_upper, r'^CHIP CLARO|^CLARO E-SIM|^ECHIP CLARO')
-  )
+  SELECT DISTINCT ai.pedido_key
+  FROM all_items ai
+  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto AND lk.tipo = 'acessorio'
+  WHERE ai.pedido_key IN (SELECT pedido_key FROM pedidos_device)
 )
 SELECT
   pd.Cod_Filial     AS cod_filial,

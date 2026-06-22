@@ -2696,6 +2696,7 @@ export default function App({ mode = 'campanhas' }) {
       try {
         const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
         if (linha) params.set('linha', linha)
+        if (acessoriosCanal) params.set('canal', acessoriosCanal)
         const res = await fetch(`/api/open-data/acessorios/oportunidade-export?${params}`)
         const json = await res.json()
         if (!res.ok) throw new Error(json.detail || 'Erro ao exportar')
