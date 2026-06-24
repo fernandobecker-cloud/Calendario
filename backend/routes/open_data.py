@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 from backend.event_sources import run_bigquery_records
 
@@ -8432,26 +8433,21 @@ LIMIT 50000
         raise HTTPException(status_code=502, detail=f"Falha ao exportar oportunidade: {exc}") from exc
 
 
-def _build_sms_clientes_sql(start_date: str, end_date: str, status_filter: str) -> str:
+def _sms_clientes_base_ctes(start_date: str, end_date: str, status_filter: str) -> tuple[str, str, str, str]:
+    """Returns (ctes_sql, sends_join_clause, report_join_type, safe_status) for SMS queries."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
     reports_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE)
     campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
-    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
     tz = EMARSYS_TZ
 
     safe_status = re.sub(r"[^A-Z0-9_]", "", status_filter.upper().strip()) if status_filter else ""
-    if safe_status:
-        status_cte_where = f"AND UPPER(TRIM(COALESCE(CAST(r.status AS STRING), ''))) = '{safe_status}'"
-        report_join = "INNER"
-    else:
-        status_cte_where = ""
-        report_join = "LEFT"
+    status_cte_where = f"AND UPPER(TRIM(COALESCE(CAST(r.status AS STRING), ''))) = '{safe_status}'" if safe_status else ""
+    report_join = "INNER" if safe_status else "LEFT"
 
-    return f"""
-WITH
+    ctes = f"""
 sms_sends_period AS (
   SELECT
     CAST(s.contact_id AS STRING) AS contact_id,
@@ -8482,7 +8478,36 @@ sms_names AS (
   WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
     AND campaign_id IS NOT NULL
   GROUP BY 1
-),
+)"""
+    return ctes, report_join
+
+
+def _build_sms_clientes_resumo_sql(start_date: str, end_date: str, status_filter: str) -> str:
+    """Summary by campaign — lightweight, for the UI table."""
+    ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
+    return f"""
+WITH {ctes}
+SELECT
+  sp.campaign_id,
+  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha,
+  COUNT(*) AS total_envios
+FROM sms_sends_period sp
+{report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
+LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
+GROUP BY sp.campaign_id, nome_campanha
+ORDER BY total_envios DESC
+""".strip()
+
+
+def _build_sms_clientes_export_sql(start_date: str, end_date: str, status_filter: str) -> str:
+    """Individual rows with CPF — used only for streaming CSV export."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    tz = EMARSYS_TZ
+    ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
+    return f"""
+WITH {ctes},
 contacts_cpf AS (
   SELECT
     CAST(c.contact_id AS STRING) AS contact_id,
@@ -8518,7 +8543,7 @@ def sms_clientes(
         e = _validate_optional_iso_date(end) or ""
         if not s or not e:
             raise HTTPException(status_code=400, detail="start e end são obrigatórios")
-        sql = _build_sms_clientes_sql(s, e, status)
+        sql = _build_sms_clientes_resumo_sql(s, e, status)
         records = run_bigquery_records(
             sql,
             EMARSYS_OPEN_DATA_PROJECT_ID,
@@ -8527,20 +8552,58 @@ def sms_clientes(
         )
         items = [
             {
-                "contact_id": str(r.get("contact_id") or ""),
-                "cpf": str(r.get("cpf") or ""),
                 "campaign_id": str(r.get("campaign_id") or ""),
                 "nome_campanha": str(r.get("nome_campanha") or ""),
-                "data_envio": str(r.get("data_envio") or ""),
-                "status": str(r.get("status") or ""),
+                "total_envios": int(r.get("total_envios") or 0),
             }
             for r in records
         ]
-        return {"items": items, "total": len(items), "start_date": s, "end_date": e}
+        total = sum(i["total_envios"] for i in items)
+        return {"items": items, "total": total, "start_date": s, "end_date": e}
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao consultar SMS clientes: {exc}") from exc
+
+
+@router.get("/sms-clientes/export")
+def sms_clientes_export(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    status: str = Query(default=""),
+) -> StreamingResponse:
+    s = _validate_optional_iso_date(start) or ""
+    e = _validate_optional_iso_date(end) or ""
+    if not s or not e:
+        raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+
+    sql = _build_sms_clientes_export_sql(s, e, status)
+
+    def _generate_csv():
+        yield "﻿Contact ID,CPF,Campaign ID,Campanha,Data Envio,Status\n"
+        try:
+            from backend.event_sources import build_bigquery_client
+            client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
+            job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
+            rows = job.result(timeout=120)
+            for row in rows:
+                def _esc(v: Any) -> str:
+                    s = str(v) if v is not None else ""
+                    return f'"{s.replace(chr(34), chr(34)*2)}"' if "," in s or '"' in s else s
+                yield (
+                    f"{_esc(row.get('contact_id',''))},{_esc(row.get('cpf',''))},"
+                    f"{_esc(row.get('campaign_id',''))},{_esc(row.get('nome_campanha',''))},"
+                    f"{_esc(row.get('data_envio',''))},{_esc(row.get('status',''))}\n"
+                )
+        except Exception as exc:
+            yield f"ERRO,{exc!s},,,,\n"
+
+    filename = f"sms_clientes_{s}_{e}.csv"
+    return StreamingResponse(
+        _generate_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/sms-status-options")

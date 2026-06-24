@@ -3126,14 +3126,11 @@ export default function App({ mode = 'campanhas' }) {
 
   const renderSmsClientesView = () => {
     const exportCsv = () => {
-      if (!smsClientesData?.items?.length) return
-      const cols = ['contact_id', 'cpf', 'campaign_id', 'nome_campanha', 'data_envio', 'status']
-      const headers = ['Contact ID', 'CPF', 'Campaign ID', 'Campanha', 'Data Envio', 'Status']
-      const esc = (v) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s }
-      const rows = smsClientesData.items.map((r) => cols.map((c) => esc(r[c])).join(','))
-      const csv = [headers.join(','), ...rows].join('\n')
+      if (!smsClientesData) return
+      const params = new URLSearchParams({ start: smsClientesStart, end: smsClientesEnd })
+      if (smsClientesStatus) params.set('status', smsClientesStatus)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
+      a.href = `/api/open-data/sms-clientes/export?${params}`
       a.download = `sms_clientes_${smsClientesStart}_${smsClientesEnd}.csv`
       a.click()
     }
@@ -3206,78 +3203,67 @@ export default function App({ mode = 'campanhas' }) {
         )}
 
         {/* Results */}
-        {!smsClientesLoading && smsClientesData && (() => {
-          // Resumo por campanha calculado no frontend
-          const bycamp = {}
-          smsClientesData.items.forEach((r) => {
-            const key = r.campaign_id
-            if (!bycamp[key]) bycamp[key] = { campaign_id: r.campaign_id, nome_campanha: r.nome_campanha, total: 0 }
-            bycamp[key].total += 1
-          })
-          const campRows = Object.values(bycamp).sort((a, b) => b.total - a.total)
+        {!smsClientesLoading && smsClientesData && (
+          <>
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total de Envios</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{smsClientesData.total.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{smsClientesData.items.length.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Período</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{smsClientesData.start_date} → {smsClientesData.end_date}</p>
+              </div>
+            </section>
 
-          return (
-            <>
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total de Envios</p>
-                  <p className="mt-1 text-2xl font-bold text-slate-900">{smsClientesData.total.toLocaleString('pt-BR')}</p>
+            {smsClientesData.items.length === 0 ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+                <p className="text-sm text-slate-400">Nenhum envio encontrado no período com os filtros selecionados.</p>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Campanhas SMS</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">{smsClientesData.items.length} campanhas · {smsClientesData.total.toLocaleString('pt-BR')} envios no total</p>
+                  </div>
+                  <button
+                    onClick={exportCsv}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Exportar CSV (base completa)
+                  </button>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas</p>
-                  <p className="mt-1 text-2xl font-bold text-slate-900">{campRows.length.toLocaleString('pt-BR')}</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Período</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-900">{smsClientesData.start_date} → {smsClientesData.end_date}</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">Campanha</th>
+                        <th className="px-5 py-3 text-right">Envios</th>
+                        <th className="px-5 py-3 text-right">% do Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {smsClientesData.items.map((row) => (
+                        <tr key={row.campaign_id} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 text-slate-800">{row.nome_campanha}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-slate-900">{row.total_envios.toLocaleString('pt-BR')}</td>
+                          <td className="px-5 py-3 text-right text-slate-500">
+                            {smsClientesData.total > 0 ? `${((row.total_envios / smsClientesData.total) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </section>
-
-              {campRows.length === 0 ? (
-                <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-                  <p className="text-sm text-slate-400">Nenhum envio encontrado no período com os filtros selecionados.</p>
-                </section>
-              ) : (
-                <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-900">Campanhas SMS</h3>
-                      <p className="mt-0.5 text-xs text-slate-500">{campRows.length} campanhas · {smsClientesData.total.toLocaleString('pt-BR')} envios no total</p>
-                    </div>
-                    <button
-                      onClick={exportCsv}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-                    >
-                      Exportar CSV (base completa)
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          <th className="px-5 py-3">Campanha</th>
-                          <th className="px-5 py-3 text-right">Envios</th>
-                          <th className="px-5 py-3 text-right">% do Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {campRows.map((row) => (
-                          <tr key={row.campaign_id} className="hover:bg-slate-50">
-                            <td className="px-5 py-3 text-slate-800">{row.nome_campanha}</td>
-                            <td className="px-5 py-3 text-right font-semibold text-slate-900">{row.total.toLocaleString('pt-BR')}</td>
-                            <td className="px-5 py-3 text-right text-slate-500">
-                              {smsClientesData.total > 0 ? `${((row.total / smsClientesData.total) * 100).toFixed(1)}%` : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )}
-            </>
-          )
-        })()}
+            )}
+          </>
+        )}
       </section>
     )
   }
