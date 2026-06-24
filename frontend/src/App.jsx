@@ -3129,10 +3129,7 @@ export default function App({ mode = 'campanhas' }) {
       if (!smsClientesData) return
       const params = new URLSearchParams({ start: smsClientesStart, end: smsClientesEnd })
       if (smsClientesStatus) params.set('status', smsClientesStatus)
-      const a = document.createElement('a')
-      a.href = `/api/open-data/sms-clientes/export?${params}`
-      a.download = `sms_clientes_${smsClientesStart}_${smsClientesEnd}.csv`
-      a.click()
+      window.location.href = `/api/open-data/sms-clientes/export?${params}`
     }
 
     return (

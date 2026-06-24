@@ -8500,35 +8500,17 @@ ORDER BY total_envios DESC
 
 
 def _build_sms_clientes_export_sql(start_date: str, end_date: str, status_filter: str) -> str:
-    """Individual rows with CPF — used only for streaming CSV export."""
-    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
-    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
-    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
-    tz = EMARSYS_TZ
+    """contact_id + campanha — one row per send, used for streaming CSV export."""
     ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
     return f"""
-WITH {ctes},
-contacts_cpf AS (
-  SELECT
-    CAST(c.contact_id AS STRING) AS contact_id,
-    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
-  FROM `{project_id}.{dataset}.{contacts_table}` c
-  INNER JOIN sms_sends_period sp ON CAST(c.contact_id AS STRING) = sp.contact_id
-  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
-  GROUP BY c.contact_id
-)
-SELECT
+WITH {ctes}
+SELECT DISTINCT
   sp.contact_id,
-  COALESCE(cc.cpf, '') AS cpf,
-  sp.campaign_id,
-  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha,
-  FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', sp.event_time, '{tz}') AS data_envio,
-  COALESCE(sr.status, '') AS status
+  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha
 FROM sms_sends_period sp
 {report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
-LEFT JOIN contacts_cpf cc ON cc.contact_id = sp.contact_id
 LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
-ORDER BY sp.event_time DESC
+ORDER BY nome_campanha, sp.contact_id
 """.strip()
 
 
@@ -8580,23 +8562,19 @@ def sms_clientes_export(
     sql = _build_sms_clientes_export_sql(s, e, status)
 
     def _generate_csv():
-        yield "﻿Contact ID,CPF,Campaign ID,Campanha,Data Envio,Status\n"
+        yield "﻿Contact ID,Campanha\n"
         try:
             from backend.event_sources import build_bigquery_client
             client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
             job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
             rows = job.result(timeout=120)
+            def _esc(v: Any) -> str:
+                s = str(v) if v is not None else ""
+                return f'"{s.replace(chr(34), chr(34)*2)}"' if "," in s or '"' in s else s
             for row in rows:
-                def _esc(v: Any) -> str:
-                    s = str(v) if v is not None else ""
-                    return f'"{s.replace(chr(34), chr(34)*2)}"' if "," in s or '"' in s else s
-                yield (
-                    f"{_esc(row.get('contact_id',''))},{_esc(row.get('cpf',''))},"
-                    f"{_esc(row.get('campaign_id',''))},{_esc(row.get('nome_campanha',''))},"
-                    f"{_esc(row.get('data_envio',''))},{_esc(row.get('status',''))}\n"
-                )
+                yield f"{_esc(row.get('contact_id',''))},{_esc(row.get('nome_campanha',''))}\n"
         except Exception as exc:
-            yield f"ERRO,{exc!s},,,,\n"
+            yield f"ERRO,{exc!s}\n"
 
     filename = f"sms_clientes_{s}_{e}.csv"
     return StreamingResponse(
