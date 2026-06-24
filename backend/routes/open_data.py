@@ -8504,7 +8504,6 @@ FROM sms_sends_period sp
 LEFT JOIN contacts_cpf cc ON cc.contact_id = sp.contact_id
 LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
 ORDER BY sp.event_time DESC
-LIMIT 50000
 """.strip()
 
 
