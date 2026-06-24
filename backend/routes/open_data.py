@@ -8560,24 +8560,29 @@ def sms_clientes_export(
     end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     status: str = Query(default=""),
 ) -> Any:
+    import io
     from fastapi.responses import Response
+    from backend.event_sources import build_bigquery_client
     try:
         s = _validate_optional_iso_date(start) or ""
         e = _validate_optional_iso_date(end) or ""
         if not s or not e:
             raise HTTPException(status_code=400, detail="start e end são obrigatórios")
         sql = _build_sms_clientes_export_sql(s, e, status)
-        records = run_bigquery_records(
-            sql,
-            EMARSYS_OPEN_DATA_PROJECT_ID,
-            location=EMARSYS_OPEN_DATA_LOCATION or None,
-            timeout=120,
-        )
-        lines = ["﻿Contact ID"] + [str(r.get("contact_id") or "") for r in records]
-        content = "\n".join(lines).encode("utf-8")
+        client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
+        job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        rows = job.result(timeout=120)
+        # Write to BytesIO row-by-row to avoid creating 400k+ Python dicts/strings
+        buf = io.BytesIO()
+        buf.write(b"\xef\xbb\xbfContact ID\n")  # UTF-8 BOM + header
+        for row in rows:
+            cid = row[0]
+            if cid is not None:
+                buf.write(str(cid).encode("utf-8"))
+                buf.write(b"\n")
         filename = f"sms_clientes_{s}_{e}.csv"
         return Response(
-            content=content,
+            content=buf.getvalue(),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
