@@ -8504,7 +8504,7 @@ def _build_sms_clientes_export_sql(start_date: str, end_date: str, status_filter
     ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
     return f"""
 WITH {ctes}
-SELECT DISTINCT
+SELECT
   sp.contact_id,
   COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha
 FROM sms_sends_period sp
