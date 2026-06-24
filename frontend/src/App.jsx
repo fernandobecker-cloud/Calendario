@@ -649,12 +649,6 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [activeView, userManagementEnabled])
 
-  useEffect(() => {
-    if (activeView === 'sms-clientes') {
-      loadSmsStatusOptions(smsClientesStart, smsClientesEnd)
-    }
-  }, [activeView, smsClientesStart, smsClientesEnd, loadSmsStatusOptions])
-
   const menuItems = useMemo(() => {
     if (mode === 'adm') return ADM_MENU_ITEMS
     const base = CAMPANHAS_MENU_ITEMS
@@ -978,6 +972,12 @@ export default function App({ mode = 'campanhas' }) {
       if (res.ok && payload?.items) setSmsStatusOptions(payload.items.map((i) => i.status))
     } catch (_) { /* ignore status load errors */ }
   }, [])
+
+  useEffect(() => {
+    if (activeView === 'sms-clientes') {
+      loadSmsStatusOptions(smsClientesStart, smsClientesEnd)
+    }
+  }, [activeView, smsClientesStart, smsClientesEnd, loadSmsStatusOptions])
 
   const loadSmsClientes = useCallback(async () => {
     if (!smsClientesStart || !smsClientesEnd) return
