@@ -8430,3 +8430,154 @@ LIMIT 50000
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao exportar oportunidade: {exc}") from exc
+
+
+def _build_sms_clientes_sql(start_date: str, end_date: str, status_filter: str) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SENDS_TABLE)
+    reports_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE)
+    campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_CAMPAIGNS_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    lookback = EMARSYS_OPEN_DATA_LOOKBACK_DAYS
+    tz = EMARSYS_TZ
+
+    safe_status = re.sub(r"[^A-Z0-9_]", "", status_filter.upper().strip()) if status_filter else ""
+    if safe_status:
+        status_cte_where = f"AND UPPER(TRIM(COALESCE(CAST(r.status AS STRING), ''))) = '{safe_status}'"
+        report_join = "INNER"
+    else:
+        status_cte_where = ""
+        report_join = "LEFT"
+
+    return f"""
+WITH
+sms_sends_period AS (
+  SELECT
+    CAST(s.contact_id AS STRING) AS contact_id,
+    CAST(s.campaign_id AS STRING) AS campaign_id,
+    s.event_time
+  FROM `{project_id}.{dataset}.{sends_table}` s
+  WHERE DATE(s.partitiontime) BETWEEN DATE('{start_date}') AND DATE_ADD(DATE('{end_date}'), INTERVAL 1 DAY)
+    AND DATE(s.event_time, '{tz}') BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+    AND s.contact_id IS NOT NULL
+    AND s.campaign_id IS NOT NULL
+),
+sms_reports AS (
+  SELECT
+    CAST(r.contact_id AS STRING) AS contact_id,
+    CAST(r.campaign_id AS STRING) AS campaign_id,
+    UPPER(TRIM(COALESCE(CAST(r.status AS STRING), ''))) AS status
+  FROM `{project_id}.{dataset}.{reports_table}` r
+  WHERE DATE(r.partitiontime) BETWEEN DATE_SUB(DATE('{start_date}'), INTERVAL 1 DAY) AND DATE_ADD(DATE('{end_date}'), INTERVAL 7 DAY)
+    AND r.contact_id IS NOT NULL
+    AND r.campaign_id IS NOT NULL
+    {status_cte_where}
+),
+sms_names AS (
+  SELECT
+    CAST(campaign_id AS STRING) AS campaign_id,
+    ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome_campanha
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+  WHERE partitiontime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback} DAY)
+    AND campaign_id IS NOT NULL
+  GROUP BY 1
+),
+contacts_cpf AS (
+  SELECT
+    CAST(c.contact_id AS STRING) AS contact_id,
+    ARRAY_AGG(CAST(c.external_id AS STRING) IGNORE NULLS ORDER BY c.external_id LIMIT 1)[SAFE_OFFSET(0)] AS cpf
+  FROM `{project_id}.{dataset}.{contacts_table}` c
+  INNER JOIN sms_sends_period sp ON CAST(c.contact_id AS STRING) = sp.contact_id
+  WHERE c.external_id IS NOT NULL AND TRIM(CAST(c.external_id AS STRING)) != ''
+  GROUP BY c.contact_id
+)
+SELECT
+  sp.contact_id,
+  COALESCE(cc.cpf, '') AS cpf,
+  sp.campaign_id,
+  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha,
+  FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', sp.event_time, '{tz}') AS data_envio,
+  COALESCE(sr.status, '') AS status
+FROM sms_sends_period sp
+{report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
+LEFT JOIN contacts_cpf cc ON cc.contact_id = sp.contact_id
+LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
+ORDER BY sp.event_time DESC
+LIMIT 50000
+""".strip()
+
+
+@router.get("/sms-clientes")
+def sms_clientes(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    status: str = Query(default=""),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        sql = _build_sms_clientes_sql(s, e, status)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+        items = [
+            {
+                "contact_id": str(r.get("contact_id") or ""),
+                "cpf": str(r.get("cpf") or ""),
+                "campaign_id": str(r.get("campaign_id") or ""),
+                "nome_campanha": str(r.get("nome_campanha") or ""),
+                "data_envio": str(r.get("data_envio") or ""),
+                "status": str(r.get("status") or ""),
+            }
+            for r in records
+        ]
+        return {"items": items, "total": len(items), "start_date": s, "end_date": e}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar SMS clientes: {exc}") from exc
+
+
+@router.get("/sms-status-options")
+def sms_status_options(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        reports_table = _quote_identifier(EMARSYS_OPEN_DATA_SMS_SEND_REPORTS_TABLE)
+        sql = f"""
+SELECT
+  UPPER(TRIM(COALESCE(CAST(status AS STRING), ''))) AS status,
+  COUNT(*) AS total
+FROM `{project_id}.{dataset}.{reports_table}`
+WHERE DATE(partitiontime) BETWEEN DATE_SUB(DATE('{s}'), INTERVAL 1 DAY) AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+  AND status IS NOT NULL
+  AND TRIM(CAST(status AS STRING)) != ''
+GROUP BY 1
+ORDER BY total DESC
+LIMIT 50
+""".strip()
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=30,
+        )
+        items = [{"status": str(r.get("status") or ""), "total": int(r.get("total") or 0)} for r in records]
+        return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar status SMS: {exc}") from exc

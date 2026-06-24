@@ -61,6 +61,7 @@ const ADM_MENU_ITEMS = [
   { key: 'permissoes', label: 'Permissoes de Acesso' },
   { key: 'cupom', label: 'Consulta por Cupom' },
   { key: 'acessorios', label: 'Acessórios' },
+  { key: 'sms-clientes', label: 'Base SMS' },
 ]
 
 const TAB_PERMISSION_OPTIONS = [
@@ -344,6 +345,14 @@ export default function App({ mode = 'campanhas' }) {
   const [cupomData, setCupomData] = useState(null)
   const [cupomLoading, setCupomLoading] = useState(false)
   const [cupomError, setCupomError] = useState('')
+
+  const [smsClientesStart, setSmsClientesStart] = useState(currentMonthRange.start)
+  const [smsClientesEnd, setSmsClientesEnd] = useState(currentMonthRange.end)
+  const [smsClientesStatus, setSmsClientesStatus] = useState('')
+  const [smsClientesData, setSmsClientesData] = useState(null)
+  const [smsClientesLoading, setSmsClientesLoading] = useState(false)
+  const [smsClientesError, setSmsClientesError] = useState('')
+  const [smsStatusOptions, setSmsStatusOptions] = useState([])
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -639,6 +648,12 @@ export default function App({ mode = 'campanhas' }) {
       setActiveView('calendar')
     }
   }, [activeView, userManagementEnabled])
+
+  useEffect(() => {
+    if (activeView === 'sms-clientes') {
+      loadSmsStatusOptions(smsClientesStart, smsClientesEnd)
+    }
+  }, [activeView, smsClientesStart, smsClientesEnd, loadSmsStatusOptions])
 
   const menuItems = useMemo(() => {
     if (mode === 'adm') return ADM_MENU_ITEMS
@@ -951,6 +966,40 @@ export default function App({ mode = 'campanhas' }) {
       setCupomLoading(false)
     }
   }, [cupomQuery, cupomStart, cupomEnd])
+
+  const loadSmsStatusOptions = useCallback(async (start, end) => {
+    if (!start || !end) return
+    try {
+      const params = new URLSearchParams({ start, end })
+      const res = await fetch(`/api/open-data/sms-status-options?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* ignore */ }
+      if (res.ok && payload?.items) setSmsStatusOptions(payload.items.map((i) => i.status))
+    } catch (_) { /* ignore status load errors */ }
+  }, [])
+
+  const loadSmsClientes = useCallback(async () => {
+    if (!smsClientesStart || !smsClientesEnd) return
+    setSmsClientesLoading(true)
+    setSmsClientesError('')
+    setSmsClientesData(null)
+    try {
+      const params = new URLSearchParams({ start: smsClientesStart, end: smsClientesEnd })
+      if (smsClientesStatus) params.set('status', smsClientesStatus)
+      const res = await fetch(`/api/open-data/sms-clientes?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!payload) throw new Error('A API nao retornou dados.')
+      setSmsClientesData(payload)
+    } catch (err) {
+      setSmsClientesError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setSmsClientesLoading(false)
+    }
+  }, [smsClientesStart, smsClientesEnd, smsClientesStatus])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -3075,6 +3124,168 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderSmsClientesView = () => {
+    const exportCsv = () => {
+      if (!smsClientesData?.items?.length) return
+      const cols = ['contact_id', 'cpf', 'campaign_id', 'nome_campanha', 'data_envio', 'status']
+      const headers = ['Contact ID', 'CPF', 'Campaign ID', 'Campanha', 'Data Envio', 'Status']
+      const esc = (v) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s }
+      const rows = smsClientesData.items.map((r) => cols.map((c) => esc(r[c])).join(','))
+      const csv = [headers.join(','), ...rows].join('\n')
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
+      a.download = `sms_clientes_${smsClientesStart}_${smsClientesEnd}.csv`
+      a.click()
+    }
+
+    return (
+      <section className="space-y-5">
+        {/* Header */}
+        <section className="rounded-2xl bg-gradient-to-r from-violet-700 to-purple-600 p-6 text-white shadow-soft md:p-8">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Base SMS</h1>
+              <p className="mt-2 text-sm text-violet-100">
+                Clientes que receberam SMS no período selecionado
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Início
+                <input type="date" value={smsClientesStart} onChange={(e) => setSmsClientesStart(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-white/90">
+                Fim
+                <input type="date" value={smsClientesEnd} onChange={(e) => setSmsClientesEnd(e.target.value)}
+                  className="rounded-lg border border-white/40 bg-white/95 px-3 py-2 text-sm text-slate-900" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        {/* Filters */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status do Envio</label>
+              <select
+                value={smsClientesStatus}
+                onChange={(e) => setSmsClientesStatus(e.target.value)}
+                className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
+              >
+                <option value="">Todos os status</option>
+                {smsStatusOptions.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={loadSmsClientes}
+              disabled={smsClientesLoading || !smsClientesStart || !smsClientesEnd}
+              className="rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+            >
+              {smsClientesLoading ? 'Consultando...' : 'Consultar'}
+            </button>
+          </div>
+        </section>
+
+        {/* Error */}
+        {smsClientesError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {smsClientesError}
+          </section>
+        )}
+
+        {/* Loading */}
+        {smsClientesLoading && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando BigQuery...</p>
+          </section>
+        )}
+
+        {/* Results */}
+        {!smsClientesLoading && smsClientesData && (
+          <>
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total de Envios</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{smsClientesData.total.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Período</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{smsClientesData.start_date} → {smsClientesData.end_date}</p>
+              </div>
+            </section>
+
+            {smsClientesData.items.length === 0 ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+                <p className="text-sm text-slate-400">Nenhum envio encontrado no período com os filtros selecionados.</p>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Envios SMS</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {smsClientesData.items.length.toLocaleString('pt-BR')} registros
+                      {smsClientesData.items.length === 50000 && ' (limite máx. atingido)'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={exportCsv}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">CPF</th>
+                        <th className="px-5 py-3">Campanha</th>
+                        <th className="px-5 py-3">Data Envio</th>
+                        <th className="px-5 py-3">Status</th>
+                        <th className="px-5 py-3 text-right">Contact ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {smsClientesData.items.slice(0, 500).map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 font-mono text-xs text-slate-800">{row.cpf || '—'}</td>
+                          <td className="px-5 py-3 text-slate-700">{row.nome_campanha}</td>
+                          <td className="px-5 py-3 text-slate-600">{row.data_envio}</td>
+                          <td className="px-5 py-3">
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                              row.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-700' :
+                              row.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-700' :
+                              row.status === 'FAILED' || row.status === 'BOUNCED' ? 'bg-rose-100 text-rose-700' :
+                              row.status ? 'bg-slate-100 text-slate-600' : 'bg-slate-50 text-slate-400'
+                            }`}>
+                              {row.status || '—'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-right font-mono text-xs text-slate-400">{row.contact_id}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {smsClientesData.items.length > 500 && (
+                  <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+                    Mostrando 500 de {smsClientesData.items.length.toLocaleString('pt-BR')} registros. Use Exportar CSV para a base completa.
+                  </p>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </section>
+    )
+  }
+
   const renderComparativoCRMView = () => (
     <section className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-r from-indigo-700 to-blue-600 p-6 text-white shadow-soft md:p-8">
@@ -3253,6 +3464,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'apple-lover' && renderAppleLoverView()}
           {activeView === 'acessorios' && renderAcessoriosView()}
           {activeView === 'cupom' && renderCupomView()}
+          {activeView === 'sms-clientes' && renderSmsClientesView()}
         </div>
       </div>
 
