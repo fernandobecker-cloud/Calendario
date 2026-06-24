@@ -3212,8 +3212,8 @@ export default function App({ mode = 'campanhas' }) {
                 <p className="mt-1 text-2xl font-bold text-slate-900">{smsClientesData.items.length.toLocaleString('pt-BR')}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Período</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">{smsClientesData.start_date} → {smsClientesData.end_date}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contatos Únicos</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{(smsClientesData.total_contatos_unicos ?? 0).toLocaleString('pt-BR')}</p>
               </div>
             </section>
 

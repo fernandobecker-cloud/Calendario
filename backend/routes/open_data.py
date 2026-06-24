@@ -8483,18 +8483,27 @@ sms_names AS (
 
 
 def _build_sms_clientes_resumo_sql(start_date: str, end_date: str, status_filter: str) -> str:
-    """Summary by campaign — lightweight, for the UI table."""
+    """Summary by campaign + global unique contact count — lightweight, for the UI table."""
     ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
     return f"""
-WITH {ctes}
+WITH {ctes},
+filtered AS (
+  SELECT sp.contact_id, sp.campaign_id
+  FROM sms_sends_period sp
+  {report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
+),
+unicos AS (
+  SELECT COUNT(DISTINCT contact_id) AS total_contatos_unicos FROM filtered
+)
 SELECT
-  sp.campaign_id,
-  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha,
-  COUNT(*) AS total_envios
-FROM sms_sends_period sp
-{report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
-LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
-GROUP BY sp.campaign_id, nome_campanha
+  f.campaign_id,
+  COALESCE(sn.nome_campanha, CONCAT('Campanha #', f.campaign_id)) AS nome_campanha,
+  COUNT(*) AS total_envios,
+  ANY_VALUE(u.total_contatos_unicos) AS total_contatos_unicos
+FROM filtered f
+LEFT JOIN sms_names sn ON sn.campaign_id = f.campaign_id
+CROSS JOIN unicos u
+GROUP BY f.campaign_id, nome_campanha
 ORDER BY total_envios DESC
 """.strip()
 
@@ -8538,7 +8547,8 @@ def sms_clientes(
             for r in records
         ]
         total = sum(i["total_envios"] for i in items)
-        return {"items": items, "total": total, "start_date": s, "end_date": e}
+        total_unicos = int(records[0].get("total_contatos_unicos") or 0) if records else 0
+        return {"items": items, "total": total, "total_contatos_unicos": total_unicos, "start_date": s, "end_date": e}
     except HTTPException:
         raise
     except Exception as exc:
