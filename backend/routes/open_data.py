@@ -8509,14 +8509,13 @@ ORDER BY total_envios DESC
 
 
 def _build_sms_clientes_export_sql(start_date: str, end_date: str, status_filter: str) -> str:
-    """contact_id + campanha — one row per send, used for streaming CSV export."""
+    """Unique contact_ids for CSV export."""
     ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
     return f"""
 WITH {ctes}
 SELECT DISTINCT sp.contact_id
 FROM sms_sends_period sp
 {report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
-ORDER BY sp.contact_id
 """.strip()
 
 
@@ -8560,32 +8559,32 @@ def sms_clientes_export(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     status: str = Query(default=""),
-) -> StreamingResponse:
-    s = _validate_optional_iso_date(start) or ""
-    e = _validate_optional_iso_date(end) or ""
-    if not s or not e:
-        raise HTTPException(status_code=400, detail="start e end são obrigatórios")
-
-    sql = _build_sms_clientes_export_sql(s, e, status)
-
-    def _generate_csv():
-        yield "﻿Contact ID\n"
-        try:
-            from backend.event_sources import build_bigquery_client
-            client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
-            job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
-            rows = job.result(timeout=120)
-            for row in rows:
-                yield f"{row.get('contact_id', '')}\n"
-        except Exception as exc:
-            yield f"ERRO: {exc!s}\n"
-
-    filename = f"sms_clientes_{s}_{e}.csv"
-    return StreamingResponse(
-        _generate_csv(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+) -> Any:
+    from fastapi.responses import Response
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        sql = _build_sms_clientes_export_sql(s, e, status)
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=120,
+        )
+        lines = ["﻿Contact ID"] + [str(r.get("contact_id") or "") for r in records]
+        content = "\n".join(lines).encode("utf-8")
+        filename = f"sms_clientes_{s}_{e}.csv"
+        return Response(
+            content=content,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar SMS: {exc}") from exc
 
 
 @router.get("/sms-status-options")
