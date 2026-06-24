@@ -8504,13 +8504,10 @@ def _build_sms_clientes_export_sql(start_date: str, end_date: str, status_filter
     ctes, report_join = _sms_clientes_base_ctes(start_date, end_date, status_filter)
     return f"""
 WITH {ctes}
-SELECT
-  sp.contact_id,
-  COALESCE(sn.nome_campanha, CONCAT('Campanha #', sp.campaign_id)) AS nome_campanha
+SELECT DISTINCT sp.contact_id
 FROM sms_sends_period sp
 {report_join} JOIN sms_reports sr ON sr.contact_id = sp.contact_id AND sr.campaign_id = sp.campaign_id
-LEFT JOIN sms_names sn ON sn.campaign_id = sp.campaign_id
-ORDER BY nome_campanha, sp.contact_id
+ORDER BY sp.contact_id
 """.strip()
 
 
@@ -8562,19 +8559,16 @@ def sms_clientes_export(
     sql = _build_sms_clientes_export_sql(s, e, status)
 
     def _generate_csv():
-        yield "﻿Contact ID,Campanha\n"
+        yield "﻿Contact ID\n"
         try:
             from backend.event_sources import build_bigquery_client
             client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
             job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
             rows = job.result(timeout=120)
-            def _esc(v: Any) -> str:
-                s = str(v) if v is not None else ""
-                return f'"{s.replace(chr(34), chr(34)*2)}"' if "," in s or '"' in s else s
             for row in rows:
-                yield f"{_esc(row.get('contact_id',''))},{_esc(row.get('nome_campanha',''))}\n"
+                yield f"{row.get('contact_id', '')}\n"
         except Exception as exc:
-            yield f"ERRO,{exc!s}\n"
+            yield f"ERRO: {exc!s}\n"
 
     filename = f"sms_clientes_{s}_{e}.csv"
     return StreamingResponse(
