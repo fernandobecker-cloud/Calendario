@@ -684,11 +684,15 @@ function CanalAtribuidaCard({ data, startDate, endDate }) {
   )
 }
 
-function DataDelayBanner({ dataDelay, endDate }) {
+function DataDelayBanner({ dataDelay }) {
   if (!dataDelay?.ultimo_evento) return null
   const ultimoEvento = dataDelay.ultimo_evento
-  // Só mostra aviso se a data final selecionada for mais recente que o último evento disponível
-  if (endDate && endDate <= ultimoEvento) return null
+  // Só mostra quando os dados estão realmente 2+ dias atrás de hoje
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const ultimoEventoDate = new Date(ultimoEvento + 'T00:00:00')
+  const diffDias = Math.round((hoje - ultimoEventoDate) / 86400000)
+  if (diffDias < 2) return null
   const [y, m, d] = ultimoEvento.split('-')
   const label = `${d}/${m}/${y}`
   return (
@@ -710,7 +714,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   if (!data) {
     return (
       <>
-        <DataDelayBanner dataDelay={dataDelay} endDate={endDate} />
+        <DataDelayBanner dataDelay={dataDelay} />
         <p className="text-sm text-slate-500">Selecione o período e clique em Atualizar.</p>
       </>
     )
@@ -720,7 +724,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
 
   return (
     <div className="flex flex-col gap-4">
-      <DataDelayBanner dataDelay={dataDelay} endDate={endDate} />
+      <DataDelayBanner dataDelay={dataDelay} />
       <DailyRevenueChart items={dailyRevenue} />
 
       {conversao7Dias && <ConversaoCurvaChart state={conversao7Dias} />}
