@@ -8629,3 +8629,98 @@ LIMIT 50
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao buscar status SMS: {exc}") from exc
+
+
+@router.get("/mpp-analise")
+def mpp_analise(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+        tz = EMARSYS_TZ
+        sql = f"""
+WITH opens AS (
+  SELECT
+    COALESCE(domain, '(sem domínio)') AS domain,
+    CASE
+      WHEN user_agent = 'Mozilla/5.0'
+        OR STARTS_WITH(COALESCE(ip, ''), '104.28.')
+        OR STARTS_WITH(COALESCE(ip, ''), '17.')
+      THEN 'mpp' ELSE 'real'
+    END AS tipo
+  FROM `{project_id}.{dataset}.{opens_table}`
+  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND DATE(event_time, '{tz}') BETWEEN DATE('{s}') AND DATE('{e}')
+),
+totals AS (
+  SELECT
+    COUNT(*)            AS total,
+    COUNTIF(tipo='mpp') AS mpp,
+    COUNTIF(tipo='real') AS real
+  FROM opens
+),
+por_dominio AS (
+  SELECT
+    domain,
+    COUNT(*)            AS total,
+    COUNTIF(tipo='mpp') AS mpp,
+    COUNTIF(tipo='real') AS real
+  FROM opens
+  GROUP BY 1
+  ORDER BY total DESC
+  LIMIT 25
+)
+SELECT
+  t.total  AS total_geral,
+  t.mpp    AS mpp_geral,
+  t.real   AS real_geral,
+  d.domain,
+  d.total  AS total_dominio,
+  d.mpp    AS mpp_dominio,
+  d.real   AS real_dominio
+FROM por_dominio d
+CROSS JOIN totals t
+ORDER BY d.total DESC
+""".strip()
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+        if not records:
+            return {"total": 0, "mpp": 0, "real": 0, "pct_mpp": 0, "por_dominio": [], "start_date": s, "end_date": e}
+        first = records[0]
+        total = int(first.get("total_geral") or 0)
+        mpp   = int(first.get("mpp_geral") or 0)
+        real  = int(first.get("real_geral") or 0)
+        por_dominio = [
+            {
+                "domain":   str(r.get("domain") or ""),
+                "total":    int(r.get("total_dominio") or 0),
+                "mpp":      int(r.get("mpp_dominio") or 0),
+                "real":     int(r.get("real_dominio") or 0),
+                "pct_mpp":  round(100 * int(r.get("mpp_dominio") or 0) / int(r.get("total_dominio") or 1), 1),
+            }
+            for r in records
+        ]
+        return {
+            "total":      total,
+            "mpp":        mpp,
+            "real":       real,
+            "pct_mpp":    round(100 * mpp / total, 1) if total else 0,
+            "por_dominio": por_dominio,
+            "start_date": s,
+            "end_date":   e,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao analisar MPP: {exc}") from exc

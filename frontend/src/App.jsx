@@ -62,6 +62,7 @@ const ADM_MENU_ITEMS = [
   { key: 'cupom', label: 'Consulta por Cupom' },
   { key: 'acessorios', label: 'Acessórios' },
   { key: 'sms-clientes', label: 'Base SMS' },
+  { key: 'mpp-analise', label: 'Análise MPP' },
 ]
 
 const TAB_PERMISSION_OPTIONS = [
@@ -353,6 +354,12 @@ export default function App({ mode = 'campanhas' }) {
   const [smsClientesLoading, setSmsClientesLoading] = useState(false)
   const [smsClientesError, setSmsClientesError] = useState('')
   const [smsStatusOptions, setSmsStatusOptions] = useState([])
+
+  const [mppStart, setMppStart] = useState(currentMonthRange.start)
+  const [mppEnd, setMppEnd] = useState(currentMonthRange.end)
+  const [mppData, setMppData] = useState(null)
+  const [mppLoading, setMppLoading] = useState(false)
+  const [mppError, setMppError] = useState('')
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -1000,6 +1007,27 @@ export default function App({ mode = 'campanhas' }) {
       setSmsClientesLoading(false)
     }
   }, [smsClientesStart, smsClientesEnd, smsClientesStatus])
+
+  const loadMppAnalise = useCallback(async () => {
+    if (!mppStart || !mppEnd) return
+    setMppLoading(true)
+    setMppError('')
+    setMppData(null)
+    try {
+      const params = new URLSearchParams({ start: mppStart, end: mppEnd })
+      const res = await fetch(`/api/open-data/mpp-analise?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!payload) throw new Error('A API não retornou dados.')
+      setMppData(payload)
+    } catch (err) {
+      setMppError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setMppLoading(false)
+    }
+  }, [mppStart, mppEnd])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -3124,6 +3152,108 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderMppAnaliseView = () => {
+    return (
+      <section className="space-y-6">
+        <div className="rounded-2xl bg-gradient-to-r from-rose-600 to-pink-500 p-6 text-white shadow-lg">
+          <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Análise MPP</h1>
+          <p className="mt-1 text-rose-100 text-sm">Mail Privacy Protection — classificação de aberturas reais vs. automáticas</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Data início</label>
+              <input
+                type="date"
+                value={mppStart}
+                onChange={e => setMppStart(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Data fim</label>
+              <input
+                type="date"
+                value={mppEnd}
+                onChange={e => setMppEnd(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+            <button
+              onClick={loadMppAnalise}
+              disabled={mppLoading || !mppStart || !mppEnd}
+              className="rounded-lg bg-rose-600 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 transition-colors"
+            >
+              {mppLoading ? 'Consultando...' : 'Consultar'}
+            </button>
+          </div>
+
+          {mppError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{mppError}</div>
+          )}
+
+          {mppLoading && (
+            <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-rose-500 border-t-transparent" />
+              Analisando aberturas...
+            </div>
+          )}
+
+          {!mppLoading && mppData && (
+            <>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {[
+                  { label: 'Total Aberturas', value: (mppData.total || 0).toLocaleString('pt-BR'), color: 'text-slate-700' },
+                  { label: 'Aberturas MPP', value: (mppData.mpp || 0).toLocaleString('pt-BR'), color: 'text-rose-600' },
+                  { label: 'Aberturas Reais', value: (mppData.real || 0).toLocaleString('pt-BR'), color: 'text-emerald-600' },
+                  { label: '% MPP', value: `${mppData.pct_mpp ?? 0}%`, color: mppData.pct_mpp >= 50 ? 'text-rose-600' : 'text-amber-600' },
+                ].map(card => (
+                  <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs text-slate-500 mb-1">{card.label}</p>
+                    <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {mppData.por_dominio && mppData.por_dominio.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        <th className="py-2 text-left font-semibold text-slate-600">Domínio</th>
+                        <th className="py-2 text-right font-semibold text-slate-600">Total</th>
+                        <th className="py-2 text-right font-semibold text-rose-600">MPP</th>
+                        <th className="py-2 text-right font-semibold text-emerald-600">Reais</th>
+                        <th className="py-2 text-right font-semibold text-slate-600">% MPP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mppData.por_dominio.map((row, i) => (
+                        <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="py-2 text-slate-700 font-mono text-xs">{row.domain}</td>
+                          <td className="py-2 text-right text-slate-700">{(row.total || 0).toLocaleString('pt-BR')}</td>
+                          <td className="py-2 text-right text-rose-600">{(row.mpp || 0).toLocaleString('pt-BR')}</td>
+                          <td className="py-2 text-right text-emerald-600">{(row.real || 0).toLocaleString('pt-BR')}</td>
+                          <td className="py-2 text-right">
+                            <span className={`font-semibold ${row.pct_mpp >= 80 ? 'text-rose-600' : row.pct_mpp >= 50 ? 'text-amber-600' : 'text-slate-600'}`}>
+                              {row.pct_mpp}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-xs text-slate-400">Top 25 domínios por volume de aberturas</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    )
+  }
+
   const renderSmsClientesView = () => {
     const exportCsv = () => {
       if (!smsClientesData) return
@@ -3444,6 +3574,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'acessorios' && renderAcessoriosView()}
           {activeView === 'cupom' && renderCupomView()}
           {activeView === 'sms-clientes' && renderSmsClientesView()}
+          {activeView === 'mpp-analise' && renderMppAnaliseView()}
         </div>
       </div>
 
