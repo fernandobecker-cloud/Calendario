@@ -357,6 +357,8 @@ export default function App({ mode = 'campanhas' }) {
 
   const [mppStart, setMppStart] = useState(currentMonthRange.start)
   const [mppEnd, setMppEnd] = useState(currentMonthRange.end)
+  const [mppCampaignId, setMppCampaignId] = useState('')
+  const [mppCampaignOptions, setMppCampaignOptions] = useState([])
   const [mppData, setMppData] = useState(null)
   const [mppLoading, setMppLoading] = useState(false)
   const [mppError, setMppError] = useState('')
@@ -1008,6 +1010,26 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [smsClientesStart, smsClientesEnd, smsClientesStatus])
 
+  const loadMppCampaigns = useCallback(async (start, end) => {
+    if (!start || !end) return
+    try {
+      const params = new URLSearchParams({ start, end })
+      const res = await fetch(`/api/open-data/mpp-campanhas?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (res.ok && payload?.items) setMppCampaignOptions(payload.items)
+    } catch (_) { /* silently ignore */ }
+  }, [])
+
+  useEffect(() => {
+    if (activeView === 'mpp-analise') {
+      setMppCampaignId('')
+      setMppCampaignOptions([])
+      loadMppCampaigns(mppStart, mppEnd)
+    }
+  }, [activeView, mppStart, mppEnd, loadMppCampaigns])
+
   const loadMppAnalise = useCallback(async () => {
     if (!mppStart || !mppEnd) return
     setMppLoading(true)
@@ -1015,6 +1037,7 @@ export default function App({ mode = 'campanhas' }) {
     setMppData(null)
     try {
       const params = new URLSearchParams({ start: mppStart, end: mppEnd })
+      if (mppCampaignId) params.set('campaign_id', mppCampaignId)
       const res = await fetch(`/api/open-data/mpp-analise?${params}`)
       const text = await res.text()
       let payload = null
@@ -1027,7 +1050,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setMppLoading(false)
     }
-  }, [mppStart, mppEnd])
+  }, [mppStart, mppEnd, mppCampaignId])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -3179,6 +3202,19 @@ export default function App({ mode = 'campanhas' }) {
                 onChange={e => setMppEnd(e.target.value)}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Campanha (opcional)</label>
+              <select
+                value={mppCampaignId}
+                onChange={e => setMppCampaignId(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 max-w-xs"
+              >
+                <option value="">Todas as campanhas</option>
+                {mppCampaignOptions.map(c => (
+                  <option key={c.campaign_id} value={c.campaign_id}>{c.nome_campanha}</option>
+                ))}
+              </select>
             </div>
             <button
               onClick={loadMppAnalise}

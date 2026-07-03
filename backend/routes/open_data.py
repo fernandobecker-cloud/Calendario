@@ -8631,8 +8631,8 @@ LIMIT 50
         raise HTTPException(status_code=502, detail=f"Falha ao buscar status SMS: {exc}") from exc
 
 
-@router.get("/mpp-analise")
-def mpp_analise(
+@router.get("/mpp-campanhas")
+def mpp_campanhas(
     start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ) -> dict[str, Any]:
@@ -8641,6 +8641,61 @@ def mpp_analise(
         e = _validate_optional_iso_date(end) or ""
         if not s or not e:
             raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+        campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+        tz = EMARSYS_TZ
+        sql = f"""
+WITH camp_names AS (
+  SELECT id, name,
+    ROW_NUMBER() OVER (PARTITION BY id ORDER BY event_time DESC, loaded_at DESC) AS rn
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+),
+opens_camps AS (
+  SELECT DISTINCT campaign_id
+  FROM `{project_id}.{dataset}.{opens_table}`
+  WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND DATE(event_time, '{tz}') BETWEEN DATE('{s}') AND DATE('{e}')
+    AND campaign_id IS NOT NULL
+)
+SELECT
+  oc.campaign_id,
+  COALESCE(cn.name, CONCAT('Campanha #', CAST(oc.campaign_id AS STRING))) AS nome_campanha
+FROM opens_camps oc
+LEFT JOIN camp_names cn ON cn.id = oc.campaign_id AND cn.rn = 1
+ORDER BY nome_campanha
+""".strip()
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+        items = [
+            {"campaign_id": str(r.get("campaign_id") or ""), "nome_campanha": str(r.get("nome_campanha") or "")}
+            for r in (records or [])
+        ]
+        return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar campanhas MPP: {exc}") from exc
+
+
+@router.get("/mpp-analise")
+def mpp_analise(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    campaign_id: str = Query(default=""),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        safe_campaign_id = re.sub(r"[^0-9]", "", campaign_id.strip()) if campaign_id else ""
+        campaign_filter = f"AND campaign_id = {safe_campaign_id}" if safe_campaign_id else ""
         project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
         dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
         opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
@@ -8658,6 +8713,7 @@ WITH opens AS (
   FROM `{project_id}.{dataset}.{opens_table}`
   WHERE DATE(partitiontime) BETWEEN DATE('{s}') AND DATE('{e}')
     AND DATE(event_time, '{tz}') BETWEEN DATE('{s}') AND DATE('{e}')
+    {campaign_filter}
 ),
 totals AS (
   SELECT
