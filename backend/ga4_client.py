@@ -439,23 +439,33 @@ def get_abandoned_cart_coupon_orders(
 
 
 def get_coupon_orders(
-    property_id: str, start_date: str, end_date: str, coupons: list[str], crm_scope: str = "all"
+    property_id: str, start_date: str, end_date: str, coupons: list[str], crm_scope: str = "all",
+    match_type: str = "exact",
 ) -> dict[str, Any]:
-    """Retorna pedidos e receita do periodo para uma lista de cupons."""
+    """Retorna pedidos e receita do periodo para uma lista de cupons.
+
+    match_type='exact'  — correspondência exata (padrão)
+    match_type='prefix' — começa com o prefixo informado (útil para cupons de uso único)
+    """
+    import re as _re
     start = _validate_iso_date(start_date)
     end = _validate_iso_date(end_date)
     normalized_scope = str(crm_scope or "all").strip().lower()
     if normalized_scope not in ABANDONED_CART_CRM_SCOPES:
         raise RuntimeError("crm_scope invalido. Use all, only_crm ou non_crm")
-    normalized_coupons = [str(coupon or "").strip() for coupon in coupons if str(coupon or "").strip()]
+    normalized_coupons = [str(coupon or "").strip().upper() for coupon in coupons if str(coupon or "").strip()]
     if not normalized_coupons:
         raise RuntimeError("Informe ao menos um cupom valido")
+    normalized_match = str(match_type or "exact").strip().lower()
+    if normalized_match not in ("exact", "prefix"):
+        raise RuntimeError("match_type invalido. Use exact ou prefix")
 
     normalized_period = _normalize_period_to_today(start, end)
     if normalized_period is None:
         return {
             "coupons": normalized_coupons,
             "crm_scope": normalized_scope,
+            "match_type": normalized_match,
             "start_date": start,
             "end_date": end,
             "transactions": 0,
@@ -470,7 +480,21 @@ def get_coupon_orders(
     property_resource = _resolve_property_resource(property_id)
     client = _get_ga4_client()
 
-    coupon_filter = _build_in_list_filter("orderCoupon", normalized_coupons)
+    if normalized_match == "prefix":
+        safe_prefixes = [_re.escape(c) for c in normalized_coupons]
+        pattern = "^(" + "|".join(safe_prefixes) + ")"
+        coupon_filter = FilterExpression(
+            filter=Filter(
+                field_name="orderCoupon",
+                string_filter=Filter.StringFilter(
+                    match_type=Filter.StringFilter.MatchType.PARTIAL_REGEXP,
+                    value=pattern,
+                    case_sensitive=False,
+                ),
+            )
+        )
+    else:
+        coupon_filter = _build_in_list_filter("orderCoupon", normalized_coupons)
     purchase_filter = FilterExpression(
         filter=Filter(
             field_name="eventName",
@@ -536,6 +560,7 @@ def get_coupon_orders(
     return {
         "coupons": normalized_coupons,
         "crm_scope": normalized_scope,
+        "match_type": normalized_match,
         "start_date": start,
         "end_date": end,
         "transactions": total_transactions,

@@ -344,6 +344,7 @@ export default function App({ mode = 'campanhas' }) {
   const [cupomQuery, setCupomQuery] = useState('')
   const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
   const [cupomEnd, setCupomEnd] = useState(currentMonthRange.end)
+  const [cupomMatchType, setCupomMatchType] = useState('exact')
   const [cupomData, setCupomData] = useState(null)
   const [cupomLoading, setCupomLoading] = useState(false)
   const [cupomError, setCupomError] = useState('')
@@ -961,7 +962,7 @@ export default function App({ mode = 'campanhas' }) {
     setCupomError('')
     setCupomData(null)
     try {
-      const params = new URLSearchParams({ start: cupomStart, end: cupomEnd })
+      const params = new URLSearchParams({ start: cupomStart, end: cupomEnd, match_type: cupomMatchType })
       codes.forEach((c) => params.append('coupon', c))
       const res = await fetch(`/api/ga4/coupon-orders?${params}`)
       const text = await res.text()
@@ -975,7 +976,7 @@ export default function App({ mode = 'campanhas' }) {
     } finally {
       setCupomLoading(false)
     }
-  }, [cupomQuery, cupomStart, cupomEnd])
+  }, [cupomQuery, cupomStart, cupomEnd, cupomMatchType])
 
   const loadSmsStatusOptions = useCallback(async (start, end) => {
     if (!start || !end) return
@@ -3093,11 +3094,11 @@ export default function App({ mode = 'campanhas' }) {
         </section>
 
         {/* Search */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft space-y-3">
           <form onSubmit={(e) => { e.preventDefault(); loadCupom() }} className="flex gap-3">
             <input
               type="text"
-              placeholder="Código do cupom (ex: BLACKFRIDAY, VOLTA10)..."
+              placeholder={cupomMatchType === 'prefix' ? 'Prefixo do cupom (ex: IPLACE200)...' : 'Código do cupom (ex: BLACKFRIDAY, VOLTA10)...'}
               value={cupomQuery}
               onChange={(e) => setCupomQuery(e.target.value)}
               className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
@@ -3110,7 +3111,35 @@ export default function App({ mode = 'campanhas' }) {
               {cupomLoading ? 'Buscando...' : 'Buscar'}
             </button>
           </form>
-          <p className="mt-2 text-xs text-slate-400">Para buscar mais de um cupom, separe por vírgula ou espaço.</p>
+          <div className="flex items-center gap-4 mt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="cupomMatchType"
+                value="exact"
+                checked={cupomMatchType === 'exact'}
+                onChange={() => setCupomMatchType('exact')}
+                className="accent-emerald-600"
+              />
+              <span className="text-xs text-slate-600">Código exato</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="cupomMatchType"
+                value="prefix"
+                checked={cupomMatchType === 'prefix'}
+                onChange={() => setCupomMatchType('prefix')}
+                className="accent-emerald-600"
+              />
+              <span className="text-xs text-slate-600">Começa com (prefixo) — para cupons de uso único</span>
+            </label>
+          </div>
+          <p className="text-xs text-slate-400">
+            {cupomMatchType === 'prefix'
+              ? 'Digite o prefixo comum (ex: IPLACE200) para encontrar todos os cupons que começam com ele.'
+              : 'Para buscar mais de um cupom, separe por vírgula ou espaço.'}
+          </p>
         </section>
 
         {/* Error */}

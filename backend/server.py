@@ -863,13 +863,14 @@ def ga4_coupon_orders(
     coupon: list[str] = Query(...),
     property_id: str | None = Query(default=None),
     crm_scope: Literal["all", "only_crm", "non_crm"] = Query(default="all"),
+    match_type: Literal["exact", "prefix"] = Query(default="exact"),
 ) -> dict[str, Any]:
     effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
     if not effective_property_id:
         raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
 
     try:
-        return get_coupon_orders(effective_property_id, start, end, coupon, crm_scope)
+        return get_coupon_orders(effective_property_id, start, end, coupon, crm_scope, match_type)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
