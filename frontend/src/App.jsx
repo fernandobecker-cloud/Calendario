@@ -3300,6 +3300,27 @@ export default function App({ mode = 'campanhas' }) {
                 </div>
               </div>
 
+              {sessionDurData.by_duration && sessionDurData.by_duration.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-slate-700 mb-3">Distribuição por faixa de duração</p>
+                  <div className="space-y-2">
+                    {sessionDurData.by_duration.map((row, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="w-28 shrink-0 text-xs text-slate-600 text-right">{row.label}</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                          <div
+                            className="h-5 rounded-full bg-indigo-500 transition-all"
+                            style={{ width: `${row.pct}%` }}
+                          />
+                        </div>
+                        <span className="w-16 shrink-0 text-xs font-semibold text-indigo-600 text-right">{row.pct}%</span>
+                        <span className="w-20 shrink-0 text-xs text-slate-400 text-right">{(row.sessions || 0).toLocaleString('pt-BR')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {sessionDurData.by_channel && sessionDurData.by_channel.length > 0 && (
                 <div className="overflow-x-auto">
                   <p className="text-sm font-semibold text-slate-700 mb-2">Por canal</p>

@@ -618,10 +618,52 @@ def get_session_duration(property_id: str, start_date: str, end_date: str) -> di
     by_channel.sort(key=lambda x: -x["sessions"])
     by_channel = by_channel[:10]
 
+    # Distribuição por faixa de duração
+    BUCKETS = [
+        ("Até 30s",       0,   30),
+        ("30s – 1min",   30,   60),
+        ("1min – 1:30",  60,   90),
+        ("1:30 – 2min",  90,  120),
+        ("2min – 3min", 120,  180),
+        ("3min – 4min", 180,  240),
+        ("4min – 5min", 240,  300),
+        ("Acima de 5min", 300, None),
+    ]
+    bucket_counts: dict[str, int] = {label: 0 for label, *_ in BUCKETS}
+
+    duration_request = RunReportRequest(
+        property=property_resource,
+        dimensions=[Dimension(name="sessionDuration")],
+        metrics=[Metric(name="sessions")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+    )
+    duration_response = _run_report(duration_request, client)
+    for row in duration_response.rows:
+        try:
+            secs = int(float(row.dimension_values[0].value or 0))
+        except (ValueError, TypeError):
+            continue
+        sess_count = int(row.metric_values[0].value or 0)
+        for label, lo, hi in BUCKETS:
+            if secs >= lo and (hi is None or secs < hi):
+                bucket_counts[label] += sess_count
+                break
+
+    total_bucketed = sum(bucket_counts.values()) or 1
+    by_duration = [
+        {
+            "label": label,
+            "sessions": bucket_counts[label],
+            "pct": round(100 * bucket_counts[label] / total_bucketed, 1),
+        }
+        for label, *_ in BUCKETS
+    ]
+
     return {
         "avg_session_duration": avg_duration,
         "sessions": sessions,
         "by_channel": by_channel,
+        "by_duration": by_duration,
         "start_date": start,
         "end_date": end,
     }
