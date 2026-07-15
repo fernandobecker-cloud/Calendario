@@ -547,6 +547,61 @@ def get_coupon_orders(
     }
 
 
+def get_session_duration(property_id: str, start_date: str, end_date: str) -> dict[str, Any]:
+    """Retorna média de duração de sessão em segundos, total e por canal (top 10)."""
+    start = _validate_iso_date(start_date)
+    end = _validate_iso_date(end_date)
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
+        return {"avg_session_duration": 0.0, "sessions": 0, "by_channel": [], "start_date": start, "end_date": end}
+    start, end = normalized_period
+    property_resource = _resolve_property_resource(property_id)
+    client = _get_ga4_client()
+
+    total_request = RunReportRequest(
+        property=property_resource,
+        metrics=[
+            Metric(name="averageSessionDuration"),
+            Metric(name="sessions"),
+        ],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+    )
+    total_response = _run_report(total_request, client)
+    avg_duration = 0.0
+    sessions = 0
+    if total_response.rows:
+        vals = total_response.rows[0].metric_values
+        avg_duration = round(float(vals[0].value or 0), 1)
+        sessions = int(vals[1].value or 0)
+
+    channel_request = RunReportRequest(
+        property=property_resource,
+        dimensions=[Dimension(name="sessionDefaultChannelGroup")],
+        metrics=[
+            Metric(name="averageSessionDuration"),
+            Metric(name="sessions"),
+        ],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+    )
+    channel_response = _run_report(channel_request, client)
+    by_channel = []
+    for row in channel_response.rows:
+        dim = (row.dimension_values[0].value or "").strip()
+        dur = round(float(row.metric_values[0].value or 0), 1)
+        sess = int(row.metric_values[1].value or 0)
+        by_channel.append({"channel": dim, "avg_session_duration": dur, "sessions": sess})
+    by_channel.sort(key=lambda x: -x["sessions"])
+    by_channel = by_channel[:10]
+
+    return {
+        "avg_session_duration": avg_duration,
+        "sessions": sessions,
+        "by_channel": by_channel,
+        "start_date": start,
+        "end_date": end,
+    }
+
+
 def get_automation_revenue_by_campaign(
     property_id: str,
     start_date: str,

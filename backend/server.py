@@ -36,6 +36,7 @@ from backend.ga4_client import (
     get_crm_ltv,
     get_crm_monthly_report,
     get_crm_range_report,
+    get_session_duration,
     get_sessions_yesterday,
 )
 from backend.ga4_funnel import get_crm_funnel
@@ -908,6 +909,21 @@ def ga4_crm_funnel(
 
     try:
         return get_crm_funnel(effective_property_id, target_year, target_month)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/session-duration")
+def ga4_session_duration(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    if not GA4_PROPERTY_ID:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+    try:
+        return get_session_duration(GA4_PROPERTY_ID, start, end)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:

@@ -63,6 +63,7 @@ const ADM_MENU_ITEMS = [
   { key: 'acessorios', label: 'Acessórios' },
   { key: 'sms-clientes', label: 'Base SMS' },
   { key: 'mpp-analise', label: 'Análise MPP' },
+  { key: 'session-duration', label: 'Duração de Sessão' },
 ]
 
 const TAB_PERMISSION_OPTIONS = [
@@ -354,6 +355,12 @@ export default function App({ mode = 'campanhas' }) {
   const [smsClientesLoading, setSmsClientesLoading] = useState(false)
   const [smsClientesError, setSmsClientesError] = useState('')
   const [smsStatusOptions, setSmsStatusOptions] = useState([])
+
+  const [sessionDurStart, setSessionDurStart] = useState(currentMonthRange.start)
+  const [sessionDurEnd, setSessionDurEnd] = useState(currentMonthRange.end)
+  const [sessionDurData, setSessionDurData] = useState(null)
+  const [sessionDurLoading, setSessionDurLoading] = useState(false)
+  const [sessionDurError, setSessionDurError] = useState('')
 
   const [mppStart, setMppStart] = useState(currentMonthRange.start)
   const [mppEnd, setMppEnd] = useState(currentMonthRange.end)
@@ -1051,6 +1058,27 @@ export default function App({ mode = 'campanhas' }) {
       setMppLoading(false)
     }
   }, [mppStart, mppEnd, mppCampaignId])
+
+  const loadSessionDuration = useCallback(async () => {
+    if (!sessionDurStart || !sessionDurEnd) return
+    setSessionDurLoading(true)
+    setSessionDurError('')
+    setSessionDurData(null)
+    try {
+      const params = new URLSearchParams({ start: sessionDurStart, end: sessionDurEnd })
+      const res = await fetch(`/api/ga4/session-duration?${params}`)
+      const text = await res.text()
+      let payload = null
+      try { payload = text ? JSON.parse(text) : null } catch (_) { /* handled below */ }
+      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!payload) throw new Error('A API não retornou dados.')
+      setSessionDurData(payload)
+    } catch (err) {
+      setSessionDurError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setSessionDurLoading(false)
+    }
+  }, [sessionDurStart, sessionDurEnd])
 
   const saturationDays = useMemo(() => {
     const today = new Date()
@@ -3175,6 +3203,106 @@ export default function App({ mode = 'campanhas' }) {
     )
   }
 
+  const renderSessionDurationView = () => {
+    const fmtDur = (secs) => {
+      const s = Math.round(secs || 0)
+      const m = Math.floor(s / 60)
+      const rem = s % 60
+      return m > 0 ? `${m}min ${rem}s` : `${s}s`
+    }
+    return (
+      <section className="space-y-6">
+        <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-500 p-6 text-white shadow-lg">
+          <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Duração de Sessão GA4</h1>
+          <p className="mt-1 text-indigo-100 text-sm">Tempo médio de sessão dos clientes no site</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Data início</label>
+              <input
+                type="date"
+                value={sessionDurStart}
+                onChange={e => setSessionDurStart(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Data fim</label>
+              <input
+                type="date"
+                value={sessionDurEnd}
+                onChange={e => setSessionDurEnd(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              onClick={loadSessionDuration}
+              disabled={sessionDurLoading || !sessionDurStart || !sessionDurEnd}
+              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {sessionDurLoading ? 'Consultando...' : 'Consultar'}
+            </button>
+          </div>
+
+          {sessionDurError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{sessionDurError}</div>
+          )}
+
+          {sessionDurLoading && (
+            <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+              Consultando GA4...
+            </div>
+          )}
+
+          {!sessionDurLoading && sessionDurData && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500 mb-1">Duração média da sessão</p>
+                  <p className="text-3xl font-bold text-indigo-600">{fmtDur(sessionDurData.avg_session_duration)}</p>
+                  <p className="text-xs text-slate-400 mt-1">{(sessionDurData.avg_session_duration || 0).toFixed(1)}s</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500 mb-1">Total de sessões</p>
+                  <p className="text-3xl font-bold text-slate-700">{(sessionDurData.sessions || 0).toLocaleString('pt-BR')}</p>
+                </div>
+              </div>
+
+              {sessionDurData.by_channel && sessionDurData.by_channel.length > 0 && (
+                <div className="overflow-x-auto">
+                  <p className="text-sm font-semibold text-slate-700 mb-2">Por canal</p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        <th className="py-2 text-left font-semibold text-slate-600">Canal</th>
+                        <th className="py-2 text-right font-semibold text-slate-600">Sessões</th>
+                        <th className="py-2 text-right font-semibold text-indigo-600">Duração média</th>
+                        <th className="py-2 text-right font-semibold text-slate-600">Em segundos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessionDurData.by_channel.map((row, i) => (
+                        <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="py-2 text-slate-700">{row.channel || '(não definido)'}</td>
+                          <td className="py-2 text-right text-slate-600">{(row.sessions || 0).toLocaleString('pt-BR')}</td>
+                          <td className="py-2 text-right font-semibold text-indigo-600">{fmtDur(row.avg_session_duration)}</td>
+                          <td className="py-2 text-right text-slate-400 text-xs">{(row.avg_session_duration || 0).toFixed(1)}s</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    )
+  }
+
   const renderMppAnaliseView = () => {
     return (
       <section className="space-y-6">
@@ -3611,6 +3739,7 @@ export default function App({ mode = 'campanhas' }) {
           {activeView === 'cupom' && renderCupomView()}
           {activeView === 'sms-clientes' && renderSmsClientesView()}
           {activeView === 'mpp-analise' && renderMppAnaliseView()}
+          {activeView === 'session-duration' && renderSessionDurationView()}
         </div>
       </div>
 
