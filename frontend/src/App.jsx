@@ -3300,26 +3300,26 @@ export default function App({ mode = 'campanhas' }) {
                 </div>
               </div>
 
-              {sessionDurData.by_duration && sessionDurData.by_duration.length > 0 && (
-                <div>
-                  <p className="text-sm font-semibold text-slate-700 mb-3">Distribuição por faixa de duração</p>
-                  <div className="space-y-2">
-                    {sessionDurData.by_duration.map((row, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <span className="w-28 shrink-0 text-xs text-slate-600 text-right">{row.label}</span>
-                        <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
-                          <div
-                            className="h-5 rounded-full bg-indigo-500 transition-all"
-                            style={{ width: `${row.pct}%` }}
-                          />
-                        </div>
-                        <span className="w-16 shrink-0 text-xs font-semibold text-indigo-600 text-right">{row.pct}%</span>
-                        <span className="w-20 shrink-0 text-xs text-slate-400 text-right">{(row.sessions || 0).toLocaleString('pt-BR')}</span>
-                      </div>
-                    ))}
-                  </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700 mb-3">Engajamento de sessões</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Bounce Rate', value: `${sessionDurData.bounce_rate ?? 0}%`, sub: 'sessões sem engajamento', color: 'text-rose-600' },
+                    { label: 'Sessões engajadas', value: (sessionDurData.engaged_sessions || 0).toLocaleString('pt-BR'), sub: `${sessionDurData.sessions ? Math.round(100 * sessionDurData.engaged_sessions / sessionDurData.sessions) : 0}% do total`, color: 'text-emerald-600' },
+                    { label: 'Sessões não engajadas', value: (sessionDurData.non_engaged_sessions || 0).toLocaleString('pt-BR'), sub: 'bounce + < 10s', color: 'text-amber-600' },
+                    { label: 'Duração média engajada', value: fmtDur(sessionDurData.avg_engaged_duration), sub: 'apenas sessões com engajamento', color: 'text-indigo-600' },
+                  ].map(card => (
+                    <div key={card.label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500 mb-1">{card.label}</p>
+                      <p className={`text-xl font-bold ${card.color}`}>{card.value}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{card.sub}</p>
+                    </div>
+                  ))}
                 </div>
-              )}
+                <p className="mt-3 text-xs text-slate-400">
+                  * A GA4 Data API não expõe distribuição individual de sessões por faixa de tempo. Para análise detalhada por faixa (até 30s, 1min, etc.), use o relatório <strong>Exploração</strong> no GA4.
+                </p>
+              </div>
 
               {sessionDurData.by_channel && sessionDurData.by_channel.length > 0 && (
                 <div className="overflow-x-auto">

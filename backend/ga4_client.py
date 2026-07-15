@@ -618,52 +618,39 @@ def get_session_duration(property_id: str, start_date: str, end_date: str) -> di
     by_channel.sort(key=lambda x: -x["sessions"])
     by_channel = by_channel[:10]
 
-    # Distribuição por faixa de duração
-    BUCKETS = [
-        ("Até 30s",       0,   30),
-        ("30s – 1min",   30,   60),
-        ("1min – 1:30",  60,   90),
-        ("1:30 – 2min",  90,  120),
-        ("2min – 3min", 120,  180),
-        ("3min – 4min", 180,  240),
-        ("4min – 5min", 240,  300),
-        ("Acima de 5min", 300, None),
-    ]
-    bucket_counts: dict[str, int] = {label: 0 for label, *_ in BUCKETS}
-
-    duration_request = RunReportRequest(
+    # Aproximação de distribuição usando bounce rate + engagedSessions
+    # GA4 Data API não expõe sessionDuration como dimensão; usamos métricas de engajamento
+    # como proxy para estimar sessões curtas vs. longas.
+    engagement_request = RunReportRequest(
         property=property_resource,
-        dimensions=[Dimension(name="sessionDuration")],
-        metrics=[Metric(name="sessions")],
+        metrics=[
+            Metric(name="bounceRate"),
+            Metric(name="engagedSessions"),
+            Metric(name="userEngagementDuration"),
+        ],
         date_ranges=[DateRange(start_date=start, end_date=end)],
     )
-    duration_response = _run_report(duration_request, client)
-    for row in duration_response.rows:
-        try:
-            secs = int(float(row.dimension_values[0].value or 0))
-        except (ValueError, TypeError):
-            continue
-        sess_count = int(row.metric_values[0].value or 0)
-        for label, lo, hi in BUCKETS:
-            if secs >= lo and (hi is None or secs < hi):
-                bucket_counts[label] += sess_count
-                break
+    engagement_response = _run_report(engagement_request, client)
+    bounce_rate = 0.0
+    engaged_sessions = 0
+    total_engagement_secs = 0.0
+    if engagement_response.rows:
+        vals = engagement_response.rows[0].metric_values
+        bounce_rate = round(float(vals[0].value or 0) * 100, 1)
+        engaged_sessions = int(vals[1].value or 0)
+        total_engagement_secs = float(vals[2].value or 0)
 
-    total_bucketed = sum(bucket_counts.values()) or 1
-    by_duration = [
-        {
-            "label": label,
-            "sessions": bucket_counts[label],
-            "pct": round(100 * bucket_counts[label] / total_bucketed, 1),
-        }
-        for label, *_ in BUCKETS
-    ]
+    non_engaged = sessions - engaged_sessions
+    avg_engaged_duration = round(total_engagement_secs / engaged_sessions, 1) if engaged_sessions > 0 else 0.0
 
     return {
         "avg_session_duration": avg_duration,
         "sessions": sessions,
+        "bounce_rate": bounce_rate,
+        "engaged_sessions": engaged_sessions,
+        "non_engaged_sessions": non_engaged,
+        "avg_engaged_duration": avg_engaged_duration,
         "by_channel": by_channel,
-        "by_duration": by_duration,
         "start_date": start,
         "end_date": end,
     }
