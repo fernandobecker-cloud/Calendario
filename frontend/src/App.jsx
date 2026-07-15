@@ -3226,6 +3226,42 @@ export default function App({ mode = 'campanhas' }) {
                 </div>
               </section>
             )}
+
+            {/* Canal de atribuição */}
+            {cupomData.by_coupon_channel && cupomData.by_coupon_channel.length > 0 && (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h3 className="text-base font-semibold text-slate-900">Atribuição por Canal</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">Canal GA4 ao qual cada venda foi atribuída</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">Cupom</th>
+                        <th className="px-5 py-3">Canal</th>
+                        <th className="px-5 py-3 text-right">Pedidos</th>
+                        <th className="px-5 py-3 text-right">Receita</th>
+                        <th className="px-5 py-3 text-right">Ticket Médio</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {cupomData.by_coupon_channel.map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 font-mono text-xs font-semibold text-slate-800">{row.coupon || '(sem cupom)'}</td>
+                          <td className="px-5 py-3 text-slate-700">{row.channel}</td>
+                          <td className="px-5 py-3 text-right text-slate-700">{fmtN(row.transactions)}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-slate-900">{fmt(row.purchaseRevenue)}</td>
+                          <td className="px-5 py-3 text-right text-slate-600">
+                            {fmt(row.transactions > 0 ? row.purchaseRevenue / row.transactions : 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </>
         )}
       </section>

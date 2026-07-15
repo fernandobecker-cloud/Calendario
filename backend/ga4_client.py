@@ -512,38 +512,48 @@ def get_coupon_orders(
 
     request = RunReportRequest(
         property=property_resource,
-        dimensions=[Dimension(name="orderCoupon")],
+        dimensions=[Dimension(name="orderCoupon"), Dimension(name="sessionDefaultChannelGroup")],
         metrics=[Metric(name="transactions"), Metric(name="purchaseRevenue")],
         date_ranges=[DateRange(start_date=start, end_date=end)],
         dimension_filter=FilterExpression(and_group=FilterExpressionList(expressions=expressions)),
     )
     response = _run_report(request, client)
 
-    by_coupon = []
+    # Agrega por cupom (para totais) e mantém detalhe por canal
+    coupon_totals: dict[str, dict] = {}
+    by_coupon_channel = []
     total_transactions = 0
     total_revenue = 0.0
 
     for row in response.rows:
         dimension_values = row.dimension_values
         metric_values = row.metric_values
-        if len(dimension_values) < 1 or len(metric_values) < 2:
+        if len(dimension_values) < 2 or len(metric_values) < 2:
             continue
 
         coupon = (dimension_values[0].value or "").strip()
+        channel = (dimension_values[1].value or "(não definido)").strip()
         transactions = int(metric_values[0].value or 0)
         purchase_revenue = float(metric_values[1].value or 0.0)
 
         total_transactions += transactions
         total_revenue += purchase_revenue
-        by_coupon.append(
-            {
-                "coupon": coupon,
-                "transactions": transactions,
-                "purchaseRevenue": round(purchase_revenue, 2),
-            }
-        )
 
-    by_coupon.sort(key=lambda item: (-item["transactions"], item["coupon"]))
+        if coupon not in coupon_totals:
+            coupon_totals[coupon] = {"coupon": coupon, "transactions": 0, "purchaseRevenue": 0.0}
+        coupon_totals[coupon]["transactions"] += transactions
+        coupon_totals[coupon]["purchaseRevenue"] = round(coupon_totals[coupon]["purchaseRevenue"] + purchase_revenue, 2)
+
+        by_coupon_channel.append({
+            "coupon": coupon,
+            "channel": channel,
+            "transactions": transactions,
+            "purchaseRevenue": round(purchase_revenue, 2),
+        })
+
+    by_coupon = sorted(coupon_totals.values(), key=lambda item: (-item["transactions"], item["coupon"]))
+    by_coupon_channel.sort(key=lambda x: (x["coupon"], -x["transactions"]))
+
     average_ticket = total_revenue / total_transactions if total_transactions > 0 else 0.0
     top_coupon = None
     if by_coupon:
@@ -569,6 +579,7 @@ def get_coupon_orders(
         "average_ticket": round(average_ticket, 2),
         "top_coupon": top_coupon,
         "by_coupon": by_coupon,
+        "by_coupon_channel": by_coupon_channel,
     }
 
 
