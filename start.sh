@@ -22,4 +22,10 @@ if [ ! -f "frontend/dist/index.html" ]; then
   cd ..
 fi
 
-exec python3 -m uvicorn server:app --host 0.0.0.0 --port "$PORT"
+exec gunicorn server:app \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --workers 2 \
+  --bind "0.0.0.0:$PORT" \
+  --timeout 120 \
+  --keep-alive 75 \
+  --graceful-timeout 30
