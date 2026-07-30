@@ -3053,6 +3053,23 @@ export default function App({ mode = 'campanhas' }) {
     const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
     const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
 
+    // Agrega by_coupon_channel → resumo por canal e canal principal por cupom
+    const channelSummary = {}
+    const couponTopChannel = {}
+    for (const row of cupomData?.by_coupon_channel || []) {
+      const ch = row.channel || '(não atribuído)'
+      if (!channelSummary[ch]) channelSummary[ch] = { transactions: 0, purchaseRevenue: 0 }
+      channelSummary[ch].transactions += Number(row.transactions || 0)
+      channelSummary[ch].purchaseRevenue += Number(row.purchaseRevenue || 0)
+      const cp = row.coupon
+      if (!couponTopChannel[cp] || Number(row.transactions) > (couponTopChannel[cp]?.transactions || 0)) {
+        couponTopChannel[cp] = { channel: ch, transactions: Number(row.transactions) }
+      }
+    }
+    const channelRows = Object.entries(channelSummary)
+      .map(([channel, d]) => ({ channel, ...d }))
+      .sort((a, b) => b.transactions - a.transactions)
+
     const exportCsv = () => {
       if (!cupomData?.by_coupon?.length) return
       const cols = ['cupom', 'pedidos', 'receita', 'ticket_medio']
@@ -3173,6 +3190,42 @@ export default function App({ mode = 'campanhas' }) {
               ))}
             </section>
 
+            {/* Resumo por canal — logo abaixo dos cards */}
+            {channelRows.length > 0 && (
+              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h3 className="text-base font-semibold text-slate-900">Atribuição por Canal</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">Canal GA4 ao qual as vendas foram atribuídas</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-5 py-3">Canal</th>
+                        <th className="px-5 py-3 text-right">Pedidos</th>
+                        <th className="px-5 py-3 text-right">%</th>
+                        <th className="px-5 py-3 text-right">Receita</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {channelRows.map((row) => (
+                        <tr key={row.channel} className="hover:bg-slate-50">
+                          <td className="px-5 py-3 text-slate-700">{row.channel}</td>
+                          <td className="px-5 py-3 text-right text-slate-700">{fmtN(row.transactions)}</td>
+                          <td className="px-5 py-3 text-right text-slate-500">
+                            {cupomData.transactions > 0
+                              ? `${((row.transactions / cupomData.transactions) * 100).toFixed(1)}%`
+                              : '—'}
+                          </td>
+                          <td className="px-5 py-3 text-right font-semibold text-slate-900">{fmt(row.purchaseRevenue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             {/* Breakdown table */}
             {cupomData.transactions === 0 ? (
               <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
@@ -3202,7 +3255,7 @@ export default function App({ mode = 'campanhas' }) {
                         <th className="px-5 py-3 text-right">Pedidos</th>
                         <th className="px-5 py-3 text-right">Receita</th>
                         <th className="px-5 py-3 text-right">Ticket Médio</th>
-                        <th className="px-5 py-3 text-right">% Pedidos</th>
+                        <th className="px-5 py-3 text-right">Canal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -3214,10 +3267,8 @@ export default function App({ mode = 'campanhas' }) {
                           <td className="px-5 py-3 text-right text-slate-700">
                             {fmt(row.transactions > 0 ? row.purchaseRevenue / row.transactions : 0)}
                           </td>
-                          <td className="px-5 py-3 text-right text-slate-500">
-                            {cupomData.transactions > 0
-                              ? `${((row.transactions / cupomData.transactions) * 100).toFixed(1)}%`
-                              : '—'}
+                          <td className="px-5 py-3 text-right text-slate-500 text-xs">
+                            {couponTopChannel[row.coupon]?.channel || '—'}
                           </td>
                         </tr>
                       ))}
@@ -3227,41 +3278,6 @@ export default function App({ mode = 'campanhas' }) {
               </section>
             )}
 
-            {/* Canal de atribuição */}
-            {cupomData.by_coupon_channel && cupomData.by_coupon_channel.length > 0 && (
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <h3 className="text-base font-semibold text-slate-900">Atribuição por Canal</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">Canal GA4 ao qual cada venda foi atribuída</p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3">Cupom</th>
-                        <th className="px-5 py-3">Canal</th>
-                        <th className="px-5 py-3 text-right">Pedidos</th>
-                        <th className="px-5 py-3 text-right">Receita</th>
-                        <th className="px-5 py-3 text-right">Ticket Médio</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {cupomData.by_coupon_channel.map((row, i) => (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-5 py-3 font-mono text-xs font-semibold text-slate-800">{row.coupon || '(sem cupom)'}</td>
-                          <td className="px-5 py-3 text-slate-700">{row.channel}</td>
-                          <td className="px-5 py-3 text-right text-slate-700">{fmtN(row.transactions)}</td>
-                          <td className="px-5 py-3 text-right font-semibold text-slate-900">{fmt(row.purchaseRevenue)}</td>
-                          <td className="px-5 py-3 text-right text-slate-600">
-                            {fmt(row.transactions > 0 ? row.purchaseRevenue / row.transactions : 0)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
           </>
         )}
       </section>
