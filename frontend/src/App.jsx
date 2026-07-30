@@ -3053,6 +3053,26 @@ export default function App({ mode = 'campanhas' }) {
     const fmt = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
     const fmtN = (n) => new Intl.NumberFormat('pt-BR').format(n ?? 0)
 
+    const GA4_CHANNEL_PT = {
+      'Paid Search': 'Busca Paga',
+      'Organic Search': 'Busca Orgânica',
+      'Direct': 'Direto',
+      'Paid Other': 'Outros Pagos',
+      'Organic Social': 'Social Orgânico',
+      'Paid Social': 'Social Pago',
+      'Cross-network': 'Múltiplas Redes',
+      'Email': 'E-mail',
+      'Paid Shopping': 'Shopping Pago',
+      'Organic Shopping': 'Shopping Orgânico',
+      'Organic Video': 'Vídeo Orgânico',
+      'Paid Video': 'Vídeo Pago',
+      'Display': 'Display',
+      'Referral': 'Indicação',
+      'Unassigned': 'Não Atribuído',
+      '(not set)': 'Não Definido',
+    }
+    const chPt = (ch) => GA4_CHANNEL_PT[ch] || null
+
     // Agrega by_coupon_channel → resumo por canal e canal principal por cupom
     const channelSummary = {}
     const couponTopChannel = {}
@@ -3210,7 +3230,12 @@ export default function App({ mode = 'campanhas' }) {
                     <tbody className="divide-y divide-slate-100">
                       {channelRows.map((row) => (
                         <tr key={row.channel} className="hover:bg-slate-50">
-                          <td className="px-5 py-3 text-slate-700">{row.channel}</td>
+                          <td className="px-5 py-3 text-slate-700">
+                            {row.channel}
+                            {chPt(row.channel) && (
+                              <span className="ml-1 text-xs text-slate-400">({chPt(row.channel)})</span>
+                            )}
+                          </td>
                           <td className="px-5 py-3 text-right text-slate-700">{fmtN(row.transactions)}</td>
                           <td className="px-5 py-3 text-right text-slate-500">
                             {cupomData.transactions > 0
