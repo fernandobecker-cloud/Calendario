@@ -8816,7 +8816,10 @@ sends AS (
   GROUP BY message_id
 ),
 deliveries AS (
-  SELECT message_id, COUNT(DISTINCT conversation_id) AS entregues
+  SELECT
+    message_id,
+    COUNT(DISTINCT CASE WHEN status = 'DELIVERED' THEN conversation_id END) AS entregues,
+    COUNT(DISTINCT CASE WHEN status = 'FAILED'    THEN conversation_id END) AS falhas
   FROM `{project_id}.{dataset}.conversation_deliveries_1091660394`
   WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
   GROUP BY message_id
@@ -8833,11 +8836,13 @@ SELECT
   m.channel,
   m.message_type,
   m.template_type,
-  COALESCE(s.enviados, 0)   AS enviados,
-  COALESCE(d.entregues, 0)  AS entregues,
-  COALESCE(o.lidas, 0)      AS lidas,
+  COALESCE(s.enviados, 0)            AS enviados,
+  COALESCE(d.entregues, 0)           AS entregues,
+  COALESCE(d.falhas, 0)              AS falhas,
+  COALESCE(o.lidas, 0)               AS lidas,
   ROUND(SAFE_DIVIDE(COALESCE(d.entregues, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_entrega,
-  ROUND(SAFE_DIVIDE(COALESCE(o.lidas, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_leitura
+  ROUND(SAFE_DIVIDE(COALESCE(d.falhas, 0),    NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_falha,
+  ROUND(SAFE_DIVIDE(COALESCE(o.lidas, 0),     NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_leitura
 FROM msgs m
 INNER JOIN sends s ON s.message_id = m.message_id
 LEFT JOIN deliveries d ON d.message_id = m.message_id
@@ -8860,8 +8865,10 @@ ORDER BY s.enviados DESC
                 "template_type": str(r.get("template_type") or ""),
                 "enviados":      int(r.get("enviados") or 0),
                 "entregues":     int(r.get("entregues") or 0),
+                "falhas":        int(r.get("falhas") or 0),
                 "lidas":         int(r.get("lidas") or 0),
                 "taxa_entrega":  float(r.get("taxa_entrega") or 0),
+                "taxa_falha":    float(r.get("taxa_falha") or 0),
                 "taxa_leitura":  float(r.get("taxa_leitura") or 0),
             }
             for r in (records or [])

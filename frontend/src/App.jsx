@@ -2542,8 +2542,10 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3">Mensagem</th>
                       <th className="px-4 py-3 text-right">Enviados</th>
                       <th className="px-4 py-3 text-right">Entregues</th>
+                      <th className="px-4 py-3 text-right">Falhas</th>
                       <th className="px-4 py-3 text-right">Lidas</th>
                       <th className="px-4 py-3 text-right">Taxa Entrega</th>
+                      <th className="px-4 py-3 text-right">Taxa Falha</th>
                       <th className="px-4 py-3 text-right">Taxa Leitura</th>
                     </tr>
                   </thead>
@@ -2558,10 +2560,16 @@ export default function App({ mode = 'campanhas' }) {
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
                         <td className="px-4 py-3 text-right text-slate-700">{item.entregues.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-rose-600">{item.falhas.toLocaleString('pt-BR')}</td>
                         <td className="px-4 py-3 text-right text-slate-700">{item.lidas.toLocaleString('pt-BR')}</td>
                         <td className="px-4 py-3 text-right">
                           <span className={`font-semibold ${item.taxa_entrega >= 90 ? 'text-green-600' : item.taxa_entrega >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
                             {item.taxa_entrega.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold ${item.taxa_falha <= 5 ? 'text-green-600' : item.taxa_falha <= 15 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            {item.taxa_falha.toFixed(1)}%
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
