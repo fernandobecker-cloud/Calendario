@@ -858,6 +858,27 @@ export default function App({ mode = 'campanhas' }) {
     }
   }, [smsApuracaoNome])
 
+  const downloadWhatsAppFalhas = useCallback(async (messageId) => {
+    try {
+      const params = new URLSearchParams({ message_id: messageId, start: whatsAppApuracaoStart, end: whatsAppApuracaoEnd })
+      const res = await fetch(`/api/open-data/whatsapp-falhas-export?${params}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.detail || 'Erro ao exportar')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `whatsapp_falhas_${messageId}_${whatsAppApuracaoStart}_${whatsAppApuracaoEnd}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(`Erro: ${err.message}`)
+    }
+  }, [whatsAppApuracaoStart, whatsAppApuracaoEnd])
+
   const toggleWhatsAppFalhas = useCallback((messageId) => {
     setWhatsAppFalhas(prev => {
       const cur = prev[messageId] || {}
@@ -2623,13 +2644,12 @@ export default function App({ mode = 'campanhas' }) {
                                   <div className="px-6 py-4">
                                     <div className="mb-3 flex items-center justify-between">
                                       <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Motivos de falha</p>
-                                      <a
-                                        href={`/api/open-data/whatsapp-falhas-export?message_id=${item.message_id}&start=${whatsAppApuracaoStart}&end=${whatsAppApuracaoEnd}`}
-                                        download
+                                      <button
+                                        onClick={() => downloadWhatsAppFalhas(item.message_id)}
                                         className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
                                       >
                                         ↓ Exportar Excel (CPF + motivo)
-                                      </a>
+                                      </button>
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                       {falhaPanel.data.items.map((f) => (
