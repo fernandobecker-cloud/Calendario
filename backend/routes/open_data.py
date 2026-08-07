@@ -8780,3 +8780,94 @@ ORDER BY d.total DESC
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao analisar MPP: {exc}") from exc
+
+
+@router.get("/whatsapp-apuracao")
+def whatsapp_apuracao(
+    nome: str = Query(min_length=2, max_length=200),
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        if not s or not e:
+            raise HTTPException(status_code=400, detail="start e end são obrigatórios")
+        safe_nome = nome.strip().replace("'", "\\'")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        sql = f"""
+WITH msgs AS (
+  SELECT
+    message_id,
+    COALESCE(channel, 'WhatsApp') AS channel,
+    name AS nome_campanha,
+    message_type,
+    template_type,
+    ROW_NUMBER() OVER (PARTITION BY message_id ORDER BY event_time DESC, loaded_at DESC) AS rn
+  FROM `{project_id}.{dataset}.conversation_messages_1091660394`
+  WHERE LOWER(name) LIKE LOWER('%{safe_nome}%')
+    AND name IS NOT NULL AND TRIM(name) != ''
+),
+sends AS (
+  SELECT message_id, COUNT(DISTINCT conversation_id) AS enviados
+  FROM `{project_id}.{dataset}.conversation_sends_1091660394`
+  WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+  GROUP BY message_id
+),
+deliveries AS (
+  SELECT message_id, COUNT(DISTINCT conversation_id) AS entregues
+  FROM `{project_id}.{dataset}.conversation_deliveries_1091660394`
+  WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+  GROUP BY message_id
+),
+opens AS (
+  SELECT message_id, COUNT(DISTINCT conversation_id) AS lidas
+  FROM `{project_id}.{dataset}.conversation_opens_1091660394`
+  WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+  GROUP BY message_id
+)
+SELECT
+  m.message_id,
+  m.nome_campanha,
+  m.channel,
+  m.message_type,
+  m.template_type,
+  COALESCE(s.enviados, 0)   AS enviados,
+  COALESCE(d.entregues, 0)  AS entregues,
+  COALESCE(o.lidas, 0)      AS lidas,
+  ROUND(SAFE_DIVIDE(COALESCE(d.entregues, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_entrega,
+  ROUND(SAFE_DIVIDE(COALESCE(o.lidas, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_leitura
+FROM msgs m
+INNER JOIN sends s ON s.message_id = m.message_id
+LEFT JOIN deliveries d ON d.message_id = m.message_id
+LEFT JOIN opens o ON o.message_id = m.message_id
+WHERE m.rn = 1
+ORDER BY s.enviados DESC
+""".strip()
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=55,
+        )
+        items = [
+            {
+                "message_id":    str(r.get("message_id") or ""),
+                "nome_campanha": str(r.get("nome_campanha") or ""),
+                "channel":       str(r.get("channel") or "WhatsApp"),
+                "message_type":  str(r.get("message_type") or ""),
+                "template_type": str(r.get("template_type") or ""),
+                "enviados":      int(r.get("enviados") or 0),
+                "entregues":     int(r.get("entregues") or 0),
+                "lidas":         int(r.get("lidas") or 0),
+                "taxa_entrega":  float(r.get("taxa_entrega") or 0),
+                "taxa_leitura":  float(r.get("taxa_leitura") or 0),
+            }
+            for r in (records or [])
+        ]
+        return {"nome": nome.strip(), "total": len(items), "items": items, "start_date": s, "end_date": e}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao apurar WhatsApp: {exc}") from exc

@@ -321,6 +321,12 @@ export default function App({ mode = 'campanhas' }) {
   const [emailApuracaoData, setEmailApuracaoData] = useState(null)
   const [emailApuracaoLoading, setEmailApuracaoLoading] = useState(false)
   const [emailApuracaoError, setEmailApuracaoError] = useState('')
+  const [whatsAppApuracaoNome, setWhatsAppApuracaoNome] = useState('')
+  const [whatsAppApuracaoStart, setWhatsAppApuracaoStart] = useState(currentMonthRange.start)
+  const [whatsAppApuracaoEnd, setWhatsAppApuracaoEnd] = useState(currentMonthRange.end)
+  const [whatsAppApuracaoData, setWhatsAppApuracaoData] = useState(null)
+  const [whatsAppApuracaoLoading, setWhatsAppApuracaoLoading] = useState(false)
+  const [whatsAppApuracaoError, setWhatsAppApuracaoError] = useState('')
   const [smsRegional, setSmsRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [emailRegional, setEmailRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [appleLoverData, setAppleLoverData] = useState(null)
@@ -850,6 +856,24 @@ export default function App({ mode = 'campanhas' }) {
       setSmsApuracaoLoading(false)
     }
   }, [smsApuracaoNome])
+
+  const loadWhatsAppApuracao = useCallback(async () => {
+    if (whatsAppApuracaoNome.trim().length < 2) return
+    setWhatsAppApuracaoLoading(true)
+    setWhatsAppApuracaoError('')
+    try {
+      const params = new URLSearchParams({ nome: whatsAppApuracaoNome.trim(), start: whatsAppApuracaoStart, end: whatsAppApuracaoEnd })
+      const res = await fetch(`/api/open-data/whatsapp-apuracao?${params}`)
+      const payload = await res.json()
+      if (!res.ok) throw new Error(payload?.detail || 'Erro ao apurar WhatsApp.')
+      setWhatsAppApuracaoData(payload)
+    } catch (err) {
+      setWhatsAppApuracaoError(err instanceof Error ? err.message : 'Erro inesperado.')
+      setWhatsAppApuracaoData(null)
+    } finally {
+      setWhatsAppApuracaoLoading(false)
+    }
+  }, [whatsAppApuracaoNome, whatsAppApuracaoStart, whatsAppApuracaoEnd])
 
   const loadEmailApuracao = useCallback(async () => {
     if (emailApuracaoNome.trim().length < 2) return
@@ -2446,6 +2470,114 @@ export default function App({ mode = 'campanhas' }) {
 
   const renderCampanhaDetalheView = () => (
     <section className="space-y-8">
+
+      {/* ── Bloco WhatsApp ── */}
+      <section className="space-y-4">
+        <section className="rounded-2xl bg-gradient-to-r from-green-600 to-emerald-500 p-6 text-white shadow-soft md:p-8">
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Apuração WhatsApp</h2>
+          <p className="mt-1 text-sm text-green-100">
+            Busca mensagens WhatsApp pelo nome no período selecionado. Métricas de envio, entrega e leitura.
+          </p>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6 space-y-3">
+          <form onSubmit={(e) => { e.preventDefault(); loadWhatsAppApuracao() }} className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Nome ou parte do nome da mensagem WhatsApp..."
+              value={whatsAppApuracaoNome}
+              onChange={(e) => setWhatsAppApuracaoNome(e.target.value)}
+              minLength={2}
+              className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-200"
+            />
+            <button
+              type="submit"
+              disabled={whatsAppApuracaoLoading || whatsAppApuracaoNome.trim().length < 2}
+              className="rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-50"
+            >
+              {whatsAppApuracaoLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </form>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
+              Início
+              <input type="date" value={whatsAppApuracaoStart} onChange={(e) => setWhatsAppApuracaoStart(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
+              Fim
+              <input type="date" value={whatsAppApuracaoEnd} onChange={(e) => setWhatsAppApuracaoEnd(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900" />
+            </label>
+          </div>
+        </section>
+
+        {whatsAppApuracaoError && (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {whatsAppApuracaoError}
+          </section>
+        )}
+
+        {whatsAppApuracaoLoading ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
+            <p className="text-sm text-slate-500">Consultando campanhas WhatsApp...</p>
+          </section>
+        ) : whatsAppApuracaoData && (
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-soft">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-900">
+                Resultados para &ldquo;{whatsAppApuracaoData.nome}&rdquo;
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {whatsAppApuracaoData.total} mensagem(ns) · {whatsAppApuracaoData.start_date} a {whatsAppApuracaoData.end_date}
+              </p>
+            </div>
+            {whatsAppApuracaoData.total === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhuma mensagem WhatsApp encontrada.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Mensagem</th>
+                      <th className="px-4 py-3 text-right">Enviados</th>
+                      <th className="px-4 py-3 text-right">Entregues</th>
+                      <th className="px-4 py-3 text-right">Lidas</th>
+                      <th className="px-4 py-3 text-right">Taxa Entrega</th>
+                      <th className="px-4 py-3 text-right">Taxa Leitura</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {whatsAppApuracaoData.items.map((item) => (
+                      <tr key={item.message_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-900">
+                          <span>{item.nome_campanha}</span>
+                          {item.template_type && (
+                            <span className="ml-2 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{item.template_type}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.entregues.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">{item.lidas.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold ${item.taxa_entrega >= 90 ? 'text-green-600' : item.taxa_entrega >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            {item.taxa_entrega.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold ${item.taxa_leitura >= 50 ? 'text-green-600' : item.taxa_leitura >= 25 ? 'text-amber-600' : 'text-slate-500'}`}>
+                            {item.taxa_leitura.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+      </section>
 
       {/* ── Bloco SMS ── */}
       <section className="space-y-4">
