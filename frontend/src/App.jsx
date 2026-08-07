@@ -327,6 +327,7 @@ export default function App({ mode = 'campanhas' }) {
   const [whatsAppApuracaoData, setWhatsAppApuracaoData] = useState(null)
   const [whatsAppApuracaoLoading, setWhatsAppApuracaoLoading] = useState(false)
   const [whatsAppApuracaoError, setWhatsAppApuracaoError] = useState('')
+  const [whatsAppFalhas, setWhatsAppFalhas] = useState({}) // { [message_id]: { loading, error, data, expanded } }
   const [smsRegional, setSmsRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [emailRegional, setEmailRegional] = useState({}) // { [campaign_id]: { loading, error, data, expanded } }
   const [appleLoverData, setAppleLoverData] = useState(null)
@@ -856,6 +857,26 @@ export default function App({ mode = 'campanhas' }) {
       setSmsApuracaoLoading(false)
     }
   }, [smsApuracaoNome])
+
+  const toggleWhatsAppFalhas = useCallback((messageId) => {
+    setWhatsAppFalhas(prev => {
+      const cur = prev[messageId] || {}
+      if (cur.data || cur.loading) return { ...prev, [messageId]: { ...cur, expanded: !cur.expanded } }
+      const start = whatsAppApuracaoStart
+      const end = whatsAppApuracaoEnd
+      const params = new URLSearchParams({ message_id: messageId, start, end })
+      fetch(`/api/open-data/whatsapp-falhas?${params}`)
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          const errMsg = ok ? '' : (d?.detail || 'Erro ao carregar motivos')
+          setWhatsAppFalhas(p => ({ ...p, [messageId]: { loading: false, error: errMsg, data: ok ? d : null, expanded: true } }))
+        })
+        .catch(err => {
+          setWhatsAppFalhas(p => ({ ...p, [messageId]: { loading: false, error: err.message || 'Erro', data: null, expanded: true } }))
+        })
+      return { ...prev, [messageId]: { loading: true, error: '', data: null, expanded: true } }
+    })
+  }, [whatsAppApuracaoStart, whatsAppApuracaoEnd])
 
   const loadWhatsAppApuracao = useCallback(async () => {
     if (whatsAppApuracaoNome.trim().length < 2) return
@@ -2547,38 +2568,83 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Taxa Entrega</th>
                       <th className="px-4 py-3 text-right">Taxa Falha</th>
                       <th className="px-4 py-3 text-right">Taxa Leitura</th>
+                      <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {whatsAppApuracaoData.items.map((item) => (
-                      <tr key={item.message_id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-900">
-                          <span>{item.nome_campanha}</span>
-                          {item.template_type && (
-                            <span className="ml-2 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{item.template_type}</span>
+                    {whatsAppApuracaoData.items.map((item) => {
+                      const falhaPanel = whatsAppFalhas[item.message_id] || {}
+                      return (
+                        <Fragment key={item.message_id}>
+                          <tr className="hover:bg-slate-50">
+                            <td className="px-4 py-3 text-slate-900">
+                              <span>{item.nome_campanha}</span>
+                              {item.template_type && (
+                                <span className="ml-2 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{item.template_type}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.entregues.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-rose-600">{item.falhas.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{item.lidas.toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`font-semibold ${item.taxa_entrega >= 90 ? 'text-green-600' : item.taxa_entrega >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                {item.taxa_entrega.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`font-semibold ${item.taxa_falha <= 5 ? 'text-green-600' : item.taxa_falha <= 15 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                {item.taxa_falha.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`font-semibold ${item.taxa_leitura >= 50 ? 'text-green-600' : item.taxa_leitura >= 25 ? 'text-amber-600' : 'text-slate-500'}`}>
+                                {item.taxa_leitura.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {item.falhas > 0 && (
+                                <button
+                                  onClick={() => toggleWhatsAppFalhas(item.message_id)}
+                                  disabled={falhaPanel.loading}
+                                  className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-50"
+                                >
+                                  {falhaPanel.loading ? '…' : falhaPanel.expanded ? '▲ Falhas' : '▼ Falhas'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                          {falhaPanel.expanded && (
+                            <tr>
+                              <td colSpan={9} className="p-0 border-b border-slate-200 bg-rose-50">
+                                {falhaPanel.error ? (
+                                  <p className="px-6 py-3 text-xs text-rose-600">{falhaPanel.error}</p>
+                                ) : falhaPanel.data ? (
+                                  <div className="px-6 py-4">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-700">Motivos de falha</p>
+                                    <div className="flex flex-col gap-1.5">
+                                      {falhaPanel.data.items.map((f) => (
+                                        <div key={f.motivo} className="flex items-center gap-3">
+                                          <div className="w-48 flex-shrink-0 text-xs text-slate-700">{f.motivo}</div>
+                                          <div className="flex-1 h-2 rounded-full bg-rose-100 overflow-hidden">
+                                            <div className="h-2 rounded-full bg-rose-400" style={{ width: `${f.pct}%` }} />
+                                          </div>
+                                          <div className="w-20 text-right text-xs text-slate-600">
+                                            {f.total.toLocaleString('pt-BR')} <span className="text-slate-400">({f.pct}%)</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="px-6 py-3 text-xs text-slate-400">Carregando...</p>
+                                )}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.enviados.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.entregues.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-rose-600">{item.falhas.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{item.lidas.toLocaleString('pt-BR')}</td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`font-semibold ${item.taxa_entrega >= 90 ? 'text-green-600' : item.taxa_entrega >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
-                            {item.taxa_entrega.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`font-semibold ${item.taxa_falha <= 5 ? 'text-green-600' : item.taxa_falha <= 15 ? 'text-amber-600' : 'text-rose-600'}`}>
-                            {item.taxa_falha.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`font-semibold ${item.taxa_leitura >= 50 ? 'text-green-600' : item.taxa_leitura >= 25 ? 'text-amber-600' : 'text-slate-500'}`}>
-                            {item.taxa_leitura.toFixed(1)}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

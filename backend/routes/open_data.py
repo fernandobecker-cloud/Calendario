@@ -8878,3 +8878,69 @@ ORDER BY s.enviados DESC
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao apurar WhatsApp: {exc}") from exc
+
+
+@router.get("/whatsapp-falhas")
+def whatsapp_falhas(
+    message_id: str = Query(min_length=1, max_length=20),
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        safe_id = re.sub(r"[^0-9]", "", message_id.strip())
+        if not safe_id:
+            raise HTTPException(status_code=400, detail="message_id inválido")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        sql = f"""
+WITH falhas AS (
+  SELECT
+    CASE
+      WHEN error_message LIKE '%experiment%'                          THEN 'Experimento WhatsApp (Meta)'
+      WHEN error_message LIKE 'RECIPIENT_NOT_REACHABLE%'             THEN 'Número não alcançável'
+      WHEN error_message LIKE 'BAD_REQUEST%MSISDN%'
+        OR error_message LIKE 'BAD_REQUEST%phone%'
+        OR error_message LIKE 'BAD_REQUEST%phoneNumber%'             THEN 'Número inválido (MSISDN)'
+      WHEN error_message LIKE 'CHANNEL_FAILURE%ecosystem%'           THEN 'Bloqueio anti-spam (Meta)'
+      WHEN error_message LIKE '%mandatory%'
+        OR error_message LIKE '%Invalid parameter%'                  THEN 'Erro de template'
+      WHEN error_message IS NULL OR TRIM(error_message) = ''         THEN 'Sem detalhe'
+      ELSE REGEXP_EXTRACT(error_message, r'^([A-Z_]+):')
+    END AS motivo,
+    conversation_id
+  FROM `{project_id}.{dataset}.conversation_deliveries_1091660394`
+  WHERE status = 'FAILED'
+    AND message_id = {safe_id}
+    AND DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+),
+total AS (SELECT COUNT(DISTINCT conversation_id) AS t FROM falhas)
+SELECT
+  COALESCE(f.motivo, 'Outro') AS motivo,
+  COUNT(DISTINCT f.conversation_id) AS total,
+  ROUND(COUNT(DISTINCT f.conversation_id) * 100.0 / MAX(tt.t), 1) AS pct
+FROM falhas f
+CROSS JOIN total tt
+GROUP BY 1
+ORDER BY 2 DESC
+""".strip()
+        records = run_bigquery_records(
+            sql,
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=30,
+        )
+        items = [
+            {
+                "motivo": str(r.get("motivo") or "Outro"),
+                "total":  int(r.get("total") or 0),
+                "pct":    float(r.get("pct") or 0),
+            }
+            for r in (records or [])
+        ]
+        return {"message_id": safe_id, "items": items, "start_date": s, "end_date": e}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar motivos: {exc}") from exc
