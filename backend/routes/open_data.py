@@ -8944,3 +8944,72 @@ ORDER BY 2 DESC
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao buscar motivos: {exc}") from exc
+
+
+@router.get("/whatsapp-falhas-export")
+def whatsapp_falhas_export(
+    message_id: str = Query(min_length=1, max_length=20),
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> Any:
+    import io
+    from fastapi.responses import Response
+    from backend.event_sources import build_bigquery_client
+    try:
+        s = _validate_optional_iso_date(start) or ""
+        e = _validate_optional_iso_date(end) or ""
+        safe_id = re.sub(r"[^0-9]", "", message_id.strip())
+        if not safe_id or not s or not e:
+            raise HTTPException(status_code=400, detail="Parâmetros inválidos")
+        project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+        dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+        sql = f"""
+SELECT
+  COALESCE(sc.external_id, '') AS cpf,
+  CAST(d.contact_id AS STRING)  AS contact_id,
+  CASE
+    WHEN d.error_message LIKE '%experiment%'                         THEN 'Experimento WhatsApp (Meta)'
+    WHEN d.error_message LIKE 'RECIPIENT_NOT_REACHABLE%'            THEN 'Número não alcançável'
+    WHEN d.error_message LIKE 'BAD_REQUEST%MSISDN%'
+      OR d.error_message LIKE 'BAD_REQUEST%phone%'
+      OR d.error_message LIKE 'BAD_REQUEST%phoneNumber%'            THEN 'Número inválido (MSISDN)'
+    WHEN d.error_message LIKE 'CHANNEL_FAILURE%ecosystem%'          THEN 'Bloqueio anti-spam (Meta)'
+    WHEN d.error_message LIKE '%mandatory%'
+      OR d.error_message LIKE '%Invalid parameter%'                 THEN 'Erro de template'
+    ELSE COALESCE(REGEXP_EXTRACT(d.error_message, r'^([A-Z_]+):'), 'Outro')
+  END AS motivo,
+  COALESCE(d.error_message, '') AS detalhe_erro
+FROM `{project_id}.{dataset}.conversation_deliveries_1091660394` d
+LEFT JOIN `{project_id}.{dataset}.{contacts_table}` sc
+  ON sc.contact_id = d.contact_id
+WHERE d.status = 'FAILED'
+  AND d.message_id = {safe_id}
+  AND DATE(d.event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+ORDER BY motivo, cpf
+""".strip()
+        client = build_bigquery_client(EMARSYS_OPEN_DATA_PROJECT_ID)
+        job = client.query(sql, location=EMARSYS_OPEN_DATA_LOCATION or None)
+        rows = job.result(timeout=120)
+
+        def _esc(v: str) -> str:
+            v = str(v or "").replace('"', '""')
+            return f'"{v}"' if ("," in v or '"' in v or "\n" in v) else v
+
+        buf = io.BytesIO()
+        buf.write("﻿".encode("utf-8"))  # UTF-8 BOM para Excel
+        buf.write("CPF,Contact ID,Motivo,Detalhe do Erro\n".encode("utf-8"))
+        for row in rows:
+            line = ",".join([_esc(row[0]), _esc(row[1]), _esc(row[2]), _esc(row[3])]) + "\n"
+            buf.write(line.encode("utf-8"))
+
+        filename = f"whatsapp_falhas_{safe_id}_{s}_{e}.csv"
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar: {exc}") from exc

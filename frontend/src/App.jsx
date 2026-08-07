@@ -2621,7 +2621,16 @@ export default function App({ mode = 'campanhas' }) {
                                   <p className="px-6 py-3 text-xs text-rose-600">{falhaPanel.error}</p>
                                 ) : falhaPanel.data ? (
                                   <div className="px-6 py-4">
-                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-700">Motivos de falha</p>
+                                    <div className="mb-3 flex items-center justify-between">
+                                      <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Motivos de falha</p>
+                                      <a
+                                        href={`/api/open-data/whatsapp-falhas-export?message_id=${item.message_id}&start=${whatsAppApuracaoStart}&end=${whatsAppApuracaoEnd}`}
+                                        download
+                                        className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                                      >
+                                        ↓ Exportar Excel (CPF + motivo)
+                                      </a>
+                                    </div>
                                     <div className="flex flex-col gap-1.5">
                                       {falhaPanel.data.items.map((f) => (
                                         <div key={f.motivo} className="flex items-center gap-3">
