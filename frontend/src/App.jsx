@@ -2589,6 +2589,8 @@ export default function App({ mode = 'campanhas' }) {
                       <th className="px-4 py-3 text-right">Taxa Entrega</th>
                       <th className="px-4 py-3 text-right">Taxa Falha</th>
                       <th className="px-4 py-3 text-right">Taxa Leitura</th>
+                      <th className="px-4 py-3 text-right">Pedidos</th>
+                      <th className="px-4 py-3 text-right">Receita</th>
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
@@ -2623,6 +2625,10 @@ export default function App({ mode = 'campanhas' }) {
                                 {item.taxa_leitura.toFixed(1)}%
                               </span>
                             </td>
+                            <td className="px-4 py-3 text-right text-slate-700">{(item.pedidos_atribuidos || 0).toLocaleString('pt-BR')}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                              {(item.receita_atribuida || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </td>
                             <td className="px-4 py-3 text-right">
                               {item.falhas > 0 && (
                                 <button
@@ -2637,7 +2643,7 @@ export default function App({ mode = 'campanhas' }) {
                           </tr>
                           {falhaPanel.expanded && (
                             <tr>
-                              <td colSpan={9} className="p-0 border-b border-slate-200 bg-rose-50">
+                              <td colSpan={11} className="p-0 border-b border-slate-200 bg-rose-50">
                                 {falhaPanel.error ? (
                                   <p className="px-6 py-3 text-xs text-rose-600">{falhaPanel.error}</p>
                                 ) : falhaPanel.data ? (
@@ -2996,7 +3002,10 @@ export default function App({ mode = 'campanhas' }) {
       'Magic Mouse', 'Magic Keyboard', 'Caneta', 'Pulseira', 'Capa/Case', 'Adaptador', 'Teclado',
     ]
     const buildMatrix = (rows, catOrder) => {
-      const linhasSet = new Set(rows.map((r) => r.linha_apple))
+      // Include all device lines that have orders (total_por_linha), not just those with accessories
+      const linhasWithOrders = new Set((d?.total_por_linha || []).map((t) => t.linha_apple))
+      const linhasWithAcc = new Set(rows.map((r) => r.linha_apple))
+      const linhasSet = new Set([...linhasWithOrders, ...linhasWithAcc])
       const linhas = LINHA_ORDER.filter((l) => linhasSet.has(l))
       const catsSet = new Set(rows.map((r) => r.categoria))
       const cats = [

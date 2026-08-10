@@ -8211,27 +8211,51 @@ ORDER BY linha_apple, grupo, categoria
 
 
 def _build_acessorios_marcas_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Cards de marca (JBL/Logitech/Originais iPlace) — classificação 100% via SKU map (CSV)."""
+    """Cards de marca (JBL/Logitech/Originais iPlace) — classificação 100% via SKU map (CSV).
+
+    Usa o mesmo universo de pedidos da matriz: pedidos onde um device Apple foi vendido
+    com o canal filtrado. Acessórios de outras marcas são buscados nesse universo sem
+    re-filtrar canal por item, garantindo consistência com a seção da matriz.
+    """
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
-    canal_clause = f"AND UPPER(TRIM(Canal)) = '{canal_filter}'" if canal_filter else ""
+    canal_device_clause = f"AND canal_upper = '{canal_filter}'" if canal_filter else ""
     sku_cte = _acessorios_sku_lookup_cte()
 
     return f"""
 WITH
 {sku_cte},
+all_items AS (
+  SELECT
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Produto,
+    COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto,
+    UPPER(TRIM(Canal)) AS canal_upper
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
+),
+classified AS (
+  SELECT ai.pedido_key, ai.desc_produto, ai.canal_upper, lk.tipo, lk.marca
+  FROM all_items ai
+  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+),
+pedidos_device AS (
+  SELECT DISTINCT pedido_key
+  FROM classified
+  WHERE tipo = 'device'
+    {canal_device_clause}
+),
 brand_items AS (
   SELECT
-    CONCAT(CAST(v.Cod_Filial AS STRING), '-', CAST(v.Numero_Pedido AS STRING)) AS pedido_key,
-    COALESCE(NULLIF(TRIM(v.Desc_Produto), ''), 'Sem nome') AS desc_produto,
-    lk.marca
-  FROM `{project}.{dataset}.{table}` v
-  JOIN sku_lookup lk ON lk.sku = v.Cod_Produto AND lk.tipo = 'acessorio' AND lk.marca != 'Apple'
-  WHERE v.Data_Completa BETWEEN '{start_date}' AND '{end_date}'
-    AND UPPER(TRIM(v.Status_Pedidos)) = 'FATURADO'
-    AND v.Cod_Produto NOT LIKE '000000010000%'
-    {canal_clause}
+    c.pedido_key,
+    c.desc_produto,
+    c.marca
+  FROM classified c
+  JOIN pedidos_device pd ON pd.pedido_key = c.pedido_key
+  WHERE c.tipo = 'acessorio' AND c.marca != 'Apple'
 ),
 por_marca AS (
   SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
@@ -8796,6 +8820,7 @@ def whatsapp_apuracao(
         safe_nome = nome.strip().replace("'", "\\'")
         project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
         dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+        revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
         sql = f"""
 WITH msgs AS (
   SELECT
@@ -8829,6 +8854,26 @@ opens AS (
   FROM `{project_id}.{dataset}.conversation_opens_1091660394`
   WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
   GROUP BY message_id
+),
+wa_contacts AS (
+  SELECT message_id, contact_id
+  FROM `{project_id}.{dataset}.conversation_sends_1091660394`
+  WHERE DATE(event_time) BETWEEN DATE('{s}') AND DATE('{e}')
+    AND contact_id IS NOT NULL
+),
+receita AS (
+  SELECT
+    wc.message_id,
+    COUNT(DISTINCT r.order_id)          AS pedidos_atribuidos,
+    ROUND(SUM(t.attributed_amount), 2)  AS receita_atribuida
+  FROM wa_contacts wc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON r.contact_id = wc.contact_id
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE t.attributed_amount > 0
+    AND r.order_id IS NOT NULL
+    AND DATE(r.event_time)       BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 7 DAY)
+    AND DATE(r.partitiontime)    BETWEEN DATE('{s}') AND DATE_ADD(DATE('{e}'), INTERVAL 8 DAY)
+  GROUP BY wc.message_id
 )
 SELECT
   m.message_id,
@@ -8842,11 +8887,14 @@ SELECT
   COALESCE(o.lidas, 0)               AS lidas,
   ROUND(SAFE_DIVIDE(COALESCE(d.entregues, 0), NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_entrega,
   ROUND(SAFE_DIVIDE(COALESCE(d.falhas, 0),    NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_falha,
-  ROUND(SAFE_DIVIDE(COALESCE(o.lidas, 0),     NULLIF(COALESCE(s.enviados, 0), 0)) * 100, 1) AS taxa_leitura
+  ROUND(SAFE_DIVIDE(COALESCE(o.lidas, 0),     NULLIF(COALESCE(d.entregues, 0), 0)) * 100, 1) AS taxa_leitura,
+  COALESCE(r.pedidos_atribuidos, 0)  AS pedidos_atribuidos,
+  COALESCE(r.receita_atribuida, 0.0) AS receita_atribuida
 FROM msgs m
 INNER JOIN sends s ON s.message_id = m.message_id
 LEFT JOIN deliveries d ON d.message_id = m.message_id
 LEFT JOIN opens o ON o.message_id = m.message_id
+LEFT JOIN receita r ON r.message_id = m.message_id
 WHERE m.rn = 1
 ORDER BY s.enviados DESC
 """.strip()
@@ -8858,18 +8906,20 @@ ORDER BY s.enviados DESC
         )
         items = [
             {
-                "message_id":    str(r.get("message_id") or ""),
-                "nome_campanha": str(r.get("nome_campanha") or ""),
-                "channel":       str(r.get("channel") or "WhatsApp"),
-                "message_type":  str(r.get("message_type") or ""),
-                "template_type": str(r.get("template_type") or ""),
-                "enviados":      int(r.get("enviados") or 0),
-                "entregues":     int(r.get("entregues") or 0),
-                "falhas":        int(r.get("falhas") or 0),
-                "lidas":         int(r.get("lidas") or 0),
-                "taxa_entrega":  float(r.get("taxa_entrega") or 0),
-                "taxa_falha":    float(r.get("taxa_falha") or 0),
-                "taxa_leitura":  float(r.get("taxa_leitura") or 0),
+                "message_id":         str(r.get("message_id") or ""),
+                "nome_campanha":      str(r.get("nome_campanha") or ""),
+                "channel":            str(r.get("channel") or "WhatsApp"),
+                "message_type":       str(r.get("message_type") or ""),
+                "template_type":      str(r.get("template_type") or ""),
+                "enviados":           int(r.get("enviados") or 0),
+                "entregues":          int(r.get("entregues") or 0),
+                "falhas":             int(r.get("falhas") or 0),
+                "lidas":              int(r.get("lidas") or 0),
+                "taxa_entrega":       float(r.get("taxa_entrega") or 0),
+                "taxa_falha":         float(r.get("taxa_falha") or 0),
+                "taxa_leitura":       float(r.get("taxa_leitura") or 0),
+                "pedidos_atribuidos": int(r.get("pedidos_atribuidos") or 0),
+                "receita_atribuida":  float(r.get("receita_atribuida") or 0),
             }
             for r in (records or [])
         ]
