@@ -4,6 +4,7 @@ import App from './App'
 import { clearCredentials, isStoredAuthenticated } from './auth'
 import GanttPage from './components/gantt/GanttPage'
 import ResultadoGeralPage from './components/ResultadoGeralPage'
+import CaptacaoLeadsPage from './components/CaptacaoLeadsPage'
 import AuditoriaPage from './components/AuditoriaPage'
 import AdmPage from './components/AdmPage'
 import PortalMapPage from './components/PortalMapPage'
@@ -11,6 +12,7 @@ import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
   { to: '/resultado-geral', label: 'Resultado Geral', key: 'resultado-geral' },
+  { to: '/captacao-leads', label: 'Captação de Leads', key: 'captacao-leads' },
   { to: '/campanhas', label: 'Campanhas', key: 'campanhas' },
   { to: '/gantt', label: 'Projetos', key: 'projetos' },
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
@@ -194,6 +196,7 @@ export default function AppRouter() {
           <Route path="/campanhas" element={<App />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
+          <Route path="/captacao-leads" element={<CaptacaoLeadsPage />} />
           <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/adm" element={<AdmPage />} />
           <Route path="/mapa-portal" element={<PortalMapPage />} />

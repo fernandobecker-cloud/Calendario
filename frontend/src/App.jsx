@@ -68,6 +68,7 @@ const ADM_MENU_ITEMS = [
 
 const TAB_PERMISSION_OPTIONS = [
   { key: 'resultado-geral', label: 'Resultado Geral' },
+  { key: 'captacao-leads', label: 'Captação de Leads' },
   { key: 'campanhas', label: 'Campanhas' },
   { key: 'projetos', label: 'Projetos' },
   { key: 'auditoria', label: 'Auditoria' },
@@ -347,6 +348,10 @@ export default function App({ mode = 'campanhas' }) {
   const [acessoriosEnd, setAcessoriosEnd] = useState(currentMonthRange.end)
   const [acessoriosExportLoading, setAcessoriosExportLoading] = useState(false)
   const [acessoriosCanal, setAcessoriosCanal] = useState('')
+  const [acessoriosNaoClassifOpen, setAcessoriosNaoClassifOpen] = useState(false)
+  const [acessoriosNaoClassifLoading, setAcessoriosNaoClassifLoading] = useState(false)
+  const [acessoriosNaoClassifError, setAcessoriosNaoClassifError] = useState('')
+  const [acessoriosNaoClassifItems, setAcessoriosNaoClassifItems] = useState(null)
 
   const [cupomQuery, setCupomQuery] = useState('')
   const [cupomStart, setCupomStart] = useState(currentMonthRange.start)
@@ -1003,6 +1008,9 @@ export default function App({ mode = 'campanhas' }) {
     setAcessoriosLoading(true)
     setAcessoriosError('')
     setAcessoriosData(null)
+    setAcessoriosNaoClassifOpen(false)
+    setAcessoriosNaoClassifItems(null)
+    setAcessoriosNaoClassifError('')
     try {
       const canal = canalOverride !== undefined ? canalOverride : acessoriosCanal
       const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
@@ -1020,6 +1028,22 @@ export default function App({ mode = 'campanhas' }) {
       setAcessoriosLoading(false)
     }
   }, [acessoriosStart, acessoriosEnd, acessoriosCanal])
+
+  const loadAcessoriosNaoClassificados = useCallback(async () => {
+    setAcessoriosNaoClassifLoading(true)
+    setAcessoriosNaoClassifError('')
+    try {
+      const params = new URLSearchParams({ start: acessoriosStart, end: acessoriosEnd })
+      const res = await fetch(`/api/open-data/acessorios/nao-classificados?${params}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
+      setAcessoriosNaoClassifItems(json.items || [])
+    } catch (err) {
+      setAcessoriosNaoClassifError(err instanceof Error ? err.message : 'Erro inesperado.')
+    } finally {
+      setAcessoriosNaoClassifLoading(false)
+    }
+  }, [acessoriosStart, acessoriosEnd])
 
   const loadCupom = useCallback(async () => {
     const codes = cupomQuery.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean)
@@ -2977,6 +3001,7 @@ export default function App({ mode = 'campanhas' }) {
       JBL:               { bg: 'from-orange-600 to-amber-500',   badge: 'bg-orange-100 text-orange-700' },
       Logitech:          { bg: 'from-blue-700 to-blue-500',      badge: 'bg-blue-100 text-blue-700' },
       'Originais iPlace': { bg: 'from-violet-700 to-purple-600', badge: 'bg-violet-100 text-violet-700' },
+      Mister:            { bg: 'from-teal-700 to-emerald-600',   badge: 'bg-teal-100 text-teal-700' },
     }
 
     // Heat-map: 0 → cinza | 0–1% → cinza claro | >1% → amarelo→laranja (≥15% = saturado)
@@ -3130,6 +3155,12 @@ export default function App({ mode = 'campanhas' }) {
               <p className="mt-2 text-sm text-slate-300">
                 Attach rate de acessórios por linha de dispositivo Apple — pedidos faturados
               </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Considera apenas pedidos com Status_Pedidos = FATURADO (exclui NO_PENDING_ACTION,
+                LIBERADO FATURAMENTO, FATURAMENTO PARCIAL e FATURADO E DEVOLVIDO). Período filtra por
+                Data_Completa. Vínculo acessório↔aparelho é por pedido (mesma Cod_Filial+Numero_Pedido),
+                sem regra de compatibilidade por categoria.
+              </p>
             </div>
             <div className="flex flex-wrap items-end gap-3">
               {/* Canal filter */}
@@ -3194,6 +3225,67 @@ export default function App({ mode = 'campanhas' }) {
         {/* Results */}
         {!acessoriosLoading && d && (
           <>
+
+            {/* SKUs não classificados no período — dado de qualidade do mapa, não de attach */}
+            {d.nao_classificados && (d.nao_classificados.skus > 0) && (
+              <section className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <strong>{fmtN(d.nao_classificados.skus)} SKUs</strong> /{' '}
+                    <strong>{fmtN(d.nao_classificados.pedidos)} pedidos</strong> não classificados no
+                    período (fora do mapa de acessórios — não entram no attach nem no Pool de
+                    Oportunidade como &quot;sem acessório&quot;).
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !acessoriosNaoClassifOpen
+                      setAcessoriosNaoClassifOpen(next)
+                      if (next && !acessoriosNaoClassifItems) loadAcessoriosNaoClassificados()
+                    }}
+                    className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-800"
+                  >
+                    {acessoriosNaoClassifOpen ? 'Ocultar lista' : 'Ver SKUs'}
+                  </button>
+                </div>
+                {acessoriosNaoClassifOpen && (
+                  <div className="mt-3 overflow-x-auto rounded-lg border border-sky-200 bg-white">
+                    {acessoriosNaoClassifLoading && (
+                      <p className="px-4 py-4 text-center text-xs text-sky-600">Consultando...</p>
+                    )}
+                    {acessoriosNaoClassifError && (
+                      <p className="px-4 py-4 text-center text-xs text-rose-600">{acessoriosNaoClassifError}</p>
+                    )}
+                    {!acessoriosNaoClassifLoading && !acessoriosNaoClassifError && acessoriosNaoClassifItems && (
+                      acessoriosNaoClassifItems.length === 0 ? (
+                        <p className="px-4 py-4 text-center text-xs text-slate-400">Nenhum SKU não classificado no período.</p>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              <th className="px-4 py-2">Cod_Produto</th>
+                              <th className="px-4 py-2">Descrição</th>
+                              <th className="px-4 py-2 text-right">Pedidos</th>
+                              <th className="px-4 py-2 text-right">Itens</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {acessoriosNaoClassifItems.map((it) => (
+                              <tr key={it.cod_produto} className="hover:bg-slate-50">
+                                <td className="px-4 py-2 font-mono text-slate-700">{it.cod_produto}</td>
+                                <td className="px-4 py-2 text-slate-800">{it.desc_produto}</td>
+                                <td className="px-4 py-2 text-right text-slate-700">{fmtN(it.pedidos)}</td>
+                                <td className="px-4 py-2 text-right text-slate-700">{fmtN(it.itens)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* Matriz — Acessórios Apple */}
             {d.matrix_apple?.length > 0 && (

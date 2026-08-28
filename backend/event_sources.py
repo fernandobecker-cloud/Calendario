@@ -170,11 +170,18 @@ def build_bigquery_client(project_id: str) -> bigquery.Client:
         raise HTTPException(status_code=502, detail="Falha ao autenticar no BigQuery") from exc
 
 
-def run_bigquery_query(sql: str, project_id: str, *, location: str | None = None) -> pd.DataFrame:
+def run_bigquery_query(
+    sql: str,
+    project_id: str,
+    *,
+    location: str | None = None,
+    params: list[bigquery.ScalarQueryParameter] | None = None,
+) -> pd.DataFrame:
     """Executa uma consulta no BigQuery e devolve um DataFrame."""
     client = build_bigquery_client(project_id)
+    job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     try:
-        job = client.query(sql, location=location)
+        job = client.query(sql, location=location, job_config=job_config)
         rows = job.result()
         dataframe = rows.to_dataframe(create_bqstorage_client=False)
     except Exception as exc:
@@ -192,11 +199,13 @@ def run_bigquery_records(
     *,
     location: str | None = None,
     timeout: int | None = None,
+    params: list[bigquery.ScalarQueryParameter] | None = None,
 ) -> list[dict[str, Any]]:
     """Executa uma consulta no BigQuery e devolve registros simples."""
     client = build_bigquery_client(project_id)
+    job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     try:
-        job = client.query(sql, location=location)
+        job = client.query(sql, location=location, job_config=job_config)
         rows = job.result(timeout=timeout)
         return [dict(row.items()) for row in rows]
     except Exception as exc:

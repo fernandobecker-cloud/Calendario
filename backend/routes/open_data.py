@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from google.cloud import bigquery
 
 from backend.event_sources import run_bigquery_records
 
@@ -1324,6 +1325,75 @@ def unidade_venda_contacts_match(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao cruzar Base Vendas com si_contacts: {exc}") from exc
+
+
+# Formulários NPI 2026/1 monitorados na aba "Captação de Leads" — contact_source
+# literal em si_contacts (Emarsys Open Data), confirmado por auditoria em 2026-08.
+CAPTACAO_LEADS_FORMULARIOS = {
+    "site":  "Formulário NPI 2026/1 - Online",
+    "lojas": "Formulário NPI 2026/1 - Lojas Físicas",
+}
+
+
+def _build_captacao_leads_sql() -> str:
+    """Cadastros por formulário de captação (si_contacts.contact_source), filtrados por
+    registered_on. COUNT(DISTINCT si_contact_id) evita contagem dupla se a mesma linha
+    de contato aparecer mais de uma vez na tabela.
+    """
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    table   = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    fontes = ", ".join(_sql_string_literal(v) for v in CAPTACAO_LEADS_FORMULARIOS.values())
+    return f"""
+SELECT
+  contact_source,
+  COUNT(DISTINCT si_contact_id) AS qtd
+FROM `{project}.{dataset}.{table}`
+WHERE contact_source IN ({fontes})
+  AND registered_on BETWEEN @start_date AND @end_date
+GROUP BY contact_source
+""".strip()
+
+
+@router.get("/captacao-leads")
+def captacao_leads(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Cadastros nos formulários NPI 2026/1 (Site e Lojas Físicas), por registered_on."""
+    try:
+        s = _validate_optional_iso_date(start) or start
+        e = _validate_optional_iso_date(end) or end
+        sql = _build_captacao_leads_sql()
+        params = [
+            bigquery.ScalarQueryParameter("start_date", "DATE", s),
+            bigquery.ScalarQueryParameter("end_date", "DATE", e),
+        ]
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None, params=params)
+        qtd_by_source = {str(r.get("contact_source") or ""): int(r.get("qtd") or 0) for r in records}
+
+        formularios = {
+            categoria: {
+                "contact_source": fonte,
+                "qtd": qtd_by_source.get(fonte, 0),
+            }
+            for categoria, fonte in CAPTACAO_LEADS_FORMULARIOS.items()
+        }
+        total = sum(item["qtd"] for item in formularios.values())
+
+        return {
+            "formularios":  formularios,
+            "total":        total,
+            "start_date":   s,
+            "end_date":     e,
+            "dataset":      EMARSYS_OPEN_DATA_DATASET,
+            "project_id":   EMARSYS_OPEN_DATA_PROJECT_ID,
+            "source":       "bigquery_si_contacts_contact_source",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar captação de leads: {exc}") from exc
 
 
 def _build_attribution_date_filters(
@@ -6353,8 +6423,11 @@ ORDER BY valor_real DESC
 
 # ── Classificação de produtos por SKU (Cod_Produto) ────────────────────────────
 # Formato: {Cod_Produto: (tipo, categoria, marca_ou_None)}
-# tipos: 'device' | 'acc_apple' | 'acc_parceiro'
+# tipos: 'device' (aparelho Apple) | 'acessorio' (marca em categoria/marca) |
+#        'servico' (chip/e-SIM/garantia/etc — classificado mas fora do cálculo de attach)
 # SKUs com prefixo 000000010000 (serviços/reparos) são filtrados na query, não aqui.
+# SKUs vendidos no período que não aparecem aqui caem como tipo='nao_classificado'
+# na query (LEFT JOIN, não são descartados em silêncio — ver /acessorios/nao-classificados).
 _ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
     '000000000100019979': ('acessorio', 'Carregador', 'Originais iPlace'),  # CARREG IPLACE 2PORT 30W BCO OP1ANG3D1AC
     '000000000100067576': ('acessorio', 'EarPods', 'Apple'),  # FONE APPLE EARPODS USB-C MYQY3BZ/A
@@ -7446,7 +7519,7 @@ _ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
     '000000000100047148': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPHONE 16 RING AZUL OIV0479
     '000000000100047022': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 16 PRO RING AZUL OIV0481
     '000000000100047832': ('acessorio', 'Bolsa/Mochila', 'Originais iPlace'),  # MOCHILA IPLACE PAMPAS COURO VERMELHA
-    '000000000100046765': ('acessorio', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 8NP NE E
+    '000000000100046765': ('servico', 'eSIM/Chip', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 8NP NE E
     '000000000100080278': ('device', 'Mac', None),  # MACB PRO 14 M5P 24GB SPB 2TB MGDT4BZ/A
     '000000000100031296': ('acessorio', 'Fone', 'JBL'),  # FONE DE OUVIDO JBL LIVE PRO2 TWS BLK 289
     '000000000100069410': ('acessorio', 'Cabo', 'Mister'),  # CABO MISTER USB-A LIGH 1,5M PTO LAP1NVE
@@ -7739,9 +7812,9 @@ _ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
     '000000000100046857': ('acessorio', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 COURO TERRACOTA
     '000000000100046308': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 15 PLUS SIL PRET OIV0219
     '000000000100046649': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IPH 14 PTA CAR MARI OIV0280
-    '000000000100046694': ('acessorio', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 2NP RJ E
+    '000000000100046694': ('servico', 'eSIM/Chip', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 2NP RJ E
     '000000000100015617': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 PLUS NORON BRA OIV0225
-    '000000000100046699': ('acessorio', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 5NP RS E
+    '000000000100046699': ('servico', 'eSIM/Chip', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 5NP RS E
     '000000000100046774': ('acessorio', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE FLORIPA MAC13 AZUL
     '000000000100047814': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 NORONHA PTO OIV0230
     '000000000100046917': ('acessorio', 'Bolsa/Mochila', 'Originais iPlace'),  # SLEEVE IPLACE PAMPAS 13 MARINHO
@@ -7753,7 +7826,7 @@ _ACESSORIOS_SKU_MAP: dict[str, tuple[str, str, str | None]] = {
     '000000000100047812': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 15 NORONHA BCO OIV0224
     '000000000100072457': ('device', 'iPhone', None),  # IPHONE AIR SPACE BLACK 512GB MG2Q4BE/A
     '000000000100043897': ('acessorio', 'Capa/Case', 'Originais iPlace'),  # CAPA IPLACE IP 12 NORONH PTO OIV0236
-    '000000000100046697': ('acessorio', 'Outros', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 4NP PR E
+    '000000000100046697': ('servico', 'eSIM/Chip', 'Originais iPlace'),  # ECHIP CLARO IPLACE SCBOP QRCODE 4NP PR E
     '000000000100052082': ('acessorio', 'Outros', 'Apple'),  # CARTEIRA APPLE TECIDO AMORA MA7A4ZM/A
     '000000000100052116': ('acessorio', 'Pulseira', 'Apple'),  # P APPLE WATCH 46 LOOP E VRD MXL83AM/A
     '000000000100052638': ('acessorio', 'Outros', 'Originais iPlace'),  # MALA IPLACE C/TEXTURA RSA OIV0598
@@ -8102,19 +8175,32 @@ def _acessorios_sku_lookup_cte() -> str:
     )
 
 
-def _build_acessorios_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Attach rate de acessórios por linha Apple — classificação 100% via SKU map (CSV).
+def _build_acessorios_vendas_sql() -> str:
+    """Attach rate de acessórios por linha Apple — classificação via SKU map, com fallback
+    explícito para SKUs não cadastrados (não são mais descartados em silêncio).
 
     Canal filtra apenas devices (define o universo de pedidos).
     Acessórios são buscados via JOIN nos pedidos do universo, sem re-filtrar canal,
     para não perder acessórios com Canal NULL/diferente na mesma ordem.
     Lê a tabela uma vez só para evitar timeout.
+
+    start_date/end_date/canal_filter chegam como query parameters do BigQuery
+    (@start_date, @end_date, @canal_filter) — ver `params` em `acessorios()`.
+    Quando @canal_filter == '', a condição de canal não filtra nada (equivalente
+    a omitir a cláusula, como antes).
+
+    SKUs de `Cod_Produto` sem entrada em `_ACESSORIOS_SKU_MAP` viram tipo='nao_classificado'
+    via LEFT JOIN (antes era INNER JOIN e o pedido desaparecia sem deixar rastro — um
+    aparelho não mapeado sumia do denominador e um acessório não mapeado jogava o pedido
+    no Pool de Oportunidade como "sem acessório" mesmo tendo item físico no carrinho).
+    Pedidos com item não classificado ficam de fora da Oportunidade (não sabemos se têm
+    acessório ou não, então não entram nem no "com" nem no "sem"), e o total de SKUs/pedidos
+    não classificados no período é exposto na última linha (grupo='nao_classificado') para
+    virar um contador visível na tela — ver /acessorios/nao-classificados para a lista.
     """
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
-    # Canal aplicado SOMENTE no filtro de device, dentro da CTE pedidos_device
-    canal_device_clause = f"AND canal_upper = '{canal_filter}'" if canal_filter else ""
     sku_cte = _acessorios_sku_lookup_cte()
 
     return f"""
@@ -8126,20 +8212,24 @@ all_items AS (
     Cod_Produto,
     UPPER(TRIM(Canal)) AS canal_upper
   FROM `{project}.{dataset}.{table}`
-  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+  WHERE Data_Completa BETWEEN @start_date AND @end_date
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
     AND Cod_Produto NOT LIKE '000000010000%'
 ),
 classified AS (
-  SELECT ai.pedido_key, ai.canal_upper, lk.tipo, lk.categoria, lk.marca
+  SELECT
+    ai.pedido_key, ai.canal_upper, ai.Cod_Produto,
+    COALESCE(lk.tipo, 'nao_classificado') AS tipo,
+    lk.categoria AS categoria,
+    lk.marca AS marca
   FROM all_items ai
-  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
 ),
 pedidos_device AS (
   SELECT DISTINCT pedido_key, categoria AS linha_apple
   FROM classified
   WHERE tipo = 'device'
-    {canal_device_clause}
+    AND (@canal_filter = '' OR canal_upper = @canal_filter)
 ),
 acc_apple AS (
   SELECT c.pedido_key, c.categoria
@@ -8152,6 +8242,12 @@ acc_parceiro AS (
   FROM classified c
   JOIN pedidos_device pd ON pd.pedido_key = c.pedido_key
   WHERE c.tipo = 'acessorio' AND c.marca != 'Apple'
+),
+acc_nao_classificado AS (
+  SELECT c.pedido_key
+  FROM classified c
+  JOIN pedidos_device pd ON pd.pedido_key = c.pedido_key
+  WHERE c.tipo = 'nao_classificado'
 ),
 total_por_linha AS (
   SELECT linha_apple, COUNT(DISTINCT pedido_key) AS total_pedidos
@@ -8175,6 +8271,8 @@ todos_acc AS (
   SELECT DISTINCT pedido_key FROM acc_apple
   UNION DISTINCT
   SELECT DISTINCT pedido_key FROM acc_parceiro
+  UNION DISTINCT
+  SELECT DISTINCT pedido_key FROM acc_nao_classificado
 ),
 oportunidade AS (
   SELECT pd.linha_apple,
@@ -8186,6 +8284,13 @@ oportunidade AS (
   LEFT JOIN todos_acc ta ON ta.pedido_key = pd.pedido_key
   WHERE ta.pedido_key IS NULL
   GROUP BY 1
+),
+nao_classificados_global AS (
+  SELECT
+    COUNT(DISTINCT Cod_Produto) AS skus_nao_classificados,
+    COUNT(DISTINCT pedido_key)  AS pedidos_nao_classificados
+  FROM classified
+  WHERE tipo = 'nao_classificado'
 )
 SELECT ma.linha_apple, ma.categoria, ma.grupo,
        ma.pedidos_com_acessorio,
@@ -8206,21 +8311,29 @@ UNION ALL
 SELECT linha_apple, 'TOTAL', 'total',
        total_pedidos, total_pedidos, 100.0
 FROM total_por_linha
+UNION ALL
+SELECT '(GLOBAL)', 'SKU_NAO_CLASSIFICADO', 'nao_classificado',
+       pedidos_nao_classificados, skus_nao_classificados, CAST(NULL AS FLOAT64)
+FROM nao_classificados_global
 ORDER BY linha_apple, grupo, categoria
 """.strip()
 
 
-def _build_acessorios_marcas_vendas_sql(start_date: str, end_date: str, canal_filter: str = "") -> str:
-    """Cards de marca (JBL/Logitech/Originais iPlace) — classificação 100% via SKU map (CSV).
+def _build_acessorios_marcas_vendas_sql() -> str:
+    """Cards de marca (JBL/Logitech/Originais iPlace/Mister) — classificação via SKU map.
 
     Usa o mesmo universo de pedidos da matriz: pedidos onde um device Apple foi vendido
     com o canal filtrado. Acessórios de outras marcas são buscados nesse universo sem
     re-filtrar canal por item, garantindo consistência com a seção da matriz.
+
+    'Mister' foi incluído na lista de marcas dos cards (P3 da auditoria de 2026-08):
+    já contava para o attach rate agregado em matrix_parceiro (marca != 'Apple'), mas
+    ficava fora do card individual, o que destoava do título "Marcas: Originais iPlace,
+    JBL, Logitech, Mister" exibido na tela.
     """
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
-    canal_device_clause = f"AND canal_upper = '{canal_filter}'" if canal_filter else ""
     sku_cte = _acessorios_sku_lookup_cte()
 
     return f"""
@@ -8233,20 +8346,21 @@ all_items AS (
     COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto,
     UPPER(TRIM(Canal)) AS canal_upper
   FROM `{project}.{dataset}.{table}`
-  WHERE Data_Completa BETWEEN '{start_date}' AND '{end_date}'
+  WHERE Data_Completa BETWEEN @start_date AND @end_date
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
     AND Cod_Produto NOT LIKE '000000010000%'
 ),
 classified AS (
-  SELECT ai.pedido_key, ai.desc_produto, ai.canal_upper, lk.tipo, lk.marca
+  SELECT ai.pedido_key, ai.desc_produto, ai.canal_upper,
+         COALESCE(lk.tipo, 'nao_classificado') AS tipo, lk.marca
   FROM all_items ai
-  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
 ),
 pedidos_device AS (
   SELECT DISTINCT pedido_key
   FROM classified
   WHERE tipo = 'device'
-    {canal_device_clause}
+    AND (@canal_filter = '' OR canal_upper = @canal_filter)
 ),
 brand_items AS (
   SELECT
@@ -8260,7 +8374,7 @@ brand_items AS (
 por_marca AS (
   SELECT marca, COUNT(DISTINCT pedido_key) AS pedidos, COUNT(*) AS itens
   FROM brand_items
-  WHERE marca IN ('JBL', 'Logitech', 'Originais iPlace')
+  WHERE marca IN ('JBL', 'Logitech', 'Originais iPlace', 'Mister')
   GROUP BY 1
 ),
 top_jbl_json AS (
@@ -8274,16 +8388,22 @@ top_log_json AS (
 top_ori_json AS (
   SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) AS v
   FROM (SELECT desc_produto AS nome, COUNT(*) AS qtd FROM brand_items WHERE marca = 'Originais iPlace' GROUP BY 1)
+),
+top_mis_json AS (
+  SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(nome, qtd) ORDER BY qtd DESC LIMIT 10)) AS v
+  FROM (SELECT desc_produto AS nome, COUNT(*) AS qtd FROM brand_items WHERE marca = 'Mister' GROUP BY 1)
 )
 SELECT
   pm.marca, pm.pedidos, pm.itens,
   tj.v AS top_jbl_json,
   tl.v AS top_log_json,
-  ori.v AS top_ori_json
+  ori.v AS top_ori_json,
+  tm.v AS top_mis_json
 FROM por_marca pm
 CROSS JOIN top_jbl_json tj
 CROSS JOIN top_log_json tl
 CROSS JOIN top_ori_json ori
+CROSS JOIN top_mis_json tm
 ORDER BY pm.pedidos DESC
 """.strip()
 
@@ -8299,13 +8419,19 @@ def acessorios(
         s = _validate_optional_iso_date(start) or start
         e = _validate_optional_iso_date(end) or end
         canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
+        query_params = [
+            bigquery.ScalarQueryParameter("start_date", "STRING", s),
+            bigquery.ScalarQueryParameter("end_date", "STRING", e),
+            bigquery.ScalarQueryParameter("canal_filter", "STRING", canal_filter),
+        ]
 
-        sql_matriz = _build_acessorios_vendas_sql(s, e, canal_filter)
-        sql_marcas = _build_acessorios_marcas_vendas_sql(s, e, canal_filter)
-        matriz_records = run_bigquery_records(sql_matriz, BASE_VENDAS_BQ_PROJECT, location=None)
-        marcas_records = run_bigquery_records(sql_marcas, BASE_VENDAS_BQ_PROJECT, location=None)
+        sql_matriz = _build_acessorios_vendas_sql()
+        sql_marcas = _build_acessorios_marcas_vendas_sql()
+        matriz_records = run_bigquery_records(sql_matriz, BASE_VENDAS_BQ_PROJECT, location=None, params=query_params)
+        marcas_records = run_bigquery_records(sql_marcas, BASE_VENDAS_BQ_PROJECT, location=None, params=query_params)
 
         matrix_apple, matrix_parceiro, oportunidade, total_por_linha = [], [], [], []
+        nao_classificados = {"skus": 0, "pedidos": 0}
         for row in matriz_records:
             grupo = str(row.get("grupo") or "")
             item = {
@@ -8331,9 +8457,16 @@ def acessorios(
                     "linha_apple":  item["linha_apple"],
                     "total_pedidos": item["total_pedidos"],
                 })
+            elif grupo == "nao_classificado":
+                # pedidos_com_acessorio/total_pedidos são reaproveitados aqui para
+                # carregar pedidos/SKUs não classificados — ver _build_acessorios_vendas_sql.
+                nao_classificados = {
+                    "pedidos": item["pedidos_com_acessorio"],
+                    "skus":    item["total_pedidos"],
+                }
 
         por_marca = []
-        top_jbl, top_log, top_ori = [], [], []
+        top_jbl, top_log, top_ori, top_mis = [], [], [], []
         for row in marcas_records:
             por_marca.append({
                 "marca":   str(row.get("marca") or ""),
@@ -8344,17 +8477,20 @@ def acessorios(
         top_jbl = _json.loads(first.get("top_jbl_json") or "[]")
         top_log = _json.loads(first.get("top_log_json") or "[]")
         top_ori = _json.loads(first.get("top_ori_json") or "[]")
+        top_mis = _json.loads(first.get("top_mis_json") or "[]")
 
         return {
-            "matrix_apple":    matrix_apple,
-            "matrix_parceiro": matrix_parceiro,
-            "oportunidade":    oportunidade,
-            "total_por_linha": total_por_linha,
-            "por_marca":       por_marca,
+            "matrix_apple":       matrix_apple,
+            "matrix_parceiro":    matrix_parceiro,
+            "oportunidade":       oportunidade,
+            "total_por_linha":    total_por_linha,
+            "por_marca":          por_marca,
+            "nao_classificados":  nao_classificados,
             "top_produtos": {
                 "JBL":              {"qtd": top_jbl},
                 "Logitech":         {"qtd": top_log},
                 "Originais iPlace": {"qtd": top_ori},
+                "Mister":           {"qtd": top_mis},
             },
             "start_date": s,
             "end_date":   e,
@@ -8372,17 +8508,20 @@ def acessorios_oportunidade_export(
     linha: str = Query(default=""),
     canal: str = Query(default=""),
 ) -> dict[str, Any]:
-    """Retorna pedidos com device Apple sem acessório no período — usa SKU map, respeita canal."""
+    """Retorna pedidos com device Apple sem acessório no período — usa SKU map, respeita canal.
+
+    Um pedido com item não classificado (SKU fora de _ACESSORIOS_SKU_MAP) não entra nesta
+    lista: não sabemos se aquele item é um acessório físico, então não afirmamos "sem
+    acessório" — mesmo critério usado em _build_acessorios_vendas_sql para o Pool de
+    Oportunidade (ver todos_acc/acc_nao_classificado lá).
+    """
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
     dataset = _quote_identifier(VENDAS_BQ_DATASET)
     table   = _quote_identifier(VENDAS_BQ_TABLE)
     try:
         s = _validate_optional_iso_date(start) or start
         e = _validate_optional_iso_date(end) or end
-        safe_linha = linha.strip().replace("'", "''")
-        linha_filter = f"AND pd.linha_apple = '{safe_linha}'" if safe_linha else ""
         canal_filter = canal.upper().strip() if canal.strip() in ("VAREJO", "ECOMMERCE") else ""
-        canal_device_clause = f"AND canal_upper = '{canal_filter}'" if canal_filter else ""
         sku_cte = _acessorios_sku_lookup_cte()
         sql = f"""
 WITH
@@ -8397,15 +8536,15 @@ all_items AS (
     Cod_Produto,
     UPPER(TRIM(Canal)) AS canal_upper
   FROM `{project}.{dataset}.{table}`
-  WHERE Data_Completa BETWEEN '{s}' AND '{e}'
+  WHERE Data_Completa BETWEEN @start_date AND @end_date
     AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
     AND Cod_Produto NOT LIKE '000000010000%'
 ),
 classified AS (
   SELECT ai.pedido_key, ai.Cod_Filial, ai.Numero_Pedido, ai.Data_Completa, ai.Canal,
-         ai.canal_upper, lk.tipo, lk.categoria
+         ai.canal_upper, COALESCE(lk.tipo, 'nao_classificado') AS tipo, lk.categoria
   FROM all_items ai
-  JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+  LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
 ),
 pedidos_device AS (
   SELECT DISTINCT
@@ -8417,14 +8556,14 @@ pedidos_device AS (
     categoria                AS linha_apple
   FROM classified
   WHERE tipo = 'device'
-    {canal_device_clause}
+    AND (@canal_filter = '' OR canal_upper = @canal_filter)
   GROUP BY pedido_key, categoria
 ),
 todos_acc AS (
   SELECT DISTINCT c.pedido_key
   FROM classified c
   JOIN pedidos_device pd ON pd.pedido_key = c.pedido_key
-  WHERE c.tipo = 'acessorio'
+  WHERE c.tipo IN ('acessorio', 'nao_classificado')
 )
 SELECT
   pd.Cod_Filial     AS cod_filial,
@@ -8435,11 +8574,17 @@ SELECT
 FROM pedidos_device pd
 LEFT JOIN todos_acc ta ON ta.pedido_key = pd.pedido_key
 WHERE ta.pedido_key IS NULL
-  {linha_filter}
+  AND (@linha = '' OR pd.linha_apple = @linha)
 ORDER BY pd.linha_apple, pd.Data_Completa
 LIMIT 50000
 """.strip()
-        records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=None)
+        query_params = [
+            bigquery.ScalarQueryParameter("start_date", "STRING", s),
+            bigquery.ScalarQueryParameter("end_date", "STRING", e),
+            bigquery.ScalarQueryParameter("canal_filter", "STRING", canal_filter),
+            bigquery.ScalarQueryParameter("linha", "STRING", linha.strip()),
+        ]
+        records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=None, params=query_params)
         items = [
             {
                 "cod_filial":    str(r.get("cod_filial") or ""),
@@ -8455,6 +8600,75 @@ LIMIT 50000
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao exportar oportunidade: {exc}") from exc
+
+
+def _build_acessorios_nao_classificados_sql() -> str:
+    """SKUs vendidos no período (dentro do mesmo filtro de status/data da página) que não
+    existem em _ACESSORIOS_SKU_MAP, ordenados por volume de pedidos — lista de auditoria
+    para priorizar manutenção do mapa (P1c da auditoria de 2026-08). Não filtra por canal:
+    é um levantamento de cadastro, não uma métrica de attach.
+    """
+    project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
+    dataset = _quote_identifier(VENDAS_BQ_DATASET)
+    table   = _quote_identifier(VENDAS_BQ_TABLE)
+    sku_cte = _acessorios_sku_lookup_cte()
+    return f"""
+WITH
+{sku_cte},
+all_items AS (
+  SELECT
+    CONCAT(CAST(Cod_Filial AS STRING), '-', CAST(Numero_Pedido AS STRING)) AS pedido_key,
+    Cod_Produto,
+    COALESCE(NULLIF(TRIM(Desc_Produto), ''), 'Sem nome') AS desc_produto
+  FROM `{project}.{dataset}.{table}`
+  WHERE Data_Completa BETWEEN @start_date AND @end_date
+    AND UPPER(TRIM(Status_Pedidos)) = 'FATURADO'
+    AND Cod_Produto NOT LIKE '000000010000%'
+)
+SELECT
+  ai.Cod_Produto              AS cod_produto,
+  ANY_VALUE(ai.desc_produto)  AS desc_produto,
+  COUNT(DISTINCT ai.pedido_key) AS pedidos,
+  COUNT(*)                    AS itens
+FROM all_items ai
+LEFT JOIN sku_lookup lk ON lk.sku = ai.Cod_Produto
+WHERE lk.sku IS NULL
+GROUP BY ai.Cod_Produto
+ORDER BY pedidos DESC
+LIMIT 500
+""".strip()
+
+
+@router.get("/acessorios/nao-classificados")
+def acessorios_nao_classificados(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Auditoria: SKUs vendidos no período que não estão em _ACESSORIOS_SKU_MAP, por volume
+    de pedidos — usar para priorizar o que cadastrar/classificar a seguir (P1c)."""
+    try:
+        s = _validate_optional_iso_date(start) or start
+        e = _validate_optional_iso_date(end) or end
+        sql = _build_acessorios_nao_classificados_sql()
+        query_params = [
+            bigquery.ScalarQueryParameter("start_date", "STRING", s),
+            bigquery.ScalarQueryParameter("end_date", "STRING", e),
+        ]
+        records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=None, params=query_params)
+        items = [
+            {
+                "cod_produto":  str(r.get("cod_produto") or ""),
+                "desc_produto": str(r.get("desc_produto") or ""),
+                "pedidos":      int(r.get("pedidos") or 0),
+                "itens":        int(r.get("itens") or 0),
+            }
+            for r in records
+        ]
+        return {"items": items, "total": len(items), "start_date": s, "end_date": e}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar SKUs não classificados: {exc}") from exc
 
 
 def _sms_clientes_base_ctes(start_date: str, end_date: str, status_filter: str) -> tuple[str, str, str, str]:
