@@ -53,6 +53,11 @@ AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "").strip()
 AUTH_USERNAME_2 = os.getenv("AUTH_USERNAME_2", "").strip()
 AUTH_PASSWORD_2 = os.getenv("AUTH_PASSWORD_2", "").strip()
+# Terceiro login fixo via env var, role "comercial" — visibilidade de abas é restrita
+# no frontend (AppRouter.jsx) a Resultado Geral + Captação de Leads, hardcoded por role,
+# no mesmo padrão já usado para "auditoria" (restrito por username).
+AUTH_USERNAME_3 = os.getenv("AUTH_USERNAME_3", "").strip()
+AUTH_PASSWORD_3 = os.getenv("AUTH_PASSWORD_3", "").strip()
 AUTH_MODE = os.getenv("AUTH_MODE", "multi").strip().lower()
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
@@ -89,7 +94,7 @@ class UpdatePasswordPayload(BaseModel):
 
 class AuthUser(BaseModel):
     username: str
-    role: Literal["admin", "user"]
+    role: Literal["admin", "user", "comercial"]
 
 
 def parse_allowed_origins() -> list[str]:
@@ -281,6 +286,17 @@ def authenticate_user(username_raw: str, password: str) -> AuthUser | None:
             if secrets.compare_digest(password, AUTH_PASSWORD_2):
                 return AuthUser(username=expected_admin, role="admin")
             return None
+
+        if AUTH_USERNAME_3 and AUTH_PASSWORD_3:
+            try:
+                expected_comercial = normalize_username(AUTH_USERNAME_3)
+            except ValueError:
+                expected_comercial = None
+
+            if expected_comercial and secrets.compare_digest(username, expected_comercial):
+                if secrets.compare_digest(password, AUTH_PASSWORD_3):
+                    return AuthUser(username=expected_comercial, role="comercial")
+                return None
 
         try:
             expected_viewer = normalize_username(AUTH_USERNAME)

@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react'
-import DataDelayBanner from './DataDelayBanner'
 
 function getDefaultDates() {
   const today = new Date()
@@ -31,14 +30,6 @@ export default function CaptacaoLeadsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
-  const [dataDelay, setDataDelay] = useState(null)
-
-  useEffect(() => {
-    fetch('/api/open-data/emarsys/data-delay')
-      .then((r) => r.json())
-      .then((d) => setDataDelay(d))
-      .catch(() => {})
-  }, [])
 
   const loadData = useCallback(async () => {
     if (!startDate || !endDate) return
@@ -97,10 +88,6 @@ export default function CaptacaoLeadsPage() {
         </div>
       </section>
 
-      <div className="mb-6">
-        <DataDelayBanner dataDelay={dataDelay} />
-      </div>
-
       {error && (
         <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
@@ -115,9 +102,6 @@ export default function CaptacaoLeadsPage() {
 
       {data && (
         <div className="flex flex-col gap-4">
-          <p className="text-xs text-slate-400">
-            Cadastros no formulário &quot;Formulário NPI 2026/1&quot; (contact_source, Emarsys Open Data), por registered_on.
-          </p>
           <div className="flex flex-col gap-4 sm:flex-row">
             <StatTile label="Site" value={data.formularios?.site?.qtd} />
             <StatTile label="Lojas" value={data.formularios?.lojas?.qtd} />

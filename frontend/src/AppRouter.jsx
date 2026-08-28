@@ -27,6 +27,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
+    if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'captacao-leads'
     if (tab.key === 'adm' || tab.key === 'mapa') return currentRole === 'admin'
     if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
     if (currentRole === 'admin') return true
@@ -193,13 +194,13 @@ export default function AppRouter() {
         />
         <Routes>
           <Route path="/" element={<Navigate to="/resultado-geral" replace />} />
-          <Route path="/campanhas" element={<App />} />
-          <Route path="/gantt" element={<GanttPage />} />
+          <Route path="/campanhas" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <App />} />
+          <Route path="/gantt" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
           <Route path="/captacao-leads" element={<CaptacaoLeadsPage />} />
           <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="/adm" element={<AdmPage />} />
-          <Route path="/mapa-portal" element={<PortalMapPage />} />
+          <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to="/resultado-geral" replace />} />
+          <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>
