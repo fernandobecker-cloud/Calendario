@@ -1,0 +1,1775 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>iPlace · Jornada omnichannel na OmniChat</title>
+<style>
+ /* ============================================================
+ Design system iPlace / Apple
+ ============================================================ */
+ :root {
+ --bg-body: #F5F5F7;
+ --bg-panel: #FFFFFF;
+ --bg-subtle: #EFEFF2;
+ --text-main: #1D1D1F;
+ --text-sec: #6E6E73;
+
+ --blue: #0071E3;
+ --blue-ink: #005BB5;
+ --green: #34C759;
+ --red: #FF3B30;
+ --orange: #FF9500;
+ --purple: #AF52DE;
+ --wa: #25D366;
+
+ --border: #D2D2D7;
+ --radius: 18px;
+ --radius-sm: 12px;
+ --shadow: 0 4px 20px rgba(0, 0, 0, .06);
+
+ /* WhatsApp */
+ --wa-header: #075E54;
+ --chat-bg: #E5DDD5;
+ --bubble-bot: #FFFFFF;
+ --bubble-user: #DCF8C6;
+ --bubble-ink: #1D1D1F;
+ --bubble-meta: #667781;
+ }
+
+ @media (prefers-color-scheme: dark) {
+ :root {
+ --bg-body: #000000;
+ --bg-panel: #1C1C1E;
+ --bg-subtle: #2C2C2E;
+ --text-main: #F5F5F7;
+ --text-sec: #98989D;
+ --border: #3A3A3C;
+ --shadow: 0 4px 24px rgba(0, 0, 0, .6);
+
+ --chat-bg: #0B141A;
+ --bubble-bot: #202C33;
+ --bubble-user: #005C4B;
+ --bubble-ink: #E9EDEF;
+ --bubble-meta: #8696A0;
+ }
+ }
+
+ * { box-sizing: border-box; }
+
+ html { -webkit-text-size-adjust: 100%; }
+
+ body {
+ margin: 0;
+ padding: 24px;
+ background: var(--bg-body);
+ color: var(--text-main);
+ font: 400 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+ display: flex;
+ flex-direction: column;
+ align-items: center;
+ gap: 24px;
+ min-height: 100vh;
+ }
+
+ :focus-visible {
+ outline: 2px solid var(--blue);
+ outline-offset: 2px;
+ border-radius: 6px;
+ }
+
+ /* ---------- Cabeçalho ---------- */
+ .page-head { text-align: center; max-width: 620px; }
+ .eyebrow {
+ margin: 0 0 6px;
+ font-size: 12px;
+ font-weight: 600;
+ letter-spacing: .08em;
+ text-transform: uppercase;
+ color: var(--blue);
+ }
+ .page-head h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: -.02em; }
+ .page-head .sub { margin: 8px 0 0; color: var(--text-sec); font-size: 14px; }
+
+ /* ---------- Layout ---------- */
+ .workspace {
+ width: 100%;
+ max-width: 1400px;
+ display: grid;
+ grid-template-columns: minmax(260px, 320px) 340px minmax(320px, 1fr);
+ gap: 24px;
+ align-items: start;
+ }
+ /* Tablet: mapa desce para a linha inteira */
+ @media (max-width: 1180px) {
+ .workspace { grid-template-columns: minmax(240px, 1fr) 340px; }
+ .col-map { grid-column: 1 / -1; }
+ }
+ /* Mobile: coluna única */
+ @media (max-width: 780px) {
+ body { padding: 16px; }
+ .workspace { grid-template-columns: minmax(0, 1fr); }
+ .col-phone { justify-self: center; }
+ }
+
+ .col-controls, .col-map { display: flex; flex-direction: column; gap: 24px; }
+
+ .panel {
+ background: var(--bg-panel);
+ border: 1px solid var(--border);
+ border-radius: var(--radius);
+ padding: 22px;
+ box-shadow: var(--shadow);
+ }
+
+ .panel h2 {
+ margin: 0 0 14px;
+ font-size: 13px;
+ font-weight: 600;
+ letter-spacing: .06em;
+ text-transform: uppercase;
+ color: var(--text-sec);
+ }
+ .panel h2 .step {
+ display: inline-grid;
+ place-items: center;
+ width: 20px; height: 20px;
+ margin-right: 8px;
+ border-radius: 50%;
+ background: var(--bg-subtle);
+ color: var(--text-main);
+ font-size: 11px;
+ vertical-align: -4px;
+ }
+
+ /* Seletor de cenário */
+ .seg-label {
+ display: block;
+ margin: 16px 0 6px;
+ font-size: 12px;
+ font-weight: 600;
+ color: var(--text-sec);
+ }
+ .seg { display: flex; gap: 6px; }
+ .seg-btn {
+ flex: 1;
+ appearance: none;
+ padding: 9px 8px;
+ border: 1px solid var(--border);
+ border-radius: 10px;
+ background: transparent;
+ color: var(--text-sec);
+ font-size: 12.5px;
+ font-weight: 500;
+ font-family: inherit;
+ cursor: pointer;
+ transition: all .15s;
+ }
+ .seg-btn.is-on {
+ border-color: var(--blue);
+ background: color-mix(in srgb, var(--blue) 10%, transparent);
+ color: var(--blue);
+ font-weight: 600;
+ }
+ .seg-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+ /* Cartão de contexto entregue ao consultor */
+ .handoff-card {
+ align-self: stretch;
+ margin: 4px 0;
+ padding: 12px 14px;
+ border-left: 3px solid var(--blue);
+ border-radius: 8px;
+ background: var(--bubble-bot);
+ color: var(--bubble-ink);
+ font-size: 12.5px;
+ box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+ animation: pop .25s ease both;
+ }
+ .handoff-card b {
+ display: block;
+ margin-bottom: 7px;
+ font-size: 10.5px;
+ letter-spacing: .06em;
+ text-transform: uppercase;
+ color: var(--blue);
+ }
+ .handoff-card ul { margin: 0; padding-left: 16px; }
+ .handoff-card li { margin-bottom: 3px; }
+
+ /* Relógio de SLA do transbordo */
+ .sla {
+ align-self: stretch;
+ margin: 4px 0;
+ padding: 10px 12px;
+ border-radius: 8px;
+ background: var(--bubble-bot);
+ color: var(--bubble-ink);
+ font-size: 12px;
+ box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+ animation: pop .25s ease both;
+ }
+ .sla-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+ .sla-top b { font-variant-numeric: tabular-nums; }
+ .sla-bar { height: 4px; border-radius: 4px; background: rgba(127, 127, 127, .25); overflow: hidden; }
+ .sla-bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: var(--orange); transition: width .3s linear; }
+ .sla.is-late .sla-bar i { background: var(--red); }
+ .sla.is-ok .sla-bar i { background: var(--green); }
+
+ .hint { margin: 10px 0 0; font-size: 12.5px; color: var(--text-sec); }
+ .hint code {
+ font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+ background: var(--bg-subtle);
+ padding: 2px 5px;
+ border-radius: 5px;
+ }
+
+ /* ---------- Botões de controle ---------- */
+ .btn {
+ appearance: none;
+ width: 100%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ gap: 8px;
+ padding: 12px 16px;
+ border: 1px solid var(--border);
+ border-radius: var(--radius-sm);
+ background: var(--bg-subtle);
+ color: var(--text-main);
+ font: 600 14px/1 inherit;
+ font-family: inherit;
+ cursor: pointer;
+ transition: background .18s, transform .18s, opacity .18s;
+ }
+ .btn:hover:not(:disabled) { background: var(--border); }
+ .btn:active:not(:disabled) { transform: scale(.985); }
+ .btn:disabled { opacity: .45; cursor: not-allowed; }
+ .btn--primary {
+ background: var(--blue);
+ border-color: transparent;
+ color: #fff;
+ }
+ .btn--primary:hover:not(:disabled) { background: var(--blue-ink); }
+ .btn + .btn { margin-top: 10px; }
+
+ .note {
+ margin-top: 16px;
+ padding: 14px;
+ border-radius: var(--radius-sm);
+ background: var(--bg-subtle);
+ font-size: 13px;
+ color: var(--text-sec);
+ }
+ .note strong { color: var(--text-main); }
+
+ /* ---------- Métricas ---------- */
+ .kpis {
+ display: grid;
+ grid-template-columns: 1fr 1fr;
+ gap: 10px;
+ }
+ .kpi {
+ padding: 12px;
+ border-radius: var(--radius-sm);
+ background: var(--bg-subtle);
+ }
+ .kpi dt { font-size: 11px; color: var(--text-sec); letter-spacing: .02em; }
+ .kpi dd {
+ margin: 4px 0 0;
+ font: 600 19px/1.15 inherit;
+ font-variant-numeric: tabular-nums;
+ letter-spacing: -.02em;
+ }
+ .kpi--wide { grid-column: 1 / -1; }
+ .kpi--wide dd { font-size: 15px; }
+ .kpi[data-tone="good"] dd { color: var(--green); }
+ .kpi[data-tone="warn"] dd { color: var(--orange); }
+ .kpi[data-tone="bad"] dd { color: var(--red); }
+
+ /* ---------- Telefone ---------- */
+ .phone {
+ position: relative;
+ width: 340px;
+ max-width: 100%;
+ height: clamp(520px, 74vh, 680px);
+ display: flex;
+ flex-direction: column;
+ overflow: hidden;
+ background: var(--chat-bg);
+ border: 12px solid #1D1D1F;
+ border-radius: 40px;
+ box-shadow: 0 12px 34px rgba(0, 0, 0, .18);
+ }
+ .phone-header {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ padding: 38px 14px 12px;
+ background: var(--wa-header);
+ color: #fff;
+ }
+ .avatar {
+ width: 32px; height: 32px;
+ flex: 0 0 32px;
+ display: grid;
+ place-items: center;
+ border-radius: 50%;
+ background: rgba(255, 255, 255, .18);
+ font-size: 15px;
+ }
+ .phone-header b { font-size: 14.5px; font-weight: 600; }
+ .phone-header small { display: block; font-size: 11px; opacity: .75; }
+
+ .chat-window {
+ flex: 1;
+ min-height: 0;
+ overflow-y: auto;
+ overscroll-behavior: contain;
+ padding: 14px 12px 16px;
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+ }
+ .chat-empty {
+ margin: auto;
+ max-width: 220px;
+ text-align: center;
+ font-size: 12.5px;
+ color: var(--bubble-meta);
+ background: color-mix(in srgb, var(--bubble-bot) 80%, transparent);
+ padding: 12px 14px;
+ border-radius: 10px;
+ }
+
+ .msg {
+ position: relative;
+ max-width: 85%;
+ padding: 7px 10px 6px;
+ border-radius: 10px;
+ background: var(--bubble-bot);
+ color: var(--bubble-ink);
+ font-size: 14px;
+ line-height: 1.42;
+ box-shadow: 0 1px 1px rgba(0, 0, 0, .1);
+ animation: pop .25s ease both;
+ }
+ .msg.bot { align-self: flex-start; border-top-left-radius: 3px; }
+ .msg.user { align-self: flex-end; background: var(--bubble-user); border-top-right-radius: 3px; }
+ .msg .meta {
+ display: block;
+ margin-top: 2px;
+ text-align: right;
+ font-size: 10.5px;
+ color: var(--bubble-meta);
+ font-variant-numeric: tabular-nums;
+ }
+ .msg.user .meta::after { content: " ✓✓"; color: #53BDEB; }
+
+ .system-note {
+ align-self: center;
+ max-width: 90%;
+ margin: 6px 0;
+ padding: 6px 12px;
+ border-radius: 8px;
+ background: color-mix(in srgb, var(--bubble-bot) 70%, transparent);
+ color: var(--bubble-meta);
+ font-size: 11.5px;
+ text-align: center;
+ animation: pop .25s ease both;
+ }
+
+ /* Aviso quando o cliente rolou para cima e chegou algo novo */
+ .jump {
+ position: absolute;
+ left: 50%;
+ bottom: 18px;
+ transform: translate(-50%, 12px);
+ display: flex;
+ align-items: center;
+ gap: 6px;
+ padding: 7px 14px;
+ border: none;
+ border-radius: 20px;
+ background: var(--blue);
+ color: #fff;
+ font: 600 12.5px/1 inherit;
+ font-family: inherit;
+ box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+ cursor: pointer;
+ opacity: 0;
+ pointer-events: none;
+ transition: opacity .2s, transform .2s;
+ z-index: 2;
+ }
+ .jump.is-visible { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+ .system-note.is-error {
+ background: color-mix(in srgb, var(--red) 16%, transparent);
+ color: var(--red);
+ font-weight: 600;
+ }
+
+ /* Indicador de digitação */
+ .typing {
+ align-self: flex-start;
+ display: flex;
+ gap: 4px;
+ padding: 12px;
+ border-radius: 10px;
+ border-top-left-radius: 3px;
+ background: var(--bubble-bot);
+ box-shadow: 0 1px 1px rgba(0, 0, 0, .1);
+ }
+ .typing i {
+ width: 6px; height: 6px;
+ border-radius: 50%;
+ background: var(--bubble-meta);
+ animation: blink 1.2s infinite;
+ }
+ .typing i:nth-child(2) { animation-delay: .2s; }
+ .typing i:nth-child(3) { animation-delay: .4s; }
+
+ /* Bandeja de respostas rápidas.
+ Fica FORA da área rolável: é a única forma de garantir que os botões
+ nunca fiquem escondidos abaixo da dobra da conversa. */
+ .tray {
+ flex: 0 0 auto;
+ display: none;
+ flex-direction: column;
+ gap: 6px;
+ padding: 10px 12px 12px;
+ max-height: 48%;
+ overflow-y: auto;
+ background: var(--bubble-bot);
+ border-top: 1px solid rgba(0, 0, 0, .08);
+ }
+ .tray.is-open { display: flex; }
+ .tray-label {
+ font-size: 10.5px;
+ font-weight: 600;
+ letter-spacing: .06em;
+ text-transform: uppercase;
+ color: var(--bubble-meta);
+ }
+ .reply {
+ appearance: none;
+ display: block;
+ width: 100%;
+ padding: 11px 12px;
+ border: 1px solid var(--blue);
+ border-radius: 10px;
+ background: transparent;
+ color: var(--blue);
+ font-size: 14px;
+ font-weight: 500;
+ line-height: 1.25;
+ font-family: inherit;
+ text-align: center;
+ cursor: pointer;
+ transition: background .15s;
+ }
+ .reply:hover:not(:disabled) { background: rgba(0, 113, 227, .08); }
+ .reply:disabled { opacity: .45; cursor: not-allowed; }
+
+ /* Área de input (CEP) */
+ .input-area {
+ display: none;
+ gap: 8px;
+ padding: 10px;
+ background: var(--bg-subtle);
+ border-top: 1px solid var(--border);
+ }
+ .input-area.is-visible { display: block; }
+ .input-row { display: flex; gap: 8px; }
+ .input-area input {
+ flex: 1;
+ min-width: 0;
+ padding: 10px 14px;
+ border: 1px solid transparent;
+ border-radius: 20px;
+ background: var(--bg-panel);
+ color: var(--text-main);
+ font: 400 14px/1 inherit;
+ font-family: inherit;
+ }
+ .input-area input[aria-invalid="true"] { border-color: var(--red); }
+ .input-area .send {
+ appearance: none;
+ border: none;
+ padding: 10px 16px;
+ border-radius: 20px;
+ background: var(--wa);
+ color: #fff;
+ font: 600 14px/1 inherit;
+ font-family: inherit;
+ cursor: pointer;
+ }
+ .field-error {
+ display: none;
+ margin: 6px 4px 0;
+ font-size: 11.5px;
+ color: var(--red);
+ }
+ .field-error.is-visible { display: block; }
+
+ /* ---------- Mapa de arquitetura ---------- */
+ .flow { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+ .node {
+ width: 100%;
+ max-width: 240px;
+ padding: 13px 18px;
+ border: 2px solid var(--border);
+ border-radius: var(--radius-sm);
+ background: var(--bg-subtle);
+ color: var(--text-sec);
+ font-weight: 600;
+ font-size: 14px;
+ text-align: center;
+ transition: border-color .35s, color .35s, background .35s, box-shadow .35s, opacity .35s;
+ }
+ .node span { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 400; }
+ .node[data-state="active"] {
+ border-color: var(--accent);
+ color: var(--accent);
+ background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+ box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+ }
+ .node[data-state="done"] { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--text-sec); }
+ .node[data-state="idle-out"] { opacity: .35; }
+
+ .node[data-sys="emarsys"] { --accent: var(--blue); }
+ .node[data-sys="site"] { --accent: var(--green); }
+
+ /* Etiqueta de plataforma em cada nó */
+ .node[data-plat]::before {
+ content: attr(data-plat);
+ display: block;
+ margin-bottom: 5px;
+ font-size: 9.5px;
+ font-weight: 700;
+ letter-spacing: .08em;
+ text-transform: uppercase;
+ color: var(--text-sec);
+ }
+ .node[data-plat="OmniChat"]::before,
+ .node[data-plat="canal único"]::before { color: var(--orange); }
+
+ .node[data-sys="canal"] { --accent: var(--orange); }
+ .node[data-sys="ia"] { --accent: var(--purple); }
+ .node[data-sys="loja"] { --accent: var(--orange); }
+ .node[data-sys="tele"] { --accent: var(--red); }
+
+ .branch-hint {
+ margin: 12px 0 0;
+ font-size: 10.5px;
+ letter-spacing: .04em;
+ text-transform: uppercase;
+ color: var(--text-sec);
+ }
+
+ /* Leque: a IA se abre em três saídas de mesmo peso */
+ .fan { position: relative; width: 100%; height: 18px; margin-top: 8px; }
+ .fan::before {
+ content: "";
+ position: absolute; left: 50%; top: 0;
+ width: 2px; height: 16px;
+ background: var(--border);
+ }
+ .fan-bar {
+ position: absolute; top: 16px; left: 16%; right: 16%;
+ height: 2px; background: var(--border);
+ }
+
+ .branch { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+ .branch-item { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+ .branch-item::before {
+ content: "";
+ width: 2px; height: 14px;
+ background: var(--border);
+ }
+ .branch-item .node { width: 100%; max-width: none; margin-top: 0; }
+ .branch .swap { margin-top: 46px; }
+
+ .human-note {
+ margin: 14px 0 0;
+ font-size: 11.5px;
+ color: var(--text-sec);
+ text-align: center;
+ max-width: 380px;
+ }
+
+ @media (max-width: 620px) {
+ .branch { flex-direction: column; }
+ .branch .swap { margin: 4px 0; transform: rotate(90deg); }
+ .fan-bar { left: 50%; right: 50%; }
+ }
+
+ .swap {
+ flex: 0 0 auto;
+ display: grid;
+ place-items: center;
+ width: 30px; height: 30px;
+ border-radius: 50%;
+ border: 2px solid var(--border);
+ background: var(--bg-panel);
+ color: var(--text-sec);
+ font-size: 15px;
+ font-weight: 600;
+ transition: all .3s;
+ }
+ .swap.on {
+ border-color: var(--blue);
+ color: var(--blue);
+ background: color-mix(in srgb, var(--blue) 14%, var(--bg-panel));
+ transform: scale(1.15);
+ }
+
+ .link {
+ position: relative;
+ width: 2px;
+ height: 26px;
+ background: var(--border);
+ overflow: hidden;
+ }
+ .link.h { width: 30px; height: 2px; }
+ .link.h.flowing::after {
+ content: "";
+ position: absolute;
+ inset-block: -1px;
+ width: 10px;
+ border-radius: 2px;
+ background: var(--green);
+ animation: travelX .7s linear infinite;
+ }
+ @keyframes travelX { from { transform: translateX(-12px); } to { transform: translateX(30px); } }
+
+ .link.flowing::after {
+ content: "";
+ position: absolute;
+ inset-inline: -1px;
+ height: 10px;
+ border-radius: 2px;
+ background: var(--blue);
+ animation: travel .7s linear infinite;
+ }
+ .branches {
+ display: flex;
+ flex-wrap: wrap;
+ justify-content: center;
+ gap: 12px;
+ width: 100%;
+ }
+ .branches .node { max-width: 190px; flex: 1 1 160px; }
+
+ /* ---------- Log de eventos ---------- */
+ .log {
+ list-style: none;
+ margin: 0;
+ padding: 0;
+ max-height: 210px;
+ overflow-y: auto;
+ display: flex;
+ flex-direction: column;
+ gap: 8px;
+ }
+ .log li {
+ display: grid;
+ grid-template-columns: 44px auto 1fr;
+ gap: 8px;
+ align-items: baseline;
+ font-size: 12.5px;
+ animation: pop .25s ease both;
+ }
+ .log time { color: var(--text-sec); font-variant-numeric: tabular-nums; }
+ .log .tag {
+ padding: 2px 7px;
+ border-radius: 20px;
+ font-size: 10.5px;
+ font-weight: 600;
+ white-space: nowrap;
+ background: color-mix(in srgb, var(--accent) 14%, transparent);
+ color: var(--accent);
+ }
+ .log .tag[data-sys="emarsys"] { --accent: var(--blue); }
+ .log .tag[data-sys="ia"] { --accent: var(--purple); }
+ .log .tag[data-sys="loja"] { --accent: var(--orange); }
+ .log .tag[data-sys="site"] { --accent: var(--green); }
+ .log .tag[data-sys="omni"] { --accent: var(--orange); }
+ .log .tag[data-sys="tele"] { --accent: var(--red); }
+ .log .tag[data-sys="cliente"] { --accent: var(--text-sec); }
+ .log-empty { font-size: 12.5px; color: var(--text-sec); }
+
+ /* ---------- Animações ---------- */
+ @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+ @keyframes blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+ @keyframes travel { from { transform: translateY(-12px); } to { transform: translateY(26px); } }
+
+ @media (prefers-reduced-motion: reduce) {
+ *, *::after { animation: none !important; transition-duration: .01ms !important; }
+ }
+
+ .sr-only {
+ position: absolute; width: 1px; height: 1px;
+ padding: 0; margin: -1px; overflow: hidden;
+ clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+ }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+ <p class="eyebrow">CRM iPlace · Lançamento iPhone 18</p>
+ <h1>Jornada omnichannel</h1>
+ <p class="sub">Um número, uma plataforma. O Emarsys dispara na OmniChat, a IA atende, e loja e televendas trocam o cliente entre si sem que ele perceba.</p>
+</header>
+
+<main class="workspace">
+
+ <!-- ===== Coluna 1: controles + métricas ===== -->
+ <div class="col-controls">
+ <section class="panel">
+ <h2><span class="step">1</span>Gatilho</h2>
+ <button type="button" class="btn btn--primary" id="btn-start">Disparar campanha</button>
+ <button type="button" class="btn" id="btn-reset">Reiniciar simulação</button>
+ <span class="seg-label">Objetivo da campanha</span>
+ <div class="seg" role="group" aria-label="Objetivo da campanha">
+ <button type="button" class="seg-btn is-on" data-key="campanha" data-val="ecomm">E-commerce</button>
+ <button type="button" class="seg-btn" data-key="campanha" data-val="loja">Fluxo de loja</button>
+ </div>
+
+ <span class="seg-label">Horário do disparo</span>
+ <div class="seg" role="group" aria-label="Horário do disparo">
+ <button type="button" class="seg-btn is-on" data-key="horario" data-val="comercial">Comercial</button>
+ <button type="button" class="seg-btn" data-key="horario" data-val="noite">Após as 20h</button>
+ </div>
+
+ <span class="seg-label">Consultor da loja</span>
+ <div class="seg" role="group" aria-label="Comportamento da loja">
+ <button type="button" class="seg-btn is-on" data-key="loja" data-val="responde">Responde</button>
+ <button type="button" class="seg-btn" data-key="loja" data-val="sem_resposta">Não responde</button>
+ </div>
+
+ <p class="hint">
+ O Emarsys segmenta e dispara pela OmniChat, que também recebe a resposta.
+ CEP <code>00000-000</code> simula região sem loja.
+ </p>
+ <div class="note">
+ <strong>A IA atende todo disparo</strong><br>
+ Inclusive campanha de e-commerce: ninguém vai direto para o site sem passar por ela.
+ Quem escolhe o canal é o cliente, e trocar de time é mudar de fila, na mesma conversa.
+ </div>
+ </section>
+
+ <section class="panel">
+ <h2>Resultado da jornada</h2>
+ <dl class="kpis" id="kpis">
+ <div class="kpi"><dt>Interações do cliente</dt><dd id="kpi-taps">0</dd></div>
+ <div class="kpi"><dt>Sinais capturados</dt><dd id="kpi-signals">0</dd></div>
+ <div class="kpi"><dt>Tempo até resposta humana</dt><dd id="kpi-human">n/d</dd></div>
+ <div class="kpi" id="kpi-sla-wrap"><dt>SLA da loja (15 min)</dt><dd id="kpi-sla">n/d</dd></div>
+ <div class="kpi"><dt>Transferências internas</dt><dd id="kpi-transf">0</dd></div>
+ <div class="kpi" id="kpi-nums-wrap"><dt>Números que o cliente viu</dt><dd id="kpi-nums">n/d</dd></div>
+ <div class="kpi kpi--wide" id="kpi-out-wrap"><dt>Desfecho</dt><dd id="kpi-out">Aguardando disparo</dd></div>
+ </dl>
+ </section>
+ </div>
+
+ <!-- ===== Coluna 2: WhatsApp ===== -->
+ <div class="col-phone">
+ <section class="phone" aria-label="Simulador de conversa no WhatsApp">
+ <div class="phone-header">
+ <span class="avatar" aria-hidden="true">iP</span>
+ <div>
+ <b>iPlace Oficial ✅</b>
+ <small id="phone-status">conta comercial</small>
+ </div>
+ </div>
+
+ <div class="chat-window" id="chat" role="log" aria-live="polite" aria-label="Conversa"></div>
+
+ <div class="tray" id="tray" role="group" aria-label="Respostas rápidas"></div>
+
+ <button type="button" class="jump" id="btn-jump" aria-label="Ir para a última mensagem">
+ Novas mensagens ↓
+ </button>
+
+ <div class="input-area" id="input-area">
+ <label class="sr-only" for="cep-input">CEP, somente números</label>
+ <div class="input-row">
+ <input id="cep-input" type="text" inputmode="numeric" autocomplete="postal-code"
+ maxlength="9" placeholder="Digite seu CEP…">
+ <button type="button" class="send" id="btn-send">Enviar</button>
+ </div>
+ <p class="field-error" id="cep-error" role="alert">Informe os 8 números do CEP.</p>
+ </div>
+ </section>
+ </div>
+
+ <!-- ===== Coluna 3: mapa + log ===== -->
+ <div class="col-map">
+ <section class="panel">
+ <h2>Arquitetura</h2>
+ <div class="flow">
+ <div class="node" data-sys="emarsys" data-state="idle">SAP Emarsys<span>Segmentação e disparo</span></div>
+ <div class="link" data-link="emarsys-omni"></div>
+
+ <div class="node" data-sys="canal" data-state="idle" data-plat="canal único">OmniChat<span>+55 51 9747-4741</span></div>
+ <div class="link" data-link="canal-ia"></div>
+
+ <div class="node" data-sys="ia" data-state="idle" data-plat="OmniChat">Agente de IA<span>Atende 100% dos disparos</span></div>
+
+ <p class="branch-hint">a partir daqui, quem escolhe é o cliente</p>
+
+ <div class="fan"><span class="fan-bar"></span></div>
+
+ <div class="branch">
+ <div class="branch-item">
+ <div class="node" data-sys="site" data-state="idle" data-plat="e-commerce">Site iPlace<span>Self-service</span></div>
+ </div>
+ <div class="branch-item">
+ <div class="node" data-sys="loja" data-state="idle" data-plat="OmniChat">Fila Loja<span>Vendedor da unidade</span></div>
+ </div>
+ <div class="swap" data-link="loja-tele" aria-hidden="true">⇄</div>
+ <div class="branch-item">
+ <div class="node" data-sys="tele" data-state="idle" data-plat="OmniChat">Fila SAC / Televendas<span>Venda remota</span></div>
+ </div>
+ </div>
+
+ <p class="human-note">O atendimento humano só entra se o cliente pedir. As duas filas trocam o cliente entre si, no mesmo número.</p>
+ </div>
+ </section>
+
+ <section class="panel">
+ <h2>Trilha de eventos</h2>
+ <p class="log-empty" id="log-empty">Dispare a campanha para registrar os eventos.</p>
+ <ol class="log" id="log"></ol>
+ </section>
+ </div>
+
+</main>
+
+<script>
+"use strict";
+
+/* ============================================================
+ Elementos
+ ============================================================ */
+const chat = document.getElementById('chat');
+const inputArea = document.getElementById('input-area');
+const cepInput = document.getElementById('cep-input');
+const cepError = document.getElementById('cep-error');
+const tray = document.getElementById('tray');
+const logList = document.getElementById('log');
+const logEmpty = document.getElementById('log-empty');
+const btnStart = document.getElementById('btn-start');
+const btnReset = document.getElementById('btn-reset');
+const phoneStatus = document.getElementById('phone-status');
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ============================================================
+ Sessão: um único ponto de verdade.
+ Todo passo assíncrono é cancelável: reiniciar não deixa
+ nenhum setTimeout órfão escrevendo no chat da rodada nova.
+ ============================================================ */
+class Cancelled extends Error {}
+
+const session = {
+ running: false,
+ startedAt: 0,
+ taps: 0,
+ botMsgs: 0,
+ aiAnswers: 0, // quantas respostas de conteúdo a IA entregou
+ outcome: null,
+ ticker: null, // cronômetro do KPI de tempo
+ signals: [], // sinais de qualificação capturados pela IA
+ transf: 0, // transferências entre filas da OmniChat
+ humanAskedAt: 0, // quando o cliente pediu um consultor
+ humanRepliedAt: 0, // quando um humano de fato respondeu
+ sla: null, // null | 'aguardando' | 'cumprido' | 'estourado'
+ pending: [] // cancelamentos pendentes
+};
+
+/* Cenários que a direção pode alternar ao vivo, sem tocar em código. */
+const scenario = { campanha: 'ecomm', horario: 'comercial', loja: 'responde' };
+
+document.querySelectorAll('.seg-btn').forEach(btn => {
+ btn.addEventListener('click', () => {
+ if (session.running) return;
+ scenario[btn.dataset.key] = btn.dataset.val;
+ btn.parentElement.querySelectorAll('.seg-btn')
+ .forEach(b => b.classList.toggle('is-on', b === btn));
+ });
+});
+function lockScenario(on) {
+ document.querySelectorAll('.seg-btn').forEach(b => (b.disabled = on));
+}
+
+function cancelPending() {
+ const list = session.pending.splice(0);
+ list.forEach(fn => fn());
+}
+
+function wait(ms) {
+ const delay = reduceMotion ? Math.min(ms, 120) : ms;
+ return new Promise((resolve, reject) => {
+ const id = setTimeout(() => {
+ session.pending = session.pending.filter(f => f !== cancel);
+ resolve();
+ }, delay);
+ const cancel = () => { clearTimeout(id); reject(new Cancelled()); };
+ session.pending.push(cancel);
+ });
+}
+
+/* ============================================================
+ Chat
+ ============================================================ */
+/* Scroll determinístico.
+ Nada de `behavior: smooth` aqui: com blocos altos (um menu de 4 botões
+ tem ~170px) a animação parte de uma altura já defasada e para no meio,
+ escondendo justamente os botões. O WhatsApp real também salta direto.
+ Um MutationObserver garante que QUALQUER inserção no chat role o
+ suficiente, mesmo as feitas fora das funções de append. */
+const btnJump = document.getElementById('btn-jump');
+let stickToBottom = true;
+let scrollFix = null;
+
+function atBottom(slack = 48) {
+ return chat.scrollHeight - chat.scrollTop - chat.clientHeight <= slack;
+}
+
+function scrollToBottom(force = false) {
+ if (!stickToBottom && !force) return;
+ const go = () => { chat.scrollTop = chat.scrollHeight; };
+ requestAnimationFrame(go);
+ clearTimeout(scrollFix);
+ scrollFix = setTimeout(go, 320); // corrige depois da animação de entrada
+ if (force) { stickToBottom = true; btnJump.classList.remove('is-visible'); }
+}
+
+// Se o cliente subir a conversa para reler algo, não arrastamos ele de volta:
+// mostramos o aviso e ele decide.
+chat.addEventListener('scroll', () => {
+ stickToBottom = atBottom();
+ if (stickToBottom) btnJump.classList.remove('is-visible');
+});
+
+new MutationObserver(() => {
+ if (stickToBottom) scrollToBottom();
+ else btnJump.classList.add('is-visible');
+}).observe(chat, { childList: true, subtree: true });
+
+btnJump.addEventListener('click', () => scrollToBottom(true));
+
+function clockNow() {
+ return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** O aviso de chat vazio sai na primeira coisa que entra na conversa. */
+function clearPlaceholder() {
+ const ph = chat.querySelector('.chat-empty');
+ if (ph) ph.remove();
+}
+
+/**
+ * @param {string} content
+ * @param {'bot'|'user'} type
+ * @param {boolean} isHtml true só para textos nossos (templates), nunca para input do cliente.
+ */
+function appendMsg(content, type, isHtml = false) {
+ clearPlaceholder();
+ const el = document.createElement('div');
+ el.className = `msg ${type}`;
+ const body = document.createElement('span');
+ if (isHtml) body.innerHTML = content;
+ else body.textContent = content; // input do cliente entra como texto puro
+ el.append(body);
+
+ const meta = document.createElement('span');
+ meta.className = 'meta';
+ meta.textContent = clockNow();
+ el.append(meta);
+
+ chat.append(el);
+ scrollToBottom();
+ return el;
+}
+
+function appendSystemNote(text) {
+ clearPlaceholder();
+ const el = document.createElement('div');
+ el.className = 'system-note';
+ el.textContent = text;
+ chat.append(el);
+ scrollToBottom();
+}
+
+/** Bolha "digitando…" enquanto a IA prepara a resposta. */
+async function botSay(html, { typing = 900 } = {}) {
+ clearPlaceholder();
+ const dots = document.createElement('div');
+ dots.className = 'typing';
+ dots.innerHTML = '<i></i><i></i><i></i>';
+ dots.setAttribute('aria-hidden', 'true');
+ chat.append(dots);
+ phoneStatus.textContent = 'digitando…';
+ scrollToBottom();
+
+ try {
+ await wait(typing);
+ } finally {
+ dots.remove();
+ phoneStatus.textContent = 'online';
+ }
+
+ session.botMsgs++;
+ renderKpis();
+ appendMsg(html, 'bot', true);
+}
+
+/**
+ * Menu de resposta rápida. Resolve com a opção escolhida.
+ * Como o fluxo aguarda esta Promise, nunca existem dois menus vivos
+ * ao mesmo tempo, então o bug de "botão antigo ainda clicável" desaparece.
+ */
+function closeTray() {
+ tray.classList.remove('is-open');
+ tray.innerHTML = '';
+}
+
+function askChoice(options) {
+ return new Promise((resolve, reject) => {
+ tray.innerHTML = '';
+
+ const label = document.createElement('span');
+ label.className = 'tray-label';
+ label.textContent = options.length > 1 ? 'Escolha uma opção' : 'Toque para continuar';
+ tray.append(label);
+
+ options.forEach((opt, i) => {
+ const b = document.createElement('button');
+ b.type = 'button';
+ b.className = 'reply';
+ b.textContent = opt.label;
+ b.addEventListener('click', () => {
+ session.pending = session.pending.filter(f => f !== cancel);
+ closeTray();
+ session.taps++;
+ renderKpis();
+ appendMsg(opt.label, 'user');
+ logEvent('cliente', `Escolheu "${opt.label}"`);
+ resolve(opt);
+ });
+ tray.append(b);
+ if (i === 0) setTimeout(() => b.focus({ preventScroll: true }), 0);
+ });
+
+ tray.classList.add('is-open');
+ scrollToBottom();
+
+ const cancel = () => {
+ tray.querySelectorAll('button').forEach(b => (b.disabled = true));
+ closeTray();
+ reject(new Cancelled());
+ };
+ session.pending.push(cancel);
+ });
+}
+
+/** Input de CEP: resolve com 8 dígitos válidos. */
+function askCepInput() {
+ return new Promise((resolve, reject) => {
+ inputArea.classList.add('is-visible');
+ cepInput.value = '';
+ cepInput.focus();
+
+ const submit = () => {
+ const digits = cepInput.value.replace(/\D/g, '');
+ if (digits.length !== 8) {
+ cepError.classList.add('is-visible');
+ cepInput.setAttribute('aria-invalid', 'true');
+ cepInput.focus();
+ return;
+ }
+ cleanup();
+ const pretty = `${digits.slice(0, 5)}-${digits.slice(5)}`;
+ session.taps++;
+ renderKpis();
+ appendMsg(pretty, 'user');
+ logEvent('cliente', `Enviou o CEP ${pretty}`);
+ resolve(digits);
+ };
+
+ const onKey = e => { if (e.key === 'Enter') submit(); };
+ const onInput = () => {
+ const d = cepInput.value.replace(/\D/g, '').slice(0, 8);
+ cepInput.value = d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+ cepError.classList.remove('is-visible');
+ cepInput.removeAttribute('aria-invalid');
+ };
+
+ document.getElementById('btn-send').addEventListener('click', submit);
+ cepInput.addEventListener('keydown', onKey);
+ cepInput.addEventListener('input', onInput);
+
+ function cleanup() {
+ session.pending = session.pending.filter(f => f !== cancel);
+ inputArea.classList.remove('is-visible');
+ cepError.classList.remove('is-visible');
+ cepInput.removeAttribute('aria-invalid');
+ document.getElementById('btn-send').removeEventListener('click', submit);
+ cepInput.removeEventListener('keydown', onKey);
+ cepInput.removeEventListener('input', onInput);
+ }
+
+ const cancel = () => { cleanup(); reject(new Cancelled()); };
+ session.pending.push(cancel);
+ });
+}
+
+/* ============================================================
+ Mapa de sistemas
+ ============================================================ */
+const nodeOf = sys => document.querySelector(`.node[data-sys="${sys}"]`);
+const swap = document.querySelector('.swap');
+
+function setNode(sys, state) { nodeOf(sys).dataset.state = state; }
+function setPlatform(state) { setNode('canal', state); }
+
+async function flowLink(name, ms = 700) {
+ const link = document.querySelector(`.link[data-link="${name}"]`);
+ link.classList.add('flowing');
+ try { await wait(ms); } finally { link.classList.remove('flowing'); }
+}
+
+/** Transferência entre as filas: acende o símbolo no meio do mapa. */
+async function flowSwap(ms = 900) {
+ swap.classList.add('on');
+ try { await wait(ms); } finally { swap.classList.remove('on'); }
+}
+
+/** Ao fechar num destino, os outros saem de cena. */
+function commitBranch(sys) {
+ ['site', 'loja', 'tele'].forEach(s => setNode(s, s === sys ? 'active' : 'idle-out'));
+}
+
+function resetMap() {
+ document.querySelectorAll('.node').forEach(n => (n.dataset.state = 'idle'));
+ document.querySelectorAll('.link').forEach(l => l.classList.remove('flowing'));
+ swap.classList.remove('on');
+}
+
+/* ============================================================
+ Log + métricas
+ ============================================================ */
+const SYS_LABEL = {
+ emarsys: 'Emarsys', omni: 'OmniChat', ia: 'Agente IA',
+ site: 'Site', loja: 'Fila Loja', tele: 'Fila Televendas', cliente: 'Cliente'
+};
+
+function elapsed() {
+ const s = Math.max(0, Math.round((Date.now() - session.startedAt) / 1000));
+ return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function logEvent(sys, text) {
+ logEmpty.hidden = true;
+ const li = document.createElement('li');
+
+ const t = document.createElement('time');
+ t.textContent = elapsed();
+
+ const tag = document.createElement('span');
+ tag.className = 'tag';
+ tag.dataset.sys = sys;
+ tag.textContent = SYS_LABEL[sys] || sys;
+
+ const desc = document.createElement('span');
+ desc.textContent = text;
+
+ li.append(t, tag, desc);
+ logList.append(li);
+ logList.scrollTop = logList.scrollHeight;
+}
+
+const OUTCOMES = {
+ site: { label: 'Compra no site (self-service)', tone: 'good' },
+ loja: { label: 'Vendedor da loja física', tone: 'good' },
+ tele: { label: 'SAC / Televendas', tone: 'good' },
+ tele_sla: { label: 'Televendas (resgate por SLA da loja)', tone: 'warn' },
+ loja_tele: { label: 'Loja física (transferida do televendas)', tone: 'good' },
+ agenda: { label: 'Visita agendada para amanhã', tone: 'warn' },
+ optout: { label: 'Saiu da lista promocional', tone: 'bad' }
+};
+
+const SLA_VIEW = {
+ aguardando: { txt: 'aguardando', tone: 'warn' },
+ cumprido: { txt: 'cumprido', tone: 'good' },
+ estourado: { txt: 'estourado', tone: 'bad' }
+};
+
+/** Cada sinal é uma informação que o consultor não precisará perguntar de novo. */
+function addSignal(text) {
+ session.signals.push(text);
+ logEvent('ia', `Sinal capturado: ${text}`);
+ renderKpis();
+}
+
+function renderKpis() {
+ document.getElementById('kpi-taps').textContent = session.taps;
+ document.getElementById('kpi-signals').textContent = session.signals.length;
+ document.getElementById('kpi-transf').textContent = session.transf;
+ // O número nunca muda: é o argumento central desta arquitetura.
+ const nums = document.getElementById('kpi-nums');
+ nums.textContent = (session.running || session.outcome) ? '1' : 'n/d';
+ document.getElementById('kpi-nums-wrap').dataset.tone = (session.running || session.outcome) ? 'good' : '';
+
+ // Tempo até resposta humana: a métrica que o cliente sente na pele.
+ const human = document.getElementById('kpi-human');
+ if (session.humanRepliedAt) {
+ const s = Math.round((session.humanRepliedAt - session.humanAskedAt) / 1000);
+ human.textContent = `${s}s`;
+ } else if (session.outcome === 'agenda') {
+ human.textContent = 'agendado';
+ } else if (session.humanAskedAt && !session.outcome) {
+ human.textContent = `${Math.round((Date.now() - session.humanAskedAt) / 1000)}s…`;
+ } else {
+ human.textContent = 'n/d';
+ }
+
+ const slaWrap = document.getElementById('kpi-sla-wrap');
+ const view = session.sla ? SLA_VIEW[session.sla] : null;
+ document.getElementById('kpi-sla').textContent = view ? view.txt : (session.outcome ? 'não aplicável' : 'n/d');
+ slaWrap.dataset.tone = view ? view.tone : '';
+
+ const out = session.outcome ? OUTCOMES[session.outcome] : null;
+ const outWrap = document.getElementById('kpi-out-wrap');
+ document.getElementById('kpi-out').textContent =
+ out ? out.label : (session.running ? 'Em andamento' : 'Aguardando disparo');
+ outWrap.dataset.tone = out ? out.tone : '';
+}
+
+/* ============================================================
+ Componentes reaproveitados pelos fluxos
+ ============================================================ */
+const STORE = { nome: 'iPlace Morumbi Shopping', eta: '12 min de carro' };
+// Variável de personalização do template, preenchida pelo Emarsys.
+const CLIENTE = 'Rafael';
+
+/** Contexto que viaja junto na transferência entre filas. */
+async function handoffCard(destino) {
+ clearPlaceholder();
+ const el = document.createElement('div');
+ el.className = 'handoff-card';
+ const itens = session.signals.map(x => `<li>${x}</li>`).join('');
+ el.innerHTML = `<b>Contexto enviado · ${destino}</b><ul>${itens}</ul>`;
+ chat.append(el);
+ scrollToBottom();
+ await wait(700);
+}
+
+/** Relógio de SLA comprimido: 15 minutos contratuais em segundos de demo. */
+function slaWait(minutos, realMs, rotulo) {
+ return new Promise((resolve, reject) => {
+ clearPlaceholder();
+ const el = document.createElement('div');
+ el.className = 'sla';
+ el.innerHTML = `<div class="sla-top"><span>${rotulo}</span><b>00 / ${minutos} min</b></div>
+ <div class="sla-bar"><i></i></div>`;
+ chat.append(el);
+ scrollToBottom();
+
+ const t0 = Date.now();
+ const bar = el.querySelector('i');
+ const num = el.querySelector('b');
+ const tick = setInterval(() => {
+ const p = Math.min(1, (Date.now() - t0) / realMs);
+ bar.style.width = `${p * 100}%`;
+ num.textContent = `${String(Math.round(p * minutos)).padStart(2, '0')} / ${minutos} min`;
+ if (p >= 1) {
+ clearInterval(tick);
+ session.pending = session.pending.filter(f => f !== cancel);
+ resolve(el);
+ }
+ }, 120);
+
+ const cancel = () => { clearInterval(tick); reject(new Cancelled()); };
+ session.pending.push(cancel);
+ });
+}
+
+/** Transferência entre filas: nada muda para o cliente, só quem responde. */
+async function transferir(deSys, paraSys, rotulo, nota) {
+ session.transf++;
+ renderKpis();
+ logEvent('omni', `Transferência interna: ${SYS_LABEL[deSys]} → ${SYS_LABEL[paraSys]}`);
+ await flowSwap();
+ await handoffCard(rotulo);
+ appendSystemNote(nota);
+ commitBranch(paraSys);
+}
+
+/* ============================================================
+ Fluxos da conversa
+ ============================================================ */
+async function flowSite() {
+ setNode('ia', 'done');
+ commitBranch('site');
+ await flowLink('canal-ia', 300);
+ logEvent('site', 'Deep link do carrinho enviado');
+ await botSay('Perfeito. Aqui está o link direto para o iPhone 18 no nosso site: <b>iplace.com.br/iphone-18</b><br><br>Fico por aqui caso surja qualquer dúvida durante a compra, inclusive sobre a troca do seu aparelho atual, que também pode ser feita no checkout.');
+ logEvent('emarsys', 'Cliente marcado para follow-up de carrinho em 24h');
+ finish('site', 'Cliente seguiu para o e-commerce. Emarsys assume o follow-up de carrinho.');
+}
+
+async function flowOptOut() {
+ logEvent('emarsys', 'Opt-out registrado: contato removido de campanhas');
+ await botSay('Tudo bem, sua preferência foi registrada. Você não receberá mais comunicações promocionais, apenas mensagens sobre pedidos e garantia. Obrigado pelo seu tempo.');
+ finish('optout', 'Contato removido da base promocional. Nota de qualidade do número preservada.');
+}
+
+async function flowBotIntro(escolha) {
+ setNode('ia', 'active');
+ logEvent('ia', 'Sessão aberta no agente de IA');
+
+ // Passo 1: definir o modelo. Quem já chegou decidido tem o interesse
+ // registrado; quem está em dúvida passa pela comparação guiada.
+ let modelo;
+ if (escolha === 'decidir') {
+ modelo = await flowComparacao();
+ } else {
+ modelo = escolha === 'promax' ? 'Pro Max' : 'Pro';
+ logEvent('ia', `Cliente indicou preferência: iPhone ${modelo}`);
+ await botSay(modelo === 'Pro Max'
+ ? 'Boa escolha. O <b>Pro Max</b> é para quem usa muito o aparelho ao longo do dia: tela maior para vídeo e leitura, e a maior bateria da linha.'
+ : 'Boa escolha. O <b>Pro</b> tem a mesma câmera e o mesmo desempenho do Pro Max, num tamanho que ainda cabe confortavelmente no bolso e na mão.');
+ }
+ addSignal(`Modelo de interesse: iPhone ${modelo}`);
+
+ await botSay('Posso seguir com preço e parcelas, ver quanto vale o seu aparelho atual na troca, ou já te levar para comprar. O que prefere?', { typing: 700 });
+ session.aiAnswers = 0;
+
+ const topics = {
+ preco: { label: 'Preços e condições', done: false },
+ troca: { label: 'Trocar meu aparelho', done: false },
+ cores: { label: 'Cores e disponibilidade', done: false },
+ prazo: { label: 'Prazo de entrega', done: false }
+ };
+ const pendentes = () => Object.entries(topics).filter(([, t]) => !t.done);
+
+ while (true) {
+ // Teto de 3 botões por mensagem: é o limite do WhatsApp.
+ let opts;
+ if (session.aiAnswers === 0) {
+ opts = [
+ { label: 'Preço e parcelas', action: 'preco' },
+ { label: 'Valor da minha troca', action: 'troca' },
+ { label: 'Quero comprar', action: 'comprar' }
+ ];
+ } else {
+ opts = [
+ { label: 'Quero comprar', action: 'comprar' },
+ { label: 'Outras dúvidas', action: 'mais' }
+ ];
+ }
+
+ let choice = await askChoice(opts);
+
+ if (choice.action === 'mais') {
+ const jaNaTela = opts.map(o => o.action);
+ const sub = pendentes()
+ .filter(([action]) => !jaNaTela.includes(action))
+ .slice(0, 2)
+ .map(([action, t]) => ({ label: t.label, action }));
+ if (!sub.length) sub.push({ label: 'Falar com um consultor', action: 'comprar' });
+ sub.push({ label: 'Voltar', action: 'voltar' });
+ choice = await askChoice(sub);
+ if (choice.action === 'voltar') continue;
+ }
+
+ if (choice.action === 'comprar') {
+ const r = await flowEscolhaCanal();
+ if (r === 'voltar') continue;
+ return;
+ }
+
+ if (choice.action === 'preco') {
+ logEvent('ia', 'Resposta automática: preços e condições');
+ await botSay('O Pro parte de <b>R$ 10.499</b> e o Pro Max, de <b>R$ 11.999</b>, à vista. No Cartão iPlace são até <b>21x</b>, e 12x sem juros nos demais cartões.<br><br>Vale considerar a troca do seu aparelho atual: ela costuma reduzir bastante o valor final.');
+ addSignal('Dúvida sobre preço e parcelamento');
+ } else if (choice.action === 'troca') {
+ const modelo = await askChoice([
+ { label: 'iPhone 13 ou 14', action: 'm1' },
+ { label: 'iPhone 15 ou 16', action: 'm2' },
+ { label: 'Outro aparelho', action: 'm3' }
+ ]);
+ const faixa = { m1: 'R$ 1.600 a R$ 2.400', m2: 'R$ 2.900 a R$ 4.100', m3: 'valor sob avaliação' };
+ logEvent('ia', 'Simulação de trade-in realizada');
+ await botSay(`Considerando um aparelho em bom estado, a avaliação estimada fica em <b>${faixa[modelo.action]}</b>. O valor definitivo sai da avaliação técnica, feita na loja ou pelo consultor, e é abatido direto na compra.`);
+ addSignal(`Aparelho para troca: ${modelo.label}`);
+ } else if (choice.action === 'cores') {
+ logEvent('ia', 'Resposta automática: cores e disponibilidade');
+ await botSay('Os dois vêm em Titânio Deserto, Titânio Natural, Preto e Branco, nas versões de 256 GB, 512 GB e 1 TB. As lojas têm pronta entrega; algumas combinações de cor e capacidade variam por unidade.');
+ addSignal('Interesse em cor e capacidade específicas');
+ } else {
+ logEvent('ia', 'Resposta automática: prazo de entrega');
+ await botSay('Para capitais, a entrega é em até 24 horas úteis. Retirada em loja fica pronta em cerca de 2 horas após a confirmação do pedido.');
+ addSignal('Sensível a prazo de entrega');
+ }
+
+ topics[choice.action].done = true;
+ session.aiAnswers++;
+ renderKpis();
+
+ await botSay('Posso ajudar em algo mais ou já quer seguir com a compra?', { typing: 600 });
+ }
+}
+
+/**
+ * Comparação guiada Pro vs Pro Max, a partir do uso declarado.
+ * Duas perguntas curtas, três opções cada, dentro do limite do WhatsApp.
+ */
+async function flowComparacao() {
+ logEvent('ia', 'Cliente pediu ajuda para decidir: comparação guiada');
+ await botSay('Combinado, é rápido. <b>Como você mais usa o seu iPhone hoje?</b>');
+
+ const uso = await askChoice([
+ { label: 'Vídeo, jogos e redes', action: 'video' },
+ { label: 'Fotos e viagens', action: 'foto' },
+ { label: 'Trabalho e mensagens', action: 'trabalho' }
+ ]);
+ addSignal(`Uso principal: ${uso.label.toLowerCase()}`);
+
+ await botSay('Entendi. <b>E a bateria: você precisa carregar no meio do dia?</b>', { typing: 600 });
+ const bateria = await askChoice([
+ { label: 'Quase sempre', action: 'sempre' },
+ { label: 'De vez em quando', action: 'vezes' },
+ { label: 'Aguenta o dia todo', action: 'nunca' }
+ ]);
+ addSignal(`Bateria: ${bateria.label.toLowerCase()}`);
+
+ // Uso intenso e bateria curta pesam para o Pro Max.
+ let peso = 0;
+ if (uso.action === 'video') peso += 2;
+ if (uso.action === 'foto') peso += 1;
+ if (bateria.action === 'sempre') peso += 2;
+ if (bateria.action === 'vezes') peso += 1;
+
+ const modelo = peso >= 3 ? 'Pro Max' : 'Pro';
+ logEvent('ia', `Recomendação calculada: iPhone ${modelo}`);
+
+ await botSay(modelo === 'Pro Max'
+ ? 'Pelo seu uso, eu recomendo o <b>Pro Max</b>. Você usa o aparelho de forma intensa e a bateria não está dando conta. É justamente aí que ele se paga: a maior autonomia da linha e a tela maior para vídeo e fotos.<br><br>Ele é mais alto e um pouco mais pesado; vale segurar na loja antes de fechar, se puder.'
+ : 'Pelo seu uso, eu recomendo o <b>Pro</b>. Ele tem exatamente a mesma câmera, o mesmo processador e a mesma tela do Pro Max, só num corpo menor, que se usa com uma mão e cabe no bolso sem incomodar.<br><br>A diferença real fica na bateria e no tamanho da tela, e nenhuma das duas parece ser o seu gargalo hoje.',
+ { typing: 1200 });
+
+ return modelo;
+}
+
+/** O cliente escolhe por onde quer comprar: site, loja ou televendas. */
+async function flowEscolhaCanal() {
+ logEvent('ia', 'Cliente sinalizou intenção de compra: oferecendo canais');
+ await botSay('Ótimo. Você prefere fechar sozinho pelo site, ser atendido em uma loja ou falar agora com um consultor online?');
+
+ // Os três canais aparecem sempre. O objetivo da campanha só define a ordem.
+ const canais = {
+ site: { label: 'Comprar no site', action: 'site' },
+ loja: { label: 'Atendimento na loja', action: 'loja' },
+ tele: { label: 'Consultor online', action: 'tele' }
+ };
+ const ordem = scenario.campanha === 'ecomm'
+ ? [canais.site, canais.loja, canais.tele]
+ : [canais.loja, canais.site, canais.tele];
+
+ const c = await askChoice(ordem);
+
+ if (c.action === 'site') return flowSite();
+
+ // Fora do horário, nenhuma das duas filas humanas atende: nem a loja,
+ // nem o televendas. A IA informa e oferece agendamento.
+ if (scenario.horario === 'noite') return flowForaDoHorario();
+
+ session.humanAskedAt = Date.now();
+ if (c.action === 'loja') return flowLoja();
+ return flowTele('escolha');
+}
+
+/** Atendimento humano encerrado: a IA informa e não deixa o cliente sem saída. */
+async function flowForaDoHorario() {
+ logEvent('ia', 'Fora do horário de atendimento (10h às 20h): agendamento oferecido');
+ await botSay('Nosso atendimento humano funciona das <b>10h às 20h</b> e já encerrou por hoje, tanto nas lojas quanto no time online.<br><br>Posso agendar um consultor para falar com você amanhã, a partir das 10h. E se preferir não esperar, o site fica disponível 24 horas e eu sigo por aqui para tirar dúvidas.');
+ const c = await askChoice([
+ { label: 'Agendar para amanhã', action: 'agenda' },
+ { label: 'Comprar no site', action: 'site' },
+ { label: 'Seguir com a assistente', action: 'voltar' }
+ ]);
+ if (c.action === 'voltar') return 'voltar'
+ if (c.action === 'site') return flowSite();
+ return flowAgenda();
+}
+
+async function flowAgenda() {
+ const p = await askChoice([
+ { label: 'Amanhã pela manhã', action: 'manha' },
+ { label: 'Amanhã à tarde', action: 'tarde' }
+ ]);
+ addSignal(`Agendamento preferido: ${p.label.toLowerCase()}`);
+
+ // Sem saber a região não dá para prometer uma loja específica.
+ await botSay('Combinado. Para eu deixar o agendamento com o consultor certo, me envia seu <b>CEP</b>?');
+ const cep = await askCepInput();
+
+ setNode('ia', 'done');
+ session.transf++;
+ renderKpis();
+
+ if (cep === '00000000') {
+ logEvent('tele', 'Sem loja na região: agendamento na fila de televendas');
+ commitBranch('tele');
+ await handoffCard('Fila SAC / Televendas');
+ await botSay(`Não temos loja próxima a esse endereço, então deixei o agendamento com o nosso time online. Eles falam com você ${p.label.toLowerCase()}, já com o resumo desta conversa.`);
+ finish('agenda', 'Contato agendado na fila de televendas, com o contexto anexado.');
+ return;
+ }
+
+ addSignal(`Região de atendimento: ${STORE.nome}`);
+ commitBranch('loja');
+ await handoffCard('Fila Loja');
+ logEvent('loja', 'Agendamento criado na fila da loja para o dia seguinte');
+ await botSay(`Agendado. Um consultor da <b>${STORE.nome}</b> entra em contato ${p.label.toLowerCase()}, já com o resumo desta conversa em mãos. Enquanto isso, a unidade separa o aparelho.`);
+ finish('agenda', 'Contato agendado com o contexto anexado. Nenhuma dúvida ficou sem resposta.');
+}
+
+async function flowLoja() {
+ // A integração não devolve o CEP do cadastro, então perguntamos.
+ await botSay('Para indicar a unidade mais próxima, preciso do seu <b>CEP</b>. Não tenho esse dado por aqui, então basta enviar os oito números.');
+ const cep = await askCepInput();
+
+ if (cep === '00000000') {
+ logEvent('ia', 'Nenhuma loja no raio de atendimento: rota alternativa');
+ await botSay('Não encontrei nenhuma loja iPlace próxima a esse endereço. Para não deixar você sem atendimento, posso encaminhar ao nosso time online agora. Ele atende com as mesmas condições e ainda organiza a entrega.');
+ const c = await askChoice([
+ { label: 'Falar com consultor online', action: 'tele' },
+ { label: 'Continuar com a assistente', action: 'voltar' }
+ ]);
+ if (c.action === 'voltar') { session.humanAskedAt = 0; return 'voltar'; }
+ return flowTele('sem_loja');
+ }
+
+ addSignal(`Região de atendimento: ${STORE.nome}`);
+ addSignal('Preferência: atendimento presencial');
+ await botSay(`Encontrei a <b>${STORE.nome}</b>, a ${STORE.eta} de você. Vou encaminhar seu atendimento ao consultor da unidade com o resumo da nossa conversa.`);
+ return flowFilaLoja();
+}
+
+/** Fila da loja, com o SLA de 15 minutos rodando por cima. */
+async function flowFilaLoja(viaTelevendas = false) {
+ setNode('ia', 'done');
+ session.transf++;
+ renderKpis();
+ logEvent('loja', viaTelevendas ? 'Transferência do televendas para a loja' : 'Roteado para a fila da loja');
+ if (viaTelevendas) await flowSwap();
+ else await flowLink('canal-ia', 400);
+ await handoffCard('Fila Loja');
+ commitBranch('loja');
+ session.sla = 'aguardando';
+ renderKpis();
+
+ if (scenario.loja === 'responde') {
+ await slaWait(4, 4200, 'Aguardando o consultor da loja');
+ session.sla = 'cumprido';
+ renderKpis();
+ appendSystemNote(`Atendimento assumido pelo consultor da ${STORE.nome} · mesma conversa`);
+ session.humanRepliedAt = session.humanRepliedAt || Date.now();
+ phoneStatus.textContent = 'Sarah · consultora';
+ await botSay(viaTelevendas
+ ? 'Oi! Aqui é a Sarah, da iPlace do Morumbi. O Marcos já me passou tudo e separei uma unidade em Titânio Natural no seu nome. Pode retirar até as 20h, é só chegar e falar comigo.'
+ : 'Olá, aqui é a Sarah, consultora da iPlace no Morumbi. Recebi o resumo do seu atendimento e vi o interesse no iPhone 18 e a intenção de troca. Posso reservar uma unidade em seu nome e já deixar a avaliação do seu aparelho agendada para quando você vier?',
+ { typing: 1200 });
+ finish(viaTelevendas ? 'loja_tele' : 'loja',
+ 'Consultor humano assumiu com o contexto completo, sem trocar de número.');
+ return;
+ }
+
+ // Regra de transbordo: 15 min sem resposta e o cliente é resgatado.
+ const chip = await slaWait(15, 8500, 'Aguardando o consultor da loja');
+ chip.classList.add('is-late');
+ session.sla = 'estourado';
+ renderKpis();
+ logEvent('loja', 'SLA de 15 min estourado');
+
+ // Se o cliente já veio do televendas, ele volta para lá e não fica em pingue-pongue.
+ if (viaTelevendas) {
+ await botSay('A loja não confirmou a reserva dentro do prazo. Sigo com você por aqui: consigo fechar agora com entrega em até 24 horas úteis, sem você precisar ir até lá.', { typing: 900 });
+ await transferir('loja', 'tele', 'Fila SAC / Televendas',
+ 'Loja não respondeu em 15 minutos · atendimento devolvido ao time online');
+ phoneStatus.textContent = 'Marcos · consultor';
+ finish('tele_sla', 'A loja não respondeu no prazo e o time online retomou o atendimento.');
+ return;
+ }
+
+ await botSay('Nosso consultor da loja não conseguiu retornar dentro do prazo, e não quero deixar você esperando. Estou passando seu atendimento para o time online agora mesmo.', { typing: 700 });
+ await transferir('loja', 'tele', 'Fila SAC / Televendas',
+ 'Sem resposta da loja em 15 minutos · transferido entre filas da OmniChat');
+ return flowTele('sla', true);
+}
+
+/**
+ * Fila de televendas. Depois de assumir, ainda oferece a loja:
+ * é a transferência no sentido inverso, que só existe por estarem na mesma plataforma.
+ */
+async function flowTele(motivo, jaTransferido = false) {
+ setNode('ia', 'done');
+ if (!jaTransferido) {
+ session.transf++;
+ renderKpis();
+ logEvent('tele', 'Roteado para a fila de SAC / televendas');
+ await flowLink('canal-ia', 400);
+ await handoffCard('Fila SAC / Televendas');
+ commitBranch('tele');
+ appendSystemNote('Atendimento assumido pelo time online · mesma conversa');
+ }
+
+ session.humanRepliedAt = Date.now();
+ phoneStatus.textContent = 'Marcos · consultor';
+ await botSay('Olá, aqui é o Marcos, do time da iPlace. Já estou com o resumo do seu atendimento, então não precisa repetir nada. Quer que eu feche a condição com a troca do seu aparelho incluída?', { typing: 1200 });
+
+ // Só oferece a loja se ela estiver aberta e não tiver acabado de falhar no SLA.
+ if (scenario.horario === 'comercial' && motivo !== 'sla' && motivo !== 'sem_loja'
+ && scenario.loja === 'responde') {
+ const c = await askChoice([
+ { label: 'Fechar por aqui mesmo', action: 'fechar' },
+ { label: 'Prefiro retirar hoje na loja', action: 'loja' }
+ ]);
+
+ if (c.action === 'loja') {
+ addSignal('Prefere retirada presencial hoje');
+ await botSay('Sem problema. Vou te passar para a Sarah, da unidade do Morumbi, com tudo o que já conversamos, então você não vai precisar repetir nada.', { typing: 900 });
+ return flowFilaLoja(true);
+ }
+ }
+
+ finish(motivo === 'sla' ? 'tele_sla' : 'tele',
+ 'Consultor humano assumiu com o contexto completo, sem trocar de número.');
+}
+
+/** Estado terminal: nada mais é clicável até reiniciar. */
+function finish(outcome, note) {
+ session.outcome = outcome;
+ session.running = false;
+ lockScenario(false);
+ clearInterval(session.ticker);
+ if (session.sla === 'aguardando') session.sla = null;
+ renderKpis();
+ appendSystemNote(note);
+ closeTray();
+ cancelPending();
+ btnStart.disabled = false;
+ btnStart.textContent = 'Disparar novamente';
+ if (outcome === 'site' || outcome === 'optout') phoneStatus.textContent = 'online';
+ else if (outcome === 'agenda') phoneStatus.textContent = 'contato agendado';
+}
+
+/* ============================================================
+ Ciclo de vida
+ ============================================================ */
+async function startCampaign() {
+ resetSim();
+ session.running = true;
+ session.startedAt = Date.now();
+ btnStart.disabled = true;
+ lockScenario(true);
+ phoneStatus.textContent = 'online';
+ session.ticker = setInterval(renderKpis, 1000);
+ renderKpis();
+
+ try {
+ setNode('emarsys', 'active');
+ logEvent('emarsys', 'Campanha de lançamento disparada');
+ await wait(500);
+
+ await flowLink('emarsys-omni');
+ setNode('emarsys', 'done');
+ setPlatform('active');
+ logEvent('omni', 'Template ativo entregue pela OmniChat');
+
+ // O texto muda com o objetivo da campanha, mas os dois caminhos
+ // de interesse entram na IA: ela atende 100% dos disparos.
+ logEvent('emarsys', scenario.campanha === 'ecomm'
+ ? 'Objetivo: conversão no e-commerce'
+ : 'Objetivo: gerar fluxo nas lojas');
+
+ await botSay(`Oi, <b>${CLIENTE}</b>. A única dúvida de verdade é essa: Pro ou Pro Max?<br><br>` +
+ 'Um é mais compacto, o outro tem tela e bateria maiores. Eu comparo os dois com você, a partir do jeito que você usa o seu iPhone.<br><br>' +
+ 'Me diz o que você está pensando e eu resolvo o resto: preço, parcelas, valor da sua troca e por onde você prefere comprar.',
+ { typing: 500 });
+
+ const choice = await askChoice([
+ { label: 'Pro', action: 'pro' },
+ { label: 'Pro Max', action: 'promax' },
+ { label: 'Me ajuda a decidir', action: 'decidir' }
+ ]);
+
+ await flowBotIntro(choice.action);
+
+ } catch (err) {
+ if (!(err instanceof Cancelled)) throw err; // cancelamento é esperado no reset
+ }
+}
+
+function resetSim() {
+ cancelPending();
+ clearInterval(session.ticker);
+ session.ticker = null;
+ session.running = false;
+ session.startedAt = 0;
+ session.taps = 0;
+ session.botMsgs = 0;
+ session.aiAnswers = 0;
+ session.outcome = null;
+ session.signals = [];
+ session.transf = 0;
+ session.humanAskedAt = 0;
+ session.humanRepliedAt = 0;
+ session.sla = null;
+ lockScenario(false);
+
+ chat.innerHTML = '<p class="chat-empty">Nenhuma mensagem. Dispare a campanha para iniciar a jornada.</p>';
+ inputArea.classList.remove('is-visible');
+ closeTray();
+ stickToBottom = true;
+ btnJump.classList.remove('is-visible');
+ logList.innerHTML = '';
+ logEmpty.hidden = false;
+ resetMap();
+ btnStart.disabled = false;
+ btnStart.textContent = 'Disparar campanha';
+ phoneStatus.textContent = 'conta comercial';
+ renderKpis();
+}
+
+/* Se algo quebrar no meio da jornada, o simulador diz na tela em vez de
+ simplesmente parar de responder. */
+function showFailure(msg) {
+ closeTray();
+ const el = document.createElement('div');
+ el.className = 'system-note is-error';
+ el.textContent = `O simulador travou aqui: ${msg}. Reinicie a simulação.`;
+ chat.append(el);
+ btnStart.disabled = false;
+}
+window.addEventListener('error', e => showFailure(e.message));
+window.addEventListener('unhandledrejection', e => {
+ if (!(e.reason instanceof Cancelled)) showFailure(e.reason?.message || 'erro desconhecido');
+});
+
+btnStart.addEventListener('click', startCampaign);
+btnReset.addEventListener('click', resetSim);
+resetSim();
+</script>
+</body>
+</html>

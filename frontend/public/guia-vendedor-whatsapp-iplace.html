@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Quando falar com o cliente pelo WhatsApp · iPlace</title>
+<style>
+ :root {
+ --bg: #F5F5F7;
+ --panel: #FFFFFF;
+ --subtle: #EFEFF2;
+ --text: #1D1D1F;
+ --text2: #6E6E73;
+ --blue: #0071E3;
+ --blue-ink: #005BB5;
+ --green: #248A3D;
+ --green-bg: #E4F7E7;
+ --amber: #B25000;
+ --amber-bg: #FFF3E0;
+ --red: #C7261A;
+ --red-bg: #FFE5E3;
+ --border: #D2D2D7;
+ --r: 18px;
+ --r-sm: 12px;
+ --shadow: 0 4px 20px rgba(0,0,0,.06);
+ }
+ @media (prefers-color-scheme: dark) {
+ :root {
+ --bg:#000; --panel:#1C1C1E; --subtle:#2C2C2E; --text:#F5F5F7; --text2:#98989D;
+ --border:#3A3A3C; --shadow:0 4px 24px rgba(0,0,0,.6);
+ --green:#5CD97A; --green-bg:#12321A; --amber:#FFB65C; --amber-bg:#3A2A10;
+ --red:#FF6B60; --red-bg:#3A1512;
+ }
+ }
+ * { box-sizing: border-box; }
+ body {
+ margin: 0;
+ padding: 0 20px 80px;
+ background: var(--bg);
+ color: var(--text);
+ font: 400 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+ -webkit-font-smoothing: antialiased;
+ }
+ .wrap { max-width: 760px; margin: 0 auto; }
+ :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 8px; }
+
+ /* ---------- capa ---------- */
+ header.hero { padding: 48px 0 28px; }
+ .eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--blue); }
+ h1 { margin: 0; font-size: clamp(28px, 6vw, 40px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+ .lead { margin: 14px 0 0; font-size: 17px; color: var(--text2); }
+
+ /* ---------- regra de ouro ---------- */
+ .golden {
+ margin: 24px 0 40px;
+ padding: 24px;
+ border-radius: var(--r);
+ background: var(--text);
+ color: var(--bg);
+ }
+ .golden p { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35; letter-spacing: -.01em; }
+ .golden small { display: block; margin-top: 12px; font-size: 14.5px; font-weight: 400; opacity: .75; line-height: 1.5; }
+
+ .scope {
+ margin: 0 0 16px;
+ padding: 20px 22px;
+ border-radius: var(--r);
+ border: 1.5px solid var(--blue);
+ background: rgba(0,113,227,.06);
+ }
+ .scope b { display: block; margin-bottom: 8px; font-size: 16px; color: var(--blue); }
+ .scope p { margin: 0 0 9px; font-size: 15px; }
+ .scope p:last-child { margin-bottom: 0; }
+
+ .alert {
+ display: flex; gap: 18px; align-items: flex-start;
+ margin: 0 0 40px;
+ padding: 20px 22px;
+ border-radius: var(--r);
+ background: var(--amber-bg);
+ }
+ .alert-n {
+ flex: 0 0 auto;
+ font-size: 40px; font-weight: 700; line-height: .9;
+ letter-spacing: -.04em; color: var(--amber);
+ }
+ .alert-n span { display: block; font-size: 13px; font-weight: 600; letter-spacing: 0; }
+ .alert b { display: block; font-size: 16.5px; }
+ .alert p { margin: 7px 0 0; font-size: 14.5px; }
+
+ section { margin-bottom: 44px; }
+ h2 {
+ margin: 0 0 6px;
+ font-size: 13px; font-weight: 700; letter-spacing: .08em;
+ text-transform: uppercase; color: var(--text2);
+ }
+ h2 + .sub { margin: 0 0 18px; font-size: 15.5px; color: var(--text2); }
+ h3 { margin: 0 0 10px; font-size: 20px; font-weight: 650; letter-spacing: -.01em; }
+
+ .card {
+ background: var(--panel);
+ border: 1px solid var(--border);
+ border-radius: var(--r);
+ padding: 22px;
+ box-shadow: var(--shadow);
+ }
+
+ /* ---------- ferramenta ---------- */
+ .tool { padding: 0; overflow: hidden; }
+ .tool-head { padding: 20px 22px; border-bottom: 1px solid var(--border); background: var(--subtle); }
+ .tool-head b { font-size: 15px; }
+ .tool-head span { display: block; margin-top: 3px; font-size: 13.5px; color: var(--text2); }
+ .tool-body { padding: 22px; }
+ .q { margin: 0 0 8px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+ .q-dica { margin: 0 0 16px; font-size: 14px; color: var(--text2); }
+ .opts { display: flex; flex-direction: column; gap: 9px; }
+ .opt {
+ appearance: none; width: 100%; text-align: left;
+ padding: 15px 17px;
+ border: 1.5px solid var(--border);
+ border-radius: var(--r-sm);
+ background: transparent;
+ color: var(--text);
+ font: 500 16px/1.35 inherit; font-family: inherit;
+ cursor: pointer;
+ transition: border-color .15s, background .15s;
+ }
+ .opt:hover { border-color: var(--blue); background: rgba(0,113,227,.06); }
+ .opt em { display: block; margin-top: 3px; font-size: 13.5px; font-style: normal; color: var(--text2); }
+
+ .back {
+ appearance: none; margin-top: 18px; padding: 9px 15px;
+ border: 1px solid var(--border); border-radius: 20px;
+ background: transparent; color: var(--text2);
+ font: 500 13.5px inherit; font-family: inherit; cursor: pointer;
+ }
+ .back:hover { color: var(--text); }
+
+ /* ---------- veredito ---------- */
+ .verdict { animation: pop .25s ease both; }
+ @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+ .badge {
+ display: inline-flex; align-items: center; gap: 7px;
+ padding: 7px 14px; border-radius: 20px;
+ font-size: 13px; font-weight: 700; letter-spacing: .02em;
+ margin-bottom: 14px;
+ }
+ .v-ok .badge { background: var(--green-bg); color: var(--green); }
+ .v-wait .badge { background: var(--amber-bg); color: var(--amber); }
+ .v-no .badge { background: var(--red-bg); color: var(--red); }
+ .verdict h3 { margin-bottom: 8px; }
+ .verdict .why { margin: 0 0 18px; font-size: 15.5px; color: var(--text2); }
+
+ .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+ .fact { padding: 13px 15px; border-radius: var(--r-sm); background: var(--subtle); }
+ .fact dt { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text2); }
+ .fact dd { margin: 4px 0 0; font-size: 16.5px; font-weight: 650; letter-spacing: -.01em; }
+
+ .script {
+ position: relative;
+ padding: 17px 19px;
+ border-radius: var(--r-sm);
+ background: #DCF8C6;
+ color: #14290A;
+ font-size: 15.5px;
+ line-height: 1.5;
+ margin-bottom: 14px;
+ }
+ @media (prefers-color-scheme: dark) { .script { background: #075E54; color: #E9EDEF; } }
+ .script b { display: block; margin-bottom: 7px; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; opacity: .65; }
+ .copy {
+ appearance: none; margin-top: 12px; padding: 8px 15px;
+ border: none; border-radius: 20px;
+ background: rgba(0,0,0,.12); color: inherit;
+ font: 600 13px inherit; font-family: inherit; cursor: pointer;
+ }
+ @media (prefers-color-scheme: dark) { .copy { background: rgba(255,255,255,.16); } }
+
+ .avoid { padding: 15px 17px; border-left: 3px solid var(--red); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--red-bg); font-size: 14.5px; }
+ .avoid b { color: var(--red); }
+
+ /* ---------- semáforo ---------- */
+ .rows { display: flex; flex-direction: column; gap: 10px; }
+ .row {
+ display: grid; grid-template-columns: 8px 1fr auto; gap: 14px; align-items: center;
+ padding: 15px 18px; border-radius: var(--r-sm);
+ background: var(--panel); border: 1px solid var(--border);
+ }
+ .row i { display: block; width: 8px; height: 38px; border-radius: 4px; }
+ .row.ok i { background: var(--green); }
+ .row.wait i { background: var(--amber); }
+ .row.no i { background: var(--red); }
+ .row b { display: block; font-size: 15.5px; font-weight: 600; }
+ .row span { display: block; margin-top: 2px; font-size: 13.5px; color: var(--text2); }
+ .row .when { font-size: 14px; font-weight: 650; text-align: right; white-space: nowrap; }
+ .row.ok .when { color: var(--green); }
+ .row.wait .when { color: var(--amber); }
+ .row.no .when { color: var(--red); }
+ @media (max-width: 520px) {
+ .row { grid-template-columns: 8px 1fr; }
+ .row .when { grid-column: 2; text-align: left; margin-top: 6px; }
+ }
+
+ /* ---------- nunca ---------- */
+ .never { background: var(--red-bg); border-color: transparent; }
+ .never ul { margin: 0; padding-left: 22px; }
+ .never li { margin-bottom: 11px; font-size: 15.5px; }
+ .never li:last-child { margin-bottom: 0; }
+ .never strong { color: var(--red); }
+
+ /* ---------- limites ---------- */
+ .limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+ .limit { padding: 20px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--border); }
+ .limit .n { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+ .limit b { display: block; margin: 8px 0 5px; font-size: 15px; }
+ .limit span { font-size: 13.5px; color: var(--text2); }
+
+ /* ---------- faq ---------- */
+ details {
+ border-bottom: 1px solid var(--border);
+ padding: 16px 0;
+ }
+ details summary {
+ cursor: pointer; font-size: 16.5px; font-weight: 600; letter-spacing: -.01em;
+ list-style: none; display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+ }
+ details summary::-webkit-details-marker { display: none; }
+ details summary::after { content: "+"; color: var(--blue); font-weight: 700; font-size: 20px; line-height: 1; }
+ details[open] summary::after { content: "−"; }
+ details p { margin: 12px 0 0; font-size: 15.5px; color: var(--text2); }
+
+ footer { padding-top: 20px; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--text2); }
+
+ @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+ <p class="eyebrow">iPlace · Campanha do novo iPhone (NPI)</p>
+ <h1>Quando você pode falar com o cliente</h1>
+ <p class="lead">O WhatsApp é o canal mais forte que a gente tem. Ele funciona porque o cliente confia. Estas regras existem para proteger essa confiança, e o seu resultado junto.</p>
+</header>
+
+<div class="scope">
+ <b>Vale só para a campanha do novo iPhone</b>
+ <p>Este roteiro trata das conversas do lançamento. Conversa de outro assunto não entra na conta: se o cliente falou com a gente sobre garantia, status de pedido ou troca, isso <b>não</b> conta como conversa da campanha, e você não pode usá-la para emendar a oferta.</p>
+ <p>Atenção ao contrário também: cliente com pedido, troca ou garantia em aberto está bloqueado para oferta, mesmo que tenha recebido a campanha. Resolver o problema vem primeiro.</p>
+</div>
+
+<div class="alert">
+ <div class="alert-n">15<span>min</span></div>
+ <div>
+ <b>Cliente que cai na sua fila precisa ser atendido em 15 minutos.</b>
+ <p>Passado esse tempo sem você responder, o atendimento sai automaticamente da loja e vai para o SAC. Você não perde só aquela conversa: o cliente fica com o SAC e você entra em cooldown para reabordar. Vale igual quando você assume uma conversa da assistente virtual, porque a partir daí o prazo é seu.</p>
+ </div>
+</div>
+
+<div class="golden">
+ <p>Antes de escrever para qualquer cliente, consulte o painel. Se aparecer o botão de abordar, é porque você pode.</p>
+ <small>Você não precisa decorar nada disso. O painel já sabe se o cliente está em atendimento, se comprou, se pediu para não receber mensagens ou se falou com a gente esta semana. O que esta página explica é o <em>por quê</em>, e o que dizer quando o botão estiver liberado.</small>
+</div>
+
+<section>
+ <h2>Ferramenta</h2>
+ <p class="sub">Responda duas perguntas e veja se pode abordar, qual o prazo e o que escrever.</p>
+
+ <div class="card tool">
+ <div class="tool-head">
+ <b>Posso falar com este cliente sobre o novo iPhone?</b>
+ <span>Vale para a campanha do novo iPhone. A palavra final é sempre o painel.</span>
+ </div>
+ <div class="tool-body" id="tool"></div>
+ </div>
+</section>
+
+<section>
+ <h2>Resumo</h2>
+ <p class="sub">As situações mais comuns da campanha e o prazo de cada uma.</p>
+ <div class="rows">
+ <div class="row ok"><i></i><div><b>Ele acabou de responder e a conversa está aberta</b><span>Melhor momento que existe. Continue de onde parou.</span></div><div class="when">Agora</div></div>
+ <div class="row ok"><i></i><div><b>A IA está atendendo e você quer assumir</b><span>Pode entrar, mas continuando a conversa, sem repetir a oferta.</span></div><div class="when">Agora</div></div>
+ <div class="row ok"><i></i><div><b>Ele procurou a gente e ninguém respondeu no prazo</b><span>Falha nossa. Assuma o erro e resolva.</span></div><div class="when">Agora</div></div>
+ <div class="row ok"><i></i><div><b>Não recebeu a campanha</b><span>Não existe conversa aberta. Aborde com a mensagem aprovada.</span></div><div class="when">Liberado</div></div>
+ <div class="row no"><i></i><div><b>A conversa foi sobre outro assunto</b><span>Garantia, pedido ou troca não valem como conversa da campanha.</span></div><div class="when">Não emende</div></div>
+ <div class="row wait"><i></i><div><b>Conversou, encerrou e não comprou</b><span>Volte só com informação nova.</span></div><div class="when">15 dias</div></div>
+ <div class="row wait"><i></i><div><b>Recebeu a mensagem e não respondeu</b><span>Nova tentativa, com abordagem diferente.</span></div><div class="when">15 dias</div></div>
+ <div class="row wait"><i></i><div><b>Escolheu comprar pelo site e não comprou</b><span>A gente respeita a escolha dele primeiro.</span></div><div class="when">15 dias</div></div>
+ <div class="row wait"><i></i><div><b>Foi atendido e disse que não quer comprar</b><span>Ele já respondeu. Insistir queima o canal.</span></div><div class="when">30 dias</div></div>
+ <div class="row wait"><i></i><div><b>Comprou com a gente</b><span>Retirada, acessório, configuração. Não ofereça o mesmo aparelho.</span></div><div class="when">Só pós-venda</div></div>
+ <div class="row no"><i></i><div><b>Está sendo atendido pelo SAC ou por outra loja</b><span>Dois vendedores na mesma conversa é o pior que pode acontecer.</span></div><div class="when">Não</div></div>
+ <div class="row no"><i></i><div><b>Tem pedido, troca ou garantia em aberto</b><span>Resolver o problema vem antes de vender.</span></div><div class="when">Não</div></div>
+ <div class="row no"><i></i><div><b>O cliente é de outra loja</b><span>Cada cliente tem uma unidade. Não existe disputa.</span></div><div class="when">Não</div></div>
+ </div>
+</section>
+
+<section>
+ <h2>Nunca</h2>
+ <p class="sub">Estas quatro não têm exceção, nem com autorização de gerente.</p>
+ <div class="card never">
+ <ul>
+ <li><strong>Cliente que pediu para não receber mensagens.</strong> Vale também quando ele escreveu "não tenho interesse" ou "para de mandar" na conversa, sem clicar em nada.</li>
+ <li><strong>Cliente esperando resolver um problema.</strong> Pedido atrasado, troca em andamento, aparelho na assistência. Oferecer iPhone novo para quem espera o reparo do antigo é o print que viraliza.</li>
+ <li><strong>Cliente que já está falando com alguém da iPlace.</strong> SAC, televendas ou outra loja. Se você tem algo a acrescentar, use a nota interna.</li>
+ <li><strong>Cliente fora do seu horário.</strong> Antes das 10h ou depois das 20h, ninguém aborda. Prometer atendimento que não existe é pior que não falar.</li>
+ </ul>
+ </div>
+</section>
+
+<section>
+ <h2>Limites</h2>
+ <p class="sub">Valem somando tudo: campanha da marca, sua abordagem e a de qualquer outra unidade.</p>
+ <div class="limits">
+ <div class="limit"><div class="n">2</div><b>mensagens em 30 dias</b><span>Máximo por cliente, contando campanha e loja.</span></div>
+ <div class="limit"><div class="n">15</div><b>dias entre uma e outra</b><span>Duas mensagens nunca saem na mesma quinzena.</span></div>
+ <div class="limit"><div class="n">15</div><b>minutos para responder</b><span>Cliente que cai na sua fila e não é atendido nesse prazo vai para o SAC.</span></div>
+ <div class="limit"><div class="n">24</div><b>horas de conversa livre</b><span>Depois que ele responde, você escreve o que quiser por 24h. Passou disso, só mensagem aprovada.</span></div>
+ </div>
+</section>
+
+<section>
+ <h2>Perguntas frequentes</h2>
+ <div class="card">
+ <details>
+ <summary>Por que não posso simplesmente mandar a oferta para a minha base toda?</summary>
+ <p>O WhatsApp limita quantas mensagens de promoção cada pessoa recebe por dia, somando todas as empresas, não só a iPlace. Quando alguém ignora ou bloqueia, a nossa entrega cai para todos os clientes daquela unidade. Uma varredura de base no fim do mês derruba o resultado do mês seguinte.</p>
+ </details>
+ <details>
+ <summary>O que é "conversa aberta"?</summary>
+ <p>Depois que o cliente te responde, você tem 24 horas para escrever o que quiser, do jeito que quiser. Isso é conversa aberta, e não custa nada para a empresa. Passadas as 24 horas sem ele responder, você só pode enviar uma mensagem pré-aprovada. É por isso que responder rápido vale tanto.</p>
+ </details>
+ <details>
+ <summary>O cliente respondeu à campanha. Posso mandar a oferta de novo para ele ver melhor?</summary>
+ <p>Não. Ele já viu. Repetir a oferta mostra que ninguém acompanhou a conversa. Continue do ponto onde ele parou: se ele perguntou sobre parcelamento, fale de parcelamento.</p>
+ </details>
+ <details>
+ <summary>Ele disse que ia pensar. Quando eu volto?</summary>
+ <p>Na data que vocês combinaram, e combine uma. Se você marcou de falar na quinta, ninguém mais vai falar com ele até quinta, e a responsabilidade de cumprir é sua. Agendamento não cumprido conta como atendimento não realizado.</p>
+ </details>
+ <details>
+ <summary>Perdi o cliente porque não respondi em 15 minutos. Posso chamar de novo?</summary>
+ <p>Depende do que aconteceu depois. Se o SAC atendeu e ele decidiu não comprar, são 30 dias. Se ele ficou sem atendimento de verdade, você pode retomar na hora, começando por reconhecer a falha em vez de oferecer.</p>
+ </details>
+ <details>
+ <summary>Achei um cliente ótimo na base, mas o painel não deixa abordar. Posso pedir liberação?</summary>
+ <p>Fale com seu gerente e registre o caso. O bloqueio sempre tem um motivo: pode ser um pedido em aberto que você não vê, um atendimento em outra fila ou uma campanha rodando. Contornar a regra não libera o cliente, só cria conversa duplicada.</p>
+ </details>
+ <details>
+ <summary>O cliente me chamou para falar de outra coisa. Posso aproveitar e oferecer o iPhone?</summary>
+ <p>Não. Conversa de garantia, pedido ou troca não vale como conversa da campanha, e emendar oferta em cima de um problema é o jeito mais rápido de perder o cliente. Resolva o que ele trouxe. Se ele mesmo abrir o assunto do aparelho novo, aí sim.</p>
+ </details>
+ <details>
+ <summary>Perdi o prazo de 15 minutos. O que acontece com o cliente?</summary>
+ <p>Ele vai automaticamente para o SAC, que assume a conversa. Você fica sem o atendimento e, se ele for atendido lá e decidir não comprar, você só pode voltar a falar com ele depois de 30 dias. É por isso que o relógio importa mais que a quantidade de clientes na sua lista.</p>
+ </details>
+ <details>
+ <summary>Vi o histórico inteiro da conversa. Posso mencionar tudo para mostrar que estou por dentro?</summary>
+ <p>Melhor não. Cite uma coisa só, a mais recente, e ofereça o próximo passo. Recitar tudo que a pessoa falou soa a vigilância, não a atendimento.</p>
+ </details>
+ </div>
+</section>
+
+<footer>
+ <p>Dúvidas sobre uma situação que não está aqui? Fale com seu gerente antes de escrever para o cliente. Página mantida pelo time de CRM · atualizada em agosto de 2026.</p>
+</footer>
+
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ Árvore de decisão. Cada nó é uma pergunta ou um veredito.
+ ============================================================ */
+const NOS = {
+ inicio: {
+ pergunta: 'Este cliente recebeu a mensagem da campanha do novo iPhone?',
+ dica: 'O painel mostra a data do envio. Se ele não recebeu, o caminho está livre para você abordar.',
+ opcoes: [
+ { txt: 'Sim, recebeu', sub: '', vai: 'depois' },
+ { txt: 'Não recebeu', sub: 'Nenhuma mensagem da campanha foi enviada a ele', vai: 'v_fora' },
+ { txt: 'Não sei', sub: '', vai: 'v_nao_sei' }
+ ]
+ },
+ depois: {
+ pergunta: 'E depois de receber, o que aconteceu?',
+ dica: 'Vale só a conversa sobre a campanha. Se ele falou com a gente sobre garantia ou pedido, isso não conta aqui.',
+ opcoes: [
+ { txt: 'Respondeu e a conversa está aberta', sub: 'Trocaram mensagem recentemente', vai: 'aberta' },
+ { txt: 'Respondeu, mas o atendimento já terminou', sub: '', vai: 'encerrada' },
+ { txt: 'Não respondeu nada', sub: 'Recebeu e não interagiu', vai: 'v_nao_respondeu' },
+ { txt: 'Ficou sem ser atendido por nossa falha', sub: 'Procurou a gente e ninguém respondeu no prazo', vai: 'v_falha' }
+ ]
+ },
+ aberta: {
+ pergunta: 'Quem está falando com ele agora?',
+ dica: '',
+ opcoes: [
+ { txt: 'Ninguém, ele parou de responder', sub: 'A conversa esfriou, mas não foi encerrada', vai: 'v_aberta_livre' },
+ { txt: 'A assistente virtual', sub: 'A IA está tirando as dúvidas dele', vai: 'v_ia' },
+ { txt: 'O SAC, o televendas ou outra loja', sub: '', vai: 'v_dono' },
+ { txt: 'Ele acabou de escrever para a gente', sub: 'Ele começou a conversa agora', vai: 'v_inbound' }
+ ]
+ },
+ encerrada: {
+ pergunta: 'Como esse atendimento terminou?',
+ dica: '',
+ opcoes: [
+ { txt: 'Ele comprou', sub: '', vai: 'v_comprou' },
+ { txt: 'Foi atendido e disse que não quer comprar', sub: 'Recusou de forma clara', vai: 'v_recusa' },
+ { txt: 'Encerrou sem comprar e sem dizer que não quer', sub: 'A conversa simplesmente acabou', vai: 'v_sem_compra' },
+ { txt: 'Combinou um retorno com alguém', sub: 'Ficou de falar em outro dia', vai: 'v_combinado' },
+ { txt: 'Escolheu comprar pelo site', sub: '', vai: 'v_site' },
+ { txt: 'Sumiu no meio da conversa', sub: 'Parou de responder sem encerrar', vai: 'sumiu' }
+ ]
+ },
+ sumiu: {
+ pergunta: 'Ele chegou a interagir antes de sumir?',
+ dica: '',
+ opcoes: [
+ { txt: 'Sim, clicou ou escreveu algo', sub: 'Demonstrou algum interesse', vai: 'v_aberta_livre' },
+ { txt: 'Não, abriu e não fez nada', sub: '', vai: 'v_nao_respondeu' }
+ ]
+ }
+};
+
+const VEREDITOS = {
+ v_fora: {
+ tom: 'ok', selo: 'Pode abordar', titulo: 'Sem envio, caminho livre',
+ why: 'Ele não recebeu a mensagem da campanha, então não existe conversa em andamento nem outro time envolvido. Aborde normalmente, com as checagens de sempre: é seu cliente, não pediu descadastro, não tem pedido ou garantia em aberto e você está dentro do horário.',
+ prazo: 'Liberado', tipo: 'Mensagem aprovada',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], da iPlace [LOJA]. Chegaram os novos iPhones e separei as condições de troca do seu aparelho atual. Quer que eu te mostre?',
+ nao: 'Não escreva mensagem livre: sem ele ter respondido antes, o WhatsApp não entrega. Use a mensagem aprovada do painel, porque ela também registra a abordagem no limite do cliente.'
+ },
+ v_aberta_livre: {
+ tom: 'ok', selo: 'Pode abordar agora', titulo: 'Melhor momento que existe',
+ why: 'Ele interagiu e a conversa está aberta. Aqui você escreve livremente, sem custo para a empresa, e é quando a chance de venda é maior. Depois de escrever, mantenha o ritmo: 15 minutos sem resposta sua e o atendimento vai para o SAC.',
+ prazo: 'Agora', tipo: 'Mensagem livre',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], da iPlace [LOJA]. Vi que você estava vendo as condições do iPhone e separei uma unidade para você conferir hoje. Quer que eu reserve?',
+ nao: 'Não reenvie a oferta da campanha e não recite tudo que ele perguntou. Cite uma coisa só e ofereça o próximo passo.'
+ },
+ v_ia: {
+ tom: 'ok', selo: 'Pode assumir', titulo: 'Você entra, a assistente sai',
+ why: 'A IA está atendendo e você pode assumir. Quando entrar, ela para de responder e o relógio passa a correr para você: são 15 minutos para dar a primeira resposta, senão o cliente vai para o SAC.',
+ prazo: 'Agora', tipo: 'Mensagem livre',
+ script: 'Oi, [NOME]! Sou [SEU NOME], da iPlace [LOJA], assumindo daqui. Sobre a troca do seu aparelho: consigo já deixar a avaliação agendada para quando você vier.',
+ nao: 'Não comece com "em que posso ajudar?", porque ele já explicou. Leia a conversa antes de escrever a primeira palavra.'
+ },
+ v_inbound: {
+ tom: 'ok', selo: 'Responda', titulo: 'Ele começou a conversa',
+ why: 'Quem escreve tem um assunto. Responda o que ele trouxe; oferta só se ele abrir o tema.',
+ prazo: 'Agora', tipo: 'Mensagem livre',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], da iPlace [LOJA]. Já estou vendo isso para você.',
+ nao: 'Não redirecione a conversa para a oferta que você quer vender antes de resolver o que ele pediu.'
+ },
+ v_falha: {
+ tom: 'ok', selo: 'Pode retomar agora', titulo: 'A falha foi nossa',
+ why: 'Ele nos procurou e ficou sem atendimento. Ninguém ofereceu nada e ninguém recusou nada, então não há prazo a cumprir: há um erro a corrigir.',
+ prazo: 'Agora', tipo: 'Mensagem livre',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], da iPlace [LOJA]. Vi que você nos procurou e não conseguimos te responder na hora. Me desculpe. Ainda posso ajudar com o iPhone?',
+ nao: 'Não finja que nada aconteceu e não culpe o sistema. Reconheça e resolva.'
+ },
+ v_combinado: {
+ tom: 'wait', selo: 'Só na data combinada', titulo: 'Existe um compromisso',
+ why: 'Quem combinou o retorno é o dono da conversa até a data marcada. Ninguém mais fala com ele nesse meio-tempo.',
+ prazo: 'Na data marcada', tipo: 'Mensagem livre',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], como combinamos. Consegui manter a condição da troca e tenho a cor que você queria em estoque.',
+ nao: 'Não deixe a data passar. Combinado não cumprido conta como atendimento não realizado, igual a perder o prazo de 15 minutos.'
+ },
+ v_sem_compra: {
+ tom: 'wait', selo: 'Aguarde 15 dias', titulo: 'Encerrou sem comprar',
+ why: 'O atendimento teve começo, meio e fim. Depois do prazo ele volta a ser abordável, e é o lead mais qualificado da sua lista, porque já conversou com a gente.',
+ prazo: '15 dias', tipo: 'Mensagem aprovada',
+ script: 'Volte com informação nova: chegada de estoque na sua unidade, mudança de condição, prazo de entrega. Nunca com a mesma oferta.',
+ nao: 'Não pergunte "ainda tem interesse?" e não reenvie a mensagem anterior.'
+ },
+ v_site: {
+ tom: 'wait', selo: 'Aguarde 15 dias', titulo: 'Ele escolheu o site',
+ why: 'Foi a escolha dele, e a gente respeita. Nesse período o time de CRM cuida da recuperação. Se comprou, o caso vira pós-venda.',
+ prazo: '15 dias', tipo: 'Mensagem aprovada',
+ script: 'Após o prazo, ofereça algo que o site não dá: avaliação do aparelho na hora, retirada no mesmo dia, configuração na loja.',
+ nao: 'Não tente convencê-lo a comprar com você em vez do site enquanto o prazo corre.'
+ },
+ v_nao_respondeu: {
+ tom: 'wait', selo: 'Aguarde 15 dias', titulo: 'Ele não respondeu',
+ why: 'Sem resposta dele, não existe conversa aberta. Qualquer mensagem nova é uma segunda tentativa para quem ignorou a primeira. Ela custa e conta no limite.',
+ prazo: '15 dias', tipo: 'Mensagem aprovada',
+ script: 'Use uma abordagem diferente da primeira. Se a campanha falou de preço, fale de disponibilidade na sua loja.',
+ nao: 'Não reenvie a mesma mensagem. E não tente todo dia: o WhatsApp bloqueia a entrega e a nossa reputação cai.'
+ },
+ v_recusa: {
+ tom: 'wait', selo: 'Aguarde 30 dias', titulo: 'Ele disse que não quer',
+ why: 'Alguém ofereceu e ele recusou. Isso é diferente de uma conversa que só acabou. Aqui existe uma resposta, e insistir cedo é o caminho mais rápido para ele bloquear a iPlace.',
+ prazo: '30 dias', tipo: 'Mensagem aprovada',
+ script: 'Só volte se tiver algo genuinamente novo. Se ele recusar de novo, trate como definitivo e registre.',
+ nao: 'Não tente a mesma oferta com desconto. Não passe o contato para outro colega tentar.'
+ },
+ v_comprou: {
+ tom: 'wait', selo: 'Somente pós-venda', titulo: 'Ele comprou',
+ why: 'Venda feita. O que resta é garantir uma boa experiência: retirada, configuração, acessório, seguro.',
+ prazo: '30 dias sem nova oferta', tipo: 'Mensagem livre, se a conversa estiver aberta',
+ script: 'Oi, [NOME]! Aqui é [SEU NOME], da iPlace [LOJA]. Seu iPhone está separado para retirada. Quer que eu deixe a transferência dos dados pronta para quando você chegar?',
+ nao: 'Não ofereça outro aparelho. Não venda acessório antes de a entrega estar resolvida.'
+ },
+ v_dono: {
+ tom: 'no', selo: 'Não pode', titulo: 'Já tem alguém na conversa',
+ why: 'SAC, televendas ou outra loja está atendendo. Dois times da mesma empresa escrevendo para o mesmo cliente é o atrito mais visível que existe.',
+ prazo: 'Enquanto durar', tipo: 'Nenhuma',
+ script: null,
+ nao: 'Não escreva "só para agilizar". Se você tem informação útil, registre na nota interna do atendimento.'
+ },
+ v_nao_sei: {
+ tom: 'no', selo: 'Consulte antes', titulo: 'Na dúvida, não escreva',
+ why: 'O painel mostra tudo: atendimento em andamento, compra recente, pedido em aberto, pedido de descadastro. Se o botão de abordar não estiver lá, existe um motivo.',
+ prazo: 'não se aplica', tipo: 'Nenhuma',
+ script: null,
+ nao: 'Não escreva "só para testar se ele responde". Uma mensagem no cliente errado custa mais que uma consulta.'
+ }
+};
+
+/* ============================================================
+ Render
+ ============================================================ */
+const tool = document.getElementById('tool');
+let historico = [];
+
+function render(id) {
+ const no = NOS[id];
+ if (no) return renderPergunta(id, no);
+ renderVeredito(id, VEREDITOS[id]);
+}
+
+function renderPergunta(id, no) {
+ tool.innerHTML = '';
+ const p = document.createElement('p');
+ p.className = 'q';
+ p.textContent = no.pergunta;
+ tool.append(p);
+
+ if (no.dica) {
+ const d = document.createElement('p');
+ d.className = 'q-dica';
+ d.textContent = no.dica;
+ tool.append(d);
+ }
+
+ const box = document.createElement('div');
+ box.className = 'opts';
+ no.opcoes.forEach(o => {
+ const b = document.createElement('button');
+ b.type = 'button';
+ b.className = 'opt';
+ b.innerHTML = o.sub ? `${o.txt}<em>${o.sub}</em>` : o.txt;
+ b.addEventListener('click', () => { historico.push(id); render(o.vai); });
+ box.append(b);
+ });
+ tool.append(box);
+
+ if (historico.length) tool.append(botaoVoltar());
+}
+
+function renderVeredito(id, v) {
+ tool.innerHTML = '';
+ const box = document.createElement('div');
+ box.className = `verdict v-${v.tom}`;
+
+ let html = `<span class="badge">${v.selo}</span>
+ <h3>${v.titulo}</h3>
+ <p class="why">${v.why}</p>
+ <dl class="facts">
+ <div class="fact"><dt>Quando</dt><dd>${v.prazo}</dd></div>
+ <div class="fact"><dt>Tipo de mensagem</dt><dd>${v.tipo}</dd></div>
+ </dl>`;
+
+ if (v.script) {
+ html += `<div class="script"><b>Sugestão de abertura</b><span id="txt">${v.script}</span>
+ <button type="button" class="copy" id="btn-copy">Copiar</button></div>`;
+ }
+ html += `<div class="avoid"><b>Evite:</b> ${v.nao}</div>`;
+ box.innerHTML = html;
+ tool.append(box);
+
+ const copiar = box.querySelector('#btn-copy');
+ if (copiar) {
+ copiar.addEventListener('click', async () => {
+ try {
+ await navigator.clipboard.writeText(box.querySelector('#txt').textContent);
+ copiar.textContent = 'Copiado';
+ setTimeout(() => (copiar.textContent = 'Copiar'), 1800);
+ } catch {
+ copiar.textContent = 'Selecione e copie';
+ }
+ });
+ }
+ tool.append(botaoVoltar(true));
+}
+
+function botaoVoltar(reiniciar) {
+ const b = document.createElement('button');
+ b.type = 'button';
+ b.className = 'back';
+ b.textContent = reiniciar ? 'Consultar outro cliente' : 'Voltar';
+ b.addEventListener('click', () => {
+ if (reiniciar) { historico = []; render('inicio'); }
+ else render(historico.pop() || 'inicio');
+ });
+ return b;
+}
+
+render('inicio');
+</script>
+</body>
+</html>
