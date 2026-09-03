@@ -22,10 +22,14 @@ if [ ! -f "frontend/dist/index.html" ]; then
   cd ..
 fi
 
+# --timeout 300: /api/emarsys/enviar/{filial} espera de forma sincrona (em
+# thread separada do event loop, via FastAPI) o export da Emarsys ficar
+# pronto, podendo levar alguns minutos - com 120s o worker matava a
+# requisicao antes do proprio codigo conseguir falhar de forma graciosa.
 exec gunicorn server:app \
   --worker-class uvicorn.workers.UvicornWorker \
   --workers 1 \
   --bind "0.0.0.0:$PORT" \
-  --timeout 120 \
+  --timeout 300 \
   --keep-alive 75 \
   --graceful-timeout 30

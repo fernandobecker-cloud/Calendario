@@ -231,7 +231,7 @@ class EmarsysClient:
         return None
 
     def export_segment(self, segment_id: int | str, field_ids: list[int | str],
-                        poll_seconds: int = 5, timeout_seconds: int = 300) -> bytes:
+                        poll_seconds: int = 5, timeout_seconds: int = 240) -> bytes:
         """Dispara a exportacao de um segmento (POST /export/filter) e aguarda
         o CSV ficar pronto, via polling em GET /export/{id} + download pelo
         WebDAV da Emarsys (GET /export/{id}/data nao funciona - ver docstring
@@ -249,25 +249,27 @@ class EmarsysClient:
             raise EmarsysError(f"Nao recebi um id de exportacao da Emarsys: {created}")
 
         waited = 0
+        ultimo_status = ""
         while waited < timeout_seconds:
             status_data = self._request("GET", f"/export/{export_id}")
             data = status_data.get("data", {})
-            # Confirmado contra a conta real (2026-09): a API usa underscore
-            # ("in_progress"), nao espaco ("in progress") como a Postman
-            # collection publica mostrava no exemplo fake - normaliza os dois.
-            status_raw = str(data.get("status", "")).strip().lower()
-            status = status_raw.replace("_", " ")
-            if status in ("error", "failed", "falhou"):
+            # Confirmado contra a conta real (2026-09): ha mais status
+            # intermediarios do que a doc/collection publica sugere
+            # ("scheduled", "in_progress", possivelmente outros) - em vez de
+            # tentar enumerar todos os valores de "ainda processando", so
+            # consideramos pronto quando file_name de fato aparecer.
+            ultimo_status = str(data.get("status", "")).strip().lower()
+            if ultimo_status in ("error", "failed", "falhou"):
                 raise EmarsysError(f"Exportacao {export_id} falhou: {status_data}")
-            if status and status != "in progress":
-                file_name = data.get("file_name")
-                if not file_name:
-                    raise EmarsysError(f"Exportacao {export_id} concluida sem file_name: {status_data}")
+            file_name = data.get("file_name")
+            if file_name:
                 return self._baixar_do_webdav(file_name)
             time.sleep(poll_seconds)
             waited += poll_seconds
 
-        raise EmarsysError(f"Exportacao {export_id} nao ficou pronta em {timeout_seconds}s")
+        raise EmarsysError(
+            f"Exportacao {export_id} nao ficou pronta em {timeout_seconds}s (ultimo status: '{ultimo_status}')"
+        )
 
     def _baixar_do_webdav(self, file_name: str) -> bytes:
         if not EMARSYS_WEBDAV_USER or not EMARSYS_WEBDAV_PASSWORD:
