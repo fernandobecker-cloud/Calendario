@@ -8,20 +8,28 @@ puro) em `emarsys_client.py` / `mapa_lojas.py` / `descobrir_segmentos.py` /
 
 IMPORTANTE - O QUE AINDA NAO ESTA CONFIRMADO
 ---------------------------------------------
-O caminho exato do recurso de "segmento" na API da Emarsys
-(`EMARSYS_SEGMENT_LIST_PATH`/`EMARSYS_SEGMENT_EXPORT_PATH_TEMPLATE` em
-`backend/services/emarsys_client.py`) e uma HIPOTESE (best guess: recurso
-"filter", nao "segment"), NAO uma chamada ja testada contra a conta real.
-Por isso este modulo NAO implementa criacao automatica de segmento (a
-estrutura JSON de criterios AND/OR/NOT tambem nao esta confirmada) - se o
-segmento de uma loja nao existir, os endpoints abaixo retornam erro pedindo
-para criar manualmente na tela do Emarsys (a filial 829 ja tem os dois
-segmentos prontos la e serve de caso de teste).
+O caminho do recurso de "segmento" (`EMARSYS_SEGMENT_LIST_PATH`/
+`EMARSYS_EXPORT_PATH` em `backend/services/emarsys_client.py`) ja foi
+CONFIRMADO por documentacao publica (Postman collections oficiais da
+Emarsys no GitHub - ver docstring desse modulo): dominio
+`https://api.emarsys.net/api/v3`, recurso `/filter` (lista/cria segmento)
+e `/export/filter` (dispara export). O que ainda falta confirmar contra a
+conta real e se esse client OAuth tem PERMISSAO pra usar esse recurso (o
+`/api/emarsys/discover` anterior batia 403 num caminho errado por acidente
+- via account_id no path, que nao existe na API real; agora testa o
+caminho certo).
+
+Este modulo NAO implementa criacao automatica de segmento (a estrutura de
+criterios AND/OR/NOT ate tem exemplo documentado, mas nunca foi testada
+contra a conta real, e um POST malformado criaria segmento de marketing
+errado numa conta de produção) - se o segmento de uma loja nao existir, os
+endpoints abaixo retornam erro pedindo para criar manualmente na tela do
+Emarsys (a filial 829 ja tem os dois segmentos prontos la e serve de caso
+de teste).
 
 Antes de usar /enviar ou /enviar-todas em producao, rode
-GET /api/emarsys/discover para confirmar o caminho certo do recurso de
-segmento e ajuste EMARSYS_SEGMENT_LIST_PATH/EMARSYS_SEGMENT_EXPORT_PATH_TEMPLATE
-no ambiente (Render) de acordo - sem precisar de outro deploy.
+GET /api/emarsys/discover para confirmar que o caminho responde 200 (nao
+403/404) contra a conta real.
 
 SEGURANCA
 ---------
@@ -51,7 +59,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.services.emarsys_client import (
-    EMARSYS_SEGMENT_EXPORT_PATH_TEMPLATE,
+    EMARSYS_EXPORT_PATH,
     EMARSYS_SEGMENT_LIST_PATH,
     EmarsysClient,
     EmarsysError,
@@ -69,31 +77,21 @@ SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() != "false"
 
 CAMPO_LOJA_EXPORT = os.getenv("EMARSYS_CAMPO_LOJA_EXPORT", "codigo_loja").strip()
-CUSTOMER_ID_PADRAO = os.getenv("EMARSYS_CUSTOMER_ID", "1091660394").strip()
 
-# Dominios+bases candidatos para /discover - api.emarsys.net/api/v2 (classico)
-# e testado so para confirmar que continua dando erro de WSSE (nunca vai
-# funcionar com OIDC). suite(63).emarsys.net bateram com URLs vistas no
-# navegador ao editar segmento na tela do Emarsys.
+# Dominios+bases candidatos para /discover. https://api.emarsys.net/api/v3 e
+# o confirmado por documentacao publica (Postman collections oficiais da
+# Emarsys no GitHub - ver docstring do modulo e de emarsys_client.py); os
+# demais ficam so pra registrar o contraste de erro (v2 classico exige WSSE,
+# nunca aceita OIDC; api.sap.emarsys.net e o dominio "SAP Engagement Cloud",
+# testado e confirmado como caminho ERRADO pra esta conta - usa outro
+# modelo de dados, `contactlist` estatico, sem segmento dinamico).
 CANDIDATOS_BASE = [
-    "https://api.sap.emarsys.net/api/v2",
-    "https://api.sap.emarsys.net/api",
-    f"https://api.emarsys.net/api/v3/{CUSTOMER_ID_PADRAO}",
-    "https://api.emarsys.net/api",
+    "https://api.emarsys.net/api/v3",
     "https://api.emarsys.net/api/v2",
-    "https://suite.emarsys.net/api/v2",
-    "https://suite.emarsys.net/api",
-    "https://suite63.emarsys.net/api/v2",
-    "https://suite63.emarsys.net/api",
+    "https://api.sap.emarsys.net/api/v2",
 ]
-CANDIDATOS_SEGMENTO = ["/segment", "/segments", "/filter", f"/customers/{CUSTOMER_ID_PADRAO}/segments"]
-CANDIDATOS_COMBINEDSEGMENT = [
-    "/combinedsegment",
-    "/combinedsegment/universal",
-    "/combinedsegments",
-    f"/customers/{CUSTOMER_ID_PADRAO}/segments",
-    f"/customers/{CUSTOMER_ID_PADRAO}/combinedsegments",
-]
+CANDIDATOS_SEGMENTO = ["/filter", "/segment", "/segments"]
+CANDIDATOS_COMBINEDSEGMENT = ["/combinedsegments", "/combinedsegment"]
 
 
 def require_admin(request: Request) -> None:
@@ -237,6 +235,7 @@ def status(request: Request) -> dict[str, Any]:
     return {
         "ok": True,
         "segment_list_path": EMARSYS_SEGMENT_LIST_PATH,
+        "export_path": EMARSYS_EXPORT_PATH,
         "total_itens": len(itens),
     }
 
@@ -437,7 +436,7 @@ def enviar_uma_loja(
     filial: str,
     request: Request,
     campanha: str = Query(default=""),
-    campos: str = Query(default="", description="IDs de campo da Emarsys a exportar, separados por virgula"),
+    campos: str = Query(default="", description="IDs NUMERICOS de campo da Emarsys a exportar (ex: 3 = e-mail), separados por virgula - confirme na tela de campos do Emarsys"),
     campo_loja: str = Query(default=CAMPO_LOJA_EXPORT),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
