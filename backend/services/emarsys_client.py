@@ -161,22 +161,27 @@ class EmarsysClient:
         return token
 
     def headers(self) -> dict:
-        return {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._obter_token()}",
-        }
+        # Sem Content-Type aqui de proposito: em GET (sem corpo) o curl que
+        # confirmamos funcionando na conta real nao mandava esse header, e
+        # o `requests` ja adiciona Content-Type: application/json por conta
+        # propria quando o kwarg `json=` e passado (POST/PUT com corpo).
+        return {"Authorization": f"Bearer {self._obter_token()}"}
 
     def get_raw(self, base_url: str, path: str, *, timeout: int = 30) -> requests.Response:
         """GET sem parsing/validacao de envelope - usado pela descoberta de
         endpoints (varias bases/caminhos candidatos, sem assumir formato)."""
-        return requests.get(f"{base_url}{path}", headers=self.headers(), timeout=timeout)
+        url = f"{base_url.rstrip('/')}{path}"
+        return requests.get(url, headers=self.headers(), timeout=timeout)
 
     def _request(self, method: str, path: str, **kwargs) -> dict:
-        url = f"{self.config.base_url}{path}"
+        # rstrip evita barra dupla se EMARSYS_BASE_URL tiver "/" no final
+        # (ex: ".../v3/" + "/filter/123" -> ".../v3//filter/123", que vira
+        # 404 de rota inexistente em vez de bater no recurso certo).
+        url = f"{self.config.base_url.rstrip('/')}{path}"
         resp = requests.request(method, url, headers=self.headers(), timeout=60, **kwargs)
         if resp.status_code >= 400:
             raise EmarsysError(
-                f"Emarsys retornou HTTP {resp.status_code} em {method} {path}: {resp.text[:500]}"
+                f"Emarsys retornou HTTP {resp.status_code} em {method} {url}: {resp.text[:500]}"
             )
         try:
             data = resp.json()
