@@ -195,10 +195,24 @@ class EmarsysClient:
         data = self._request("GET", EMARSYS_SEGMENT_LIST_PATH)
         return data.get("data", data.get("items", []))
 
+    def get_segment_by_id(self, segment_id: int | str) -> dict:
+        """Busca um segmento por ID direto em GET /filter/{id} - CONFIRMADO
+        funcionando contra a conta real (2026-09), diferente da busca por
+        lista (ver find_segment_by_name abaixo). Retorna {"id", "name",
+        "type", ...}."""
+        data = self._request("GET", f"{EMARSYS_SEGMENT_LIST_PATH}/{segment_id}")
+        return data.get("data", {})
+
     def find_segment_by_name(self, name: str) -> dict | None:
-        """Busca um segmento pelo nome exato em GET /filter (envelope
-        {"data": [{"id":.., "name":.., ...}, ...]}, confirmado via Postman
-        collection publica - ver docstring do modulo)."""
+        """Busca um segmento pelo nome exato em GET /filter (lista completa).
+
+        ATENCAO: confirmado contra a conta real (2026-09) que este endpoint
+        (listar todos os segmentos) da 403 "sem_acesso" mesmo com a
+        permissao "segment.list" ativa na tela de credenciais - ainda sem
+        explicacao (aberto com o suporte da Emarsys). GET /filter/{id}
+        direto (get_segment_by_id) funciona normalmente. Prefira preencher
+        `segmento_combinado_id` no CSV de lojas (backend/data/
+        mapeamento_lojas_sap.csv) em vez de depender deste metodo."""
         data = self._request("GET", EMARSYS_SEGMENT_LIST_PATH)
         itens = data.get("data", data.get("items", []))
         if isinstance(itens, dict) and isinstance(itens.get("items"), list):

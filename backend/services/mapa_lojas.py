@@ -36,6 +36,12 @@ class Loja:
     descricao: str = ""
     regional: str = ""
     gerente_regional: str = ""
+    # ID numerico do segmento combinado (NPI_LJ...) no Emarsys, se ja
+    # descoberto manualmente - GET /filter (lista, usado pra buscar por
+    # nome) da 403 nesta conta mesmo com a permissao "segment.list" ativa;
+    # GET /filter/{id} direto funciona. Preencher essa coluna no CSV
+    # (opcional) evita depender da busca por nome, que hoje nao funciona.
+    segmento_combinado_id: str = ""
 
     @property
     def nome_segmento_base(self) -> str:
@@ -77,6 +83,7 @@ def carregar_mapa(caminho: Path = MAPA_PATH, *, force_reload: bool = False) -> d
                 descricao=row.get("descricao", "").strip(),
                 regional=row.get("regional", "").strip(),
                 gerente_regional=row.get("gerente_regional", "").strip(),
+                segmento_combinado_id=(row.get("segmento_combinado_id") or "").strip(),
             )
     _mapa_cache = mapa
     return mapa

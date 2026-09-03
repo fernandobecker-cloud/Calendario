@@ -345,14 +345,29 @@ def _processar_loja(
     dry_run: bool,
     email_teste: str,
 ) -> dict[str, Any]:
-    segmento = client.find_segment_by_name(loja.nome_segmento_combinado)
+    try:
+        if loja.segmento_combinado_id:
+            # GET /filter/{id} direto - confirmado funcionando. Preferido
+            # sobre a busca por nome (GET /filter lista, que da 403 nesta
+            # conta mesmo com a permissao certa ativa - ver docstring de
+            # find_segment_by_name).
+            segmento = client.get_segment_by_id(loja.segmento_combinado_id)
+        else:
+            segmento = client.find_segment_by_name(loja.nome_segmento_combinado)
+    except EmarsysError as exc:
+        return {
+            "filial": loja.filial,
+            "ok": False,
+            "erro": f"Falha ao buscar segmento '{loja.nome_segmento_combinado}': {exc}",
+        }
     if not segmento:
         return {
             "filial": loja.filial,
             "ok": False,
             "erro": f"Segmento '{loja.nome_segmento_combinado}' nao encontrado. "
                     f"Crie manualmente na tela do Emarsys antes de rodar este envio "
-                    f"(estrutura AND/NOT ainda nao confirmada para criacao automatica).",
+                    f"(estrutura AND/NOT ainda nao confirmada para criacao automatica), "
+                    f"ou preencha 'segmento_combinado_id' no CSV de lojas se ja existir.",
         }
     segmento_id = segmento.get("id") or segmento.get("id_", "")
 
@@ -445,11 +460,16 @@ def enviar_uma_loja(
 
     campos_exportacao = [c.strip() for c in campos.split(",") if c.strip()]
     client = _get_client()
-    return _processar_loja(
-        client, loja,
-        campos_exportacao=campos_exportacao, campo_loja=campo_loja,
-        campanha=campanha, dry_run=dry_run, email_teste=email_teste,
-    )
+    try:
+        return _processar_loja(
+            client, loja,
+            campos_exportacao=campos_exportacao, campo_loja=campo_loja,
+            campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao processar loja {filial}: {exc}") from exc
 
 
 @router.post("/enviar-todas")
