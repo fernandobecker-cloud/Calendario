@@ -290,20 +290,20 @@ def obter_loja_endpoint(filial: str, request: Request) -> dict[str, Any]:
 # Exportar + dividir + enviar - porta enviar_arquivos_lojas.py
 # ---------------------------------------------------------------------------
 
-def _dividir_csv_por_loja(csv_bytes: bytes, campo_loja: str) -> dict[str, list[dict]]:
+def _dividir_csv_por_loja(csv_bytes: bytes, campo_loja: str, *, filial_padrao: str) -> dict[str, list[dict]]:
+    """Divide as linhas do export pelo campo de loja - so uma rede de
+    seguranca (cada segmento ja e de uma loja so). Se a coluna nao vier no
+    export (o campo so entra se seu ID numerico tiver sido passado em
+    `campos`, e nao e obrigatorio), nao falha: trata tudo como pertencente
+    a `filial_padrao` (a loja que estamos processando)."""
     texto = csv_bytes.decode("utf-8-sig")
     leitor = csv.DictReader(io.StringIO(texto))
+    linhas = list(leitor)
     if campo_loja not in (leitor.fieldnames or []):
-        raise HTTPException(
-            status_code=502,
-            detail=f"Campo de loja '{campo_loja}' nao existe no CSV exportado. "
-                   f"Colunas disponiveis: {leitor.fieldnames}",
-        )
+        return {filial_padrao: linhas} if linhas else {}
     por_loja: dict[str, list[dict]] = {}
-    for linha in leitor:
-        codigo = (linha.get(campo_loja) or "").strip()
-        if not codigo:
-            continue
+    for linha in linhas:
+        codigo = (linha.get(campo_loja) or "").strip() or filial_padrao
         por_loja.setdefault(codigo, []).append(linha)
     return por_loja
 
@@ -356,16 +356,12 @@ def _processar_loja(
         }
     segmento_id = segmento.get("id") or segmento.get("id_", "")
 
-    campos = list(campos_exportacao)
-    if campo_loja not in campos:
-        campos.append(campo_loja)
-
     try:
-        csv_bytes = client.export_segment(str(segmento_id), campos)
+        csv_bytes = client.export_segment(str(segmento_id), campos_exportacao)
     except EmarsysError as exc:
         return {"filial": loja.filial, "ok": False, "erro": f"Falha ao exportar segmento: {exc}"}
 
-    por_loja = _dividir_csv_por_loja(csv_bytes, campo_loja)
+    por_loja = _dividir_csv_por_loja(csv_bytes, campo_loja, filial_padrao=loja.filial)
     outras_filiais = sorted(set(por_loja) - {loja.filial})
     if outras_filiais:
         log.warning(
@@ -437,7 +433,7 @@ def enviar_uma_loja(
     request: Request,
     campanha: str = Query(default=""),
     campos: str = Query(default="", description="IDs NUMERICOS de campo da Emarsys a exportar (ex: 3 = e-mail), separados por virgula - confirme na tela de campos do Emarsys"),
-    campo_loja: str = Query(default=CAMPO_LOJA_EXPORT),
+    campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
 ) -> dict[str, Any]:
@@ -461,7 +457,7 @@ def enviar_todas_lojas(
     request: Request,
     campanha: str = Query(default=""),
     campos: str = Query(default=""),
-    campo_loja: str = Query(default=CAMPO_LOJA_EXPORT),
+    campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     confirmar: bool = Query(default=False, description="precisa ser true (alem de dry_run=false) para disparar envio real em massa"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
