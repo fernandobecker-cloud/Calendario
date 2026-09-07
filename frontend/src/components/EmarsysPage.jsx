@@ -94,7 +94,7 @@ export default function EmarsysPage() {
     loadLojas()
   }, [loadLojas])
 
-  const totalProntas = useMemo(() => lojas.filter((l) => l.segmento_combinado_id).length, [lojas])
+  const totalProntas = useMemo(() => lojas.filter((l) => l.segmento_base_id).length, [lojas])
 
   const handleEnviarIndividual = useCallback(async (event) => {
     event.preventDefault()
@@ -203,7 +203,7 @@ export default function EmarsysPage() {
         {lojasErro && <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{lojasErro}</p>}
         <p className="text-sm text-slate-600">
           {lojas.length} loja(s) no mapeamento - {totalProntas} com segmento ja configurado (
-          <code className="rounded bg-slate-100 px-1">segmento_combinado_id</code>), {lojas.length - totalProntas} ainda sem.
+          <code className="rounded bg-slate-100 px-1">segmento_base_id</code>), {lojas.length - totalProntas} ainda sem.
         </p>
         <details className="mt-3">
           <summary className="cursor-pointer text-sm font-medium text-slate-700">Ver lista completa</summary>
@@ -224,7 +224,7 @@ export default function EmarsysPage() {
                     <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{loja.descricao}</td>
                     <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{loja.regional}</td>
                     <td className="whitespace-nowrap px-3 py-1.5">
-                      {loja.segmento_combinado_id ? (
+                      {loja.segmento_base_id ? (
                         <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Sim</span>
                       ) : (
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Nao</span>

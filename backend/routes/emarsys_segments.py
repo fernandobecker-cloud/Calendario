@@ -24,8 +24,17 @@ criterios AND/OR/NOT ate tem exemplo documentado, mas nunca foi testada
 contra a conta real, e um POST malformado criaria segmento de marketing
 errado numa conta de produção) - se o segmento de uma loja nao existir, os
 endpoints abaixo retornam erro pedindo para criar manualmente na tela do
-Emarsys (a filial 829 ja tem os dois segmentos prontos la e serve de caso
-de teste).
+Emarsys.
+
+IMPORTANTE - BASE, nao COMBINADO: a automacao usa o segmento BASE
+(Base_LJ...) de cada loja, nao o combinado (NPI_LJ..., que tem criterios
+extras de uma campanha especifica). A unica vantagem do combinado pra uso
+geral - excluir opt-out de WhatsApp - ja e feita no codigo (ver
+`_filtrar_opt_out`), entao o base (lista completa de clientes da loja) e o
+correto aqui. Erro identificado e corrigido em 2026-09: a automacao estava
+usando o id do segmento COMBINADO da filial 829 (1028033362) por engano -
+esse valor foi removido do CSV de lojas; falta preencher o id do segmento
+BASE de 829 (e das demais lojas) em `segmento_base_id`.
 
 Antes de usar /enviar ou /enviar-todas em producao, rode
 GET /api/emarsys/discover para confirmar que o caminho responde 200 (nao
@@ -324,8 +333,8 @@ def listar_lojas(request: Request) -> dict[str, Any]:
                 "descricao": loja.descricao,
                 "regional": loja.regional,
                 "segmento_base": loja.nome_segmento_base,
+                "segmento_base_id": loja.segmento_base_id or None,
                 "segmento_combinado": loja.nome_segmento_combinado,
-                "segmento_combinado_id": loja.segmento_combinado_id or None,
                 "email_gerente": loja.email_gerente,
                 "email_subgerente": loja.email_subgerente,
             }
@@ -348,6 +357,7 @@ def obter_loja_endpoint(filial: str, request: Request) -> dict[str, Any]:
         "regional": loja.regional,
         "gerente_regional": loja.gerente_regional,
         "segmento_base": loja.nome_segmento_base,
+        "segmento_base_id": loja.segmento_base_id or None,
         "segmento_combinado": loja.nome_segmento_combinado,
         "email_gerente": loja.email_gerente,
         "email_subgerente": loja.email_subgerente,
@@ -404,25 +414,31 @@ def _enviar_email(destinatarios: list[str], assunto: str, corpo: str, anexo: Pat
 
 
 def _resolver_segmento_id(client: EmarsysClient, loja: Loja) -> tuple[str, str]:
-    """Acha o id do segmento combinado da loja. Devolve (segmento_id, erro) -
-    exatamente um dos dois preenchido. Preferido: `segmento_combinado_id` do
-    CSV de lojas, via GET /filter/{id} direto (confirmado funcionando).
-    Fallback: busca por nome (GET /filter lista, que da 403 nesta conta
-    mesmo com a permissao certa ativa - ver docstring de
-    find_segment_by_name)."""
+    """Acha o id do segmento BASE (Base_LJ...) da loja. Devolve
+    (segmento_id, erro) - exatamente um dos dois preenchido.
+
+    Usa o segmento BASE, nao o combinado (NPI_LJ...): o combinado tem
+    criterios extras de uma campanha NPI especifica, e sua unica vantagem
+    sobre o base pra uso geral (excluir opt-out de WhatsApp) ja e feita no
+    codigo (ver `_filtrar_opt_out`) - o base e a lista completa de clientes
+    da loja, correta pra automacao geral.
+
+    Preferido: `segmento_base_id` do CSV de lojas, via GET /filter/{id}
+    direto (confirmado funcionando). Fallback: busca por nome (GET /filter
+    lista, que da 403 nesta conta mesmo com a permissao certa ativa - ver
+    docstring de find_segment_by_name)."""
     try:
-        if loja.segmento_combinado_id:
-            segmento = client.get_segment_by_id(loja.segmento_combinado_id)
+        if loja.segmento_base_id:
+            segmento = client.get_segment_by_id(loja.segmento_base_id)
         else:
-            segmento = client.find_segment_by_name(loja.nome_segmento_combinado)
+            segmento = client.find_segment_by_name(loja.nome_segmento_base)
     except EmarsysError as exc:
-        return "", f"Falha ao buscar segmento '{loja.nome_segmento_combinado}': {exc}"
+        return "", f"Falha ao buscar segmento '{loja.nome_segmento_base}': {exc}"
     if not segmento:
         return "", (
-            f"Segmento '{loja.nome_segmento_combinado}' nao encontrado. "
-            f"Crie manualmente na tela do Emarsys antes de rodar este envio "
-            f"(estrutura AND/NOT ainda nao confirmada para criacao automatica), "
-            f"ou preencha 'segmento_combinado_id' no CSV de lojas se ja existir."
+            f"Segmento '{loja.nome_segmento_base}' nao encontrado. "
+            f"Crie manualmente na tela do Emarsys antes de rodar este envio, "
+            f"ou preencha 'segmento_base_id' no CSV de lojas se ja existir."
         )
     segmento_id = segmento.get("id") or segmento.get("id_", "")
     return str(segmento_id), ""
@@ -447,7 +463,7 @@ def _dividir_e_enviar(
         log.warning(
             "Segmento %s (filial %s) trouxe contatos de outras filiais no export: %s "
             "- isso indica que o segmento nao esta 100%% escopado so a essa loja.",
-            loja.nome_segmento_combinado, loja.filial, outras_filiais,
+            loja.nome_segmento_base, loja.filial, outras_filiais,
         )
 
     por_loja: dict[str, list[dict]] = {}
