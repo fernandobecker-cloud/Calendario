@@ -9,6 +9,7 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
 }
 
 const INTERVALO_AUTO_COLETA_MS = 8000
+const LOTE_TAMANHO_INICIAR = 10
 
 const LOTE_STORAGE_KEY = 'emarsys_lote_massa_v1'
 
@@ -149,6 +150,8 @@ export default function EmarsysPage() {
   const [iniciarLoading, setIniciarLoading] = useState(false)
   const [iniciarErro, setIniciarErro] = useState('')
   const [iniciarResumo, setIniciarResumo] = useState(null)
+  const [iniciarProgresso, setIniciarProgresso] = useState({ processados: 0, total: 0 })
+  const iniciarAtivoRef = useRef(false)
   const [lotePendente, setLotePendente] = useState([])
   const [loteTotal, setLoteTotal] = useState([])
 
@@ -243,38 +246,67 @@ export default function EmarsysPage() {
     }
   }, [filialSelecionada, campanhaIndividual, dryRunIndividual, emailTesteIndividual, baixarArquivoIndividual])
 
+  // Dispara o export em lotes pequenos (nao todas as ~89 lojas numa unica
+  // chamada) - processar tudo de uma vez demora minutos e o proxy do
+  // Render (plano gratuito) derruba a conexao com 502 antes de terminar.
   const handleIniciar = useCallback(async () => {
     autoColetaAtivaRef.current = false
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
     setAutoColetando(false)
+    iniciarAtivoRef.current = true
     setIniciarLoading(true)
     setIniciarErro('')
-    try {
-      const res = await fetch('/api/emarsys/enviar-todas/iniciar', { method: 'POST' })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
-      setIniciarResumo(payload)
-      setLoteTotal(payload?.lote || [])
-      setLotePendente(payload?.lote || [])
-      setResultadosPorFilial({})
-      setColetarResumoUltima(null)
-      arquivosAcumulados.current = []
-      if ((payload?.lote || []).length > 0) {
-        salvarProgressoLote({
-          loteTotal: payload.lote,
-          lotePendente: payload.lote,
-          resultadosPorFilial: {},
-          iniciarResumo: payload,
-          coletarResumoUltima: null,
-        })
-      } else {
-        limparProgressoLote()
+    setResultadosPorFilial({})
+    setColetarResumoUltima(null)
+    setIniciarResumo(null)
+    setLoteTotal([])
+    setLotePendente([])
+    arquivosAcumulados.current = []
+    limparProgressoLote()
+
+    let offset = 0
+    let loteAcumulado = []
+    let errosAcumulados = []
+    let total = 0
+
+    while (iniciarAtivoRef.current) {
+      try {
+        const res = await fetch(`/api/emarsys/enviar-todas/iniciar?offset=${offset}&limite=${LOTE_TAMANHO_INICIAR}`, { method: 'POST' })
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+
+        total = payload.total_lojas
+        loteAcumulado = [...loteAcumulado, ...(payload.lote || [])]
+        errosAcumulados = [...errosAcumulados, ...(payload.erros || [])]
+        setIniciarProgresso({ processados: offset + payload.processados_nesta_chamada, total })
+        setLoteTotal(loteAcumulado)
+        setLotePendente(loteAcumulado)
+        setIniciarResumo({ total_lojas: total, iniciados: loteAcumulado.length, falhas: errosAcumulados.length, erros: errosAcumulados })
+
+        if (payload.proximo_offset === null || payload.proximo_offset === undefined) break
+        offset = payload.proximo_offset
+      } catch (err) {
+        setIniciarErro(err instanceof Error ? err.message : 'Erro ao iniciar exportacao.')
+        break
       }
-    } catch (err) {
-      setIniciarErro(err instanceof Error ? err.message : 'Erro ao iniciar exportacao.')
-    } finally {
-      setIniciarLoading(false)
     }
+
+    if (loteAcumulado.length > 0) {
+      salvarProgressoLote({
+        loteTotal: loteAcumulado,
+        lotePendente: loteAcumulado,
+        resultadosPorFilial: {},
+        iniciarResumo: { total_lojas: total, iniciados: loteAcumulado.length, falhas: errosAcumulados.length, erros: errosAcumulados },
+        coletarResumoUltima: null,
+      })
+    }
+    iniciarAtivoRef.current = false
+    setIniciarLoading(false)
+  }, [])
+
+  const handlePararIniciar = useCallback(() => {
+    iniciarAtivoRef.current = false
+    setIniciarLoading(false)
   }, [])
 
   // executa UMA chamada a /coletar com o lote passado e devolve a lista de
@@ -581,6 +613,20 @@ export default function EmarsysPage() {
           </p>
         )}
 
+        {iniciarLoading && (
+          <div className="mb-4">
+            <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full bg-indigo-500 transition-all"
+                style={{ width: `${iniciarProgresso.total > 0 ? (iniciarProgresso.processados / iniciarProgresso.total) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Disparando exportacao: {iniciarProgresso.processados} de {iniciarProgresso.total || '...'} lojas
+            </p>
+          </div>
+        )}
+
         {progressoMassa.total > 0 && (
           <div className="mb-4">
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
@@ -607,8 +653,16 @@ export default function EmarsysPage() {
             disabled={iniciarLoading}
             className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
           >
-            {iniciarLoading ? 'Disparando...' : '1. Iniciar exportacao de todas as lojas'}
+            {iniciarLoading ? `Disparando... (${iniciarProgresso.processados}/${iniciarProgresso.total || '...'})` : '1. Iniciar exportacao de todas as lojas'}
           </button>
+          {iniciarLoading && (
+            <button
+              onClick={handlePararIniciar}
+              className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+            >
+              Parar
+            </button>
+          )}
           <button
             onClick={handleColetar}
             disabled={autoColetando || lotePendente.length === 0}

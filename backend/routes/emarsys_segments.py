@@ -729,19 +729,27 @@ class ColetarBody(BaseModel):
 def iniciar_todas_lojas(
     request: Request,
     campos: str = Query(default=CAMPOS_PADRAO, description="IDs NUMERICOS de campo da Emarsys a exportar, separados por virgula - os mesmos que serao usados depois em /coletar"),
+    offset: int = Query(default=0, ge=0, description="Indice da loja onde comecar - fluxo em lotes, pra nao estourar o timeout do proxy processando as ~89 lojas numa unica chamada"),
+    limite: int = Query(default=10, ge=1, le=89, description="Quantas lojas processar nesta chamada"),
 ) -> dict[str, Any]:
     """Fase 1: acha o segmento e dispara o export (POST /export/filter) de
-    TODAS as lojas, sem esperar nenhum ficar pronto. Devolve o 'lote' que
-    deve ser guardado (pelo chamador) e reenviado para /enviar-todas/coletar
-    depois - nao ha estado guardado no servidor entre as duas chamadas."""
+    um LOTE de lojas por vez (nao todas de uma vez - processar as ~89 numa
+    unica requisicao demora minutos e o proxy do Render derruba a conexao
+    com 502 antes de terminar), sem esperar nenhuma ficar pronta. Quem
+    chama deve repetir com `offset=proximo_offset` ate ele vir None,
+    acumulando 'lote' e 'erros' de cada chamada - o que sera reenviado
+    para /enviar-todas/coletar no final. Nao ha estado guardado no
+    servidor entre chamadas."""
     require_admin(request)
     campos_exportacao = _com_campos_obrigatorios([c.strip() for c in campos.split(",") if c.strip()])
     client = _get_client()
-    mapa = carregar_mapa()
+    lojas_lista = list(carregar_mapa().values())
+    total = len(lojas_lista)
+    fatia = lojas_lista[offset:offset + limite]
 
     lote: list[dict[str, Any]] = []
     falhas: list[dict[str, Any]] = []
-    for loja in mapa.values():
+    for loja in fatia:
         segmento_id, erro = _resolver_segmento_id(client, loja)
         if erro:
             falhas.append({"filial": loja.filial, "ok": False, "erro": erro})
@@ -753,8 +761,12 @@ def iniciar_todas_lojas(
             continue
         lote.append({"filial": loja.filial, "segmento_id": segmento_id, "export_id": export_id})
 
+    proximo_offset = offset + limite
     return {
-        "total_lojas": len(mapa),
+        "total_lojas": total,
+        "offset": offset,
+        "processados_nesta_chamada": len(fatia),
+        "proximo_offset": proximo_offset if proximo_offset < total else None,
         "iniciados": len(lote),
         "falhas": len(falhas),
         "lote": lote,
