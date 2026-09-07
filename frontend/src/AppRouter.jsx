@@ -8,6 +8,7 @@ import CaptacaoLeadsPage from './components/CaptacaoLeadsPage'
 import AuditoriaPage from './components/AuditoriaPage'
 import AdmPage from './components/AdmPage'
 import PortalMapPage from './components/PortalMapPage'
+import EmarsysPage from './components/EmarsysPage'
 import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
@@ -18,6 +19,7 @@ const ALL_TABS = [
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
   { to: '/adm', label: 'Adm', key: 'adm' },
   { to: '/mapa-portal', label: 'Mapa', key: 'mapa' },
+  { to: '/emarsys', label: 'Emarsys', key: 'emarsys' },
 ]
 
 // 14 min 30 s — desloga antes dos 15 min do Render free entrar em sleep
@@ -28,7 +30,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
     if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'captacao-leads'
-    if (tab.key === 'adm' || tab.key === 'mapa') return currentRole === 'admin'
+    if (tab.key === 'adm' || tab.key === 'mapa' || tab.key === 'emarsys') return currentRole === 'admin'
     if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
     if (currentRole === 'admin') return true
     if (viewerTabs && viewerTabs[tab.key] === false) return false
@@ -201,6 +203,7 @@ export default function AppRouter() {
           <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to="/resultado-geral" replace />} />
+          <Route path="/emarsys" element={currentRole === 'admin' ? <EmarsysPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
         </Routes>
       </div>

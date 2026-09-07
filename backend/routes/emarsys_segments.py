@@ -325,6 +325,7 @@ def listar_lojas(request: Request) -> dict[str, Any]:
                 "regional": loja.regional,
                 "segmento_base": loja.nome_segmento_base,
                 "segmento_combinado": loja.nome_segmento_combinado,
+                "segmento_combinado_id": loja.segmento_combinado_id or None,
                 "email_gerente": loja.email_gerente,
                 "email_subgerente": loja.email_subgerente,
             }
