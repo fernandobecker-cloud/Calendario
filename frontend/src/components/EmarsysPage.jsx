@@ -10,6 +10,7 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
 
 const INTERVALO_AUTO_COLETA_MS = 8000
 const LOTE_TAMANHO_INICIAR = 10
+const LOTE_TAMANHO_COLETAR = 10
 
 const LOTE_STORAGE_KEY = 'emarsys_lote_massa_v1'
 
@@ -309,10 +310,15 @@ export default function EmarsysPage() {
     setIniciarLoading(false)
   }, [])
 
-  // executa UMA chamada a /coletar com o lote passado e devolve a lista de
-  // itens que continuam pendentes (usado tanto por um clique unico quanto
-  // pelo loop de auto-coleta abaixo).
-  const executarColeta = useCallback(async (loteParaColetar) => {
+  // executa UMA chamada a /coletar - so com uma FATIA do lote pendente (nao
+  // tudo de uma vez: baixar/dividir varias lojas grandes numa unica
+  // requisicao e o mesmo problema do /iniciar - o proxy do Render derruba
+  // com 502 antes de terminar). Devolve o lote pendente atualizado: o resto
+  // que nem foi tocado nesta chamada + quem da fatia continuou pendente.
+  const executarColeta = useCallback(async (lotePendenteAtual) => {
+    const fatia = lotePendenteAtual.slice(0, LOTE_TAMANHO_COLETAR)
+    const resto = lotePendenteAtual.slice(LOTE_TAMANHO_COLETAR)
+
     const params = new URLSearchParams({
       campanha: campanhaMassa,
       dry_run: String(dryRunMassa),
@@ -323,7 +329,7 @@ export default function EmarsysPage() {
     const res = await fetch(`/api/emarsys/enviar-todas/coletar?${params}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lote: loteParaColetar }),
+      body: JSON.stringify({ lote: fatia }),
     })
     const payload = await res.json().catch(() => null)
     if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
@@ -336,7 +342,7 @@ export default function EmarsysPage() {
       return next
     })
     const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
-    const novoLotePendente = loteParaColetar.filter((item) => aindaPendentes.has(item.filial))
+    const novoLotePendente = [...resto, ...fatia.filter((item) => aindaPendentes.has(item.filial))]
     setLotePendente(novoLotePendente)
     setColetarResumoUltima(payload)
 
@@ -710,7 +716,7 @@ export default function EmarsysPage() {
 
         {coletarResumoUltima && (
           <p className="mt-2 text-sm text-slate-600">
-            Ultima coleta: {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
+            Ultimo lote verificado ({LOTE_TAMANHO_COLETAR} loja(s) por vez): {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
             {baixarArquivoMassa
               ? (lotePendente.length === 0 ? ' - .zip baixado' : ` - ${arquivosAcumulados.current.length} arquivo(s) aguardando o restante ficar pronto`)
               : coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
