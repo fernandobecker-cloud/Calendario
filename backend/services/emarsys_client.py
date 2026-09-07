@@ -66,6 +66,12 @@ tela "Configurações de segurança" > "Encaminhamento de dados" (usuarios
 WebDAV) do Emarsys - autenticacao HTTP Basic com usuario/senha WebDAV
 (NAO e o Client ID/Secret OIDC, e uma credencial separada). Confirmado
 que essa pasta EXIGE autenticacao (testado sem login = pede usuario/senha).
+O nome do arquivo e gerado pela propria Emarsys - a API nao deixa escolher.
+Por isso, depois de baixar com sucesso, o cliente apaga o arquivo do
+WebDAV (DELETE) - evita acumular CSV com dado de cliente numa pasta
+compartilhada e evita confusao quando /enviar-todas roda pras ~89 lojas
+(senao a pasta fica cheia de arquivos sem identificacao nenhuma de qual
+loja e qual).
 
 O QUE AINDA NAO ESTA CONFIRMADO
 --------------------------------
@@ -82,12 +88,15 @@ O QUE AINDA NAO ESTA CONFIRMADO
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import requests
+
+log = logging.getLogger("emarsys_client")
 
 EMARSYS_TOKEN_URL = os.getenv("EMARSYS_TOKEN_URL", "https://auth.emarsys.net/oauth2/token").strip()
 EMARSYS_BASE_URL = os.getenv("EMARSYS_BASE_URL", "https://api.emarsys.net/api/v3").strip()
@@ -277,13 +286,31 @@ class EmarsysClient:
                 "EMARSYS_WEBDAV_USER/EMARSYS_WEBDAV_PASSWORD nao configurados - "
                 "necessarios para baixar o export da pasta WebDAV da Emarsys."
             )
-        resp = requests.get(
-            f"{EMARSYS_WEBDAV_BASE_URL}/export/{file_name}",
-            auth=(EMARSYS_WEBDAV_USER, EMARSYS_WEBDAV_PASSWORD),
-            timeout=120,
-        )
+        url = f"{EMARSYS_WEBDAV_BASE_URL}/export/{file_name}"
+        resp = requests.get(url, auth=(EMARSYS_WEBDAV_USER, EMARSYS_WEBDAV_PASSWORD), timeout=120)
         if resp.status_code >= 400:
             raise EmarsysError(
                 f"Falha ao baixar '{file_name}' do WebDAV (HTTP {resp.status_code}): {resp.text[:300]}"
             )
-        return resp.content
+        conteudo = resp.content
+        self._apagar_do_webdav(url)
+        return conteudo
+
+    def _apagar_do_webdav(self, url: str) -> None:
+        """Apaga o export do WebDAV assim que ja foi baixado - evita acumular
+        CSV com dado de cliente numa pasta compartilhada (LGPD) e evita a
+        pasta enchendo de arquivos sem identificacao de loja quando rodamos
+        /enviar-todas (o nome e gerado pela propria Emarsys, nao da pra
+        escolher). Falha aqui NAO derruba o envio, so registra um aviso -
+        o conteudo ja foi baixado com sucesso antes desta chamada."""
+        try:
+            resp = requests.delete(
+                url, auth=(EMARSYS_WEBDAV_USER, EMARSYS_WEBDAV_PASSWORD), timeout=30
+            )
+            if resp.status_code >= 400:
+                log.warning(
+                    "Nao consegui apagar '%s' do WebDAV (HTTP %s): %s",
+                    url, resp.status_code, resp.text[:200],
+                )
+        except requests.RequestException as exc:
+            log.warning("Erro de rede ao tentar apagar '%s' do WebDAV: %s", url, exc)
