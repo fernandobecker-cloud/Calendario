@@ -8,6 +8,8 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
   return new Blob([array], { type: mimeType })
 }
 
+const INTERVALO_AUTO_COLETA_MS = 8000
+
 function baixarBlob(blob, nomeArquivo) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -101,7 +103,10 @@ export default function EmarsysPage() {
   const [coletarErro, setColetarErro] = useState('')
   const [coletarResumoUltima, setColetarResumoUltima] = useState(null)
   const [resultadosPorFilial, setResultadosPorFilial] = useState({})
+  const [autoColetando, setAutoColetando] = useState(false)
   const arquivosAcumulados = useRef([])
+  const autoColetaAtivaRef = useRef(false)
+  const pollTimeoutRef = useRef(null)
 
   const loadLojas = useCallback(async () => {
     setLojasLoading(true)
@@ -123,6 +128,20 @@ export default function EmarsysPage() {
   }, [loadLojas])
 
   const totalProntas = useMemo(() => lojas.filter((l) => l.segmento_base_id).length, [lojas])
+
+  const progressoMassa = useMemo(() => {
+    const total = loteTotal.length
+    let ok = 0, falha = 0, pendente = 0
+    for (const item of loteTotal) {
+      const r = resultadosPorFilial[item.filial]
+      if (!r) continue
+      else if (r.pendente) pendente += 1
+      else if (r.ok) ok += 1
+      else falha += 1
+    }
+    const aguardando = total - ok - falha - pendente
+    return { total, ok, falha, pendente, aguardando }
+  }, [loteTotal, resultadosPorFilial])
 
   const handleEnviarIndividual = useCallback(async (event) => {
     event.preventDefault()
@@ -159,6 +178,9 @@ export default function EmarsysPage() {
   }, [filialSelecionada, campanhaIndividual, dryRunIndividual, emailTesteIndividual, baixarArquivoIndividual])
 
   const handleIniciar = useCallback(async () => {
+    autoColetaAtivaRef.current = false
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
+    setAutoColetando(false)
     setIniciarLoading(true)
     setIniciarErro('')
     try {
@@ -178,65 +200,102 @@ export default function EmarsysPage() {
     }
   }, [])
 
+  // executa UMA chamada a /coletar com o lote passado e devolve a lista de
+  // itens que continuam pendentes (usado tanto por um clique unico quanto
+  // pelo loop de auto-coleta abaixo).
+  const executarColeta = useCallback(async (loteParaColetar) => {
+    const params = new URLSearchParams({
+      campanha: campanhaMassa,
+      dry_run: String(dryRunMassa),
+      confirmar: String(confirmarMassa),
+      email_teste: emailTesteMassa,
+      baixar_arquivo: String(baixarArquivoMassa),
+    })
+    const res = await fetch(`/api/emarsys/enviar-todas/coletar?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lote: loteParaColetar }),
+    })
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+
+    setResultadosPorFilial((prev) => {
+      const next = { ...prev }
+      for (const r of payload.resultados || []) next[r.filial] = r
+      return next
+    })
+    const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
+    const novoLotePendente = loteParaColetar.filter((item) => aindaPendentes.has(item.filial))
+    setLotePendente(novoLotePendente)
+    setColetarResumoUltima(payload)
+
+    if (baixarArquivoMassa) {
+      for (const r of payload.resultados || []) {
+        for (const envio of r.envios || []) {
+          if (envio.arquivo_base64) {
+            arquivosAcumulados.current.push({ nome: envio.arquivo_nome, base64: envio.arquivo_base64 })
+          }
+        }
+      }
+      if (novoLotePendente.length === 0 && arquivosAcumulados.current.length > 0) {
+        const zip = new JSZip()
+        for (const arq of arquivosAcumulados.current) {
+          zip.file(arq.nome, base64ParaBlob(arq.base64))
+        }
+        const blob = await zip.generateAsync({ type: 'blob' })
+        const agora = new Date().toISOString().slice(0, 16).replace(':', 'h')
+        baixarBlob(blob, `emarsys_lojas_${agora}.zip`)
+        arquivosAcumulados.current = []
+      }
+    }
+    return novoLotePendente
+  }, [dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa])
+
+  // Loop de auto-coleta: chama /coletar sozinho, de tempos em tempos, ate
+  // nao sobrar ninguem pendente - o usuario nao precisa mais ficar clicando
+  // em "Coletar" varias vezes manualmente.
   const handleColetar = useCallback(async () => {
     if (lotePendente.length === 0) return
     if (!baixarArquivoMassa && !dryRunMassa && !confirmarMassa) {
       setColetarErro('Marque "Confirmar envio real" (alem de desmarcar simulacao) para mandar de verdade.')
       return
     }
-    setColetarLoading(true)
+    autoColetaAtivaRef.current = true
+    setAutoColetando(true)
     setColetarErro('')
-    try {
-      const params = new URLSearchParams({
-        campanha: campanhaMassa,
-        dry_run: String(dryRunMassa),
-        confirmar: String(confirmarMassa),
-        email_teste: emailTesteMassa,
-        baixar_arquivo: String(baixarArquivoMassa),
-      })
-      const res = await fetch(`/api/emarsys/enviar-todas/coletar?${params}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lote: lotePendente }),
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
-
-      setResultadosPorFilial((prev) => {
-        const next = { ...prev }
-        for (const r of payload.resultados || []) next[r.filial] = r
-        return next
-      })
-      const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
-      const novoLotePendente = lotePendente.filter((item) => aindaPendentes.has(item.filial))
-      setLotePendente(novoLotePendente)
-      setColetarResumoUltima(payload)
-
-      if (baixarArquivoMassa) {
-        for (const r of payload.resultados || []) {
-          for (const envio of r.envios || []) {
-            if (envio.arquivo_base64) {
-              arquivosAcumulados.current.push({ nome: envio.arquivo_nome, base64: envio.arquivo_base64 })
-            }
-          }
-        }
-        if (novoLotePendente.length === 0 && arquivosAcumulados.current.length > 0) {
-          const zip = new JSZip()
-          for (const arq of arquivosAcumulados.current) {
-            zip.file(arq.nome, base64ParaBlob(arq.base64))
-          }
-          const blob = await zip.generateAsync({ type: 'blob' })
-          const agora = new Date().toISOString().slice(0, 16).replace(':', 'h')
-          baixarBlob(blob, `emarsys_lojas_${agora}.zip`)
-          arquivosAcumulados.current = []
-        }
+    let loteAtual = lotePendente
+    while (autoColetaAtivaRef.current && loteAtual.length > 0) {
+      setColetarLoading(true)
+      try {
+        loteAtual = await executarColeta(loteAtual)
+      } catch (err) {
+        setColetarErro(err instanceof Error ? err.message : 'Erro ao coletar envios.')
+        break
+      } finally {
+        setColetarLoading(false)
       }
-    } catch (err) {
-      setColetarErro(err instanceof Error ? err.message : 'Erro ao coletar envios.')
-    } finally {
-      setColetarLoading(false)
+      if (!autoColetaAtivaRef.current || loteAtual.length === 0) break
+      await new Promise((resolve) => {
+        pollTimeoutRef.current = setTimeout(resolve, INTERVALO_AUTO_COLETA_MS)
+      })
     }
-  }, [lotePendente, dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa])
+    autoColetaAtivaRef.current = false
+    setAutoColetando(false)
+  }, [lotePendente, dryRunMassa, confirmarMassa, baixarArquivoMassa, executarColeta])
+
+  const handlePararColeta = useCallback(() => {
+    autoColetaAtivaRef.current = false
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current)
+      pollTimeoutRef.current = null
+    }
+    setAutoColetando(false)
+  }, [])
+
+  useEffect(() => () => {
+    autoColetaAtivaRef.current = false
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
+  }, [])
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
@@ -373,8 +432,8 @@ export default function EmarsysPage() {
         <h2 className="mb-1 text-lg font-semibold text-slate-900">Envio em massa (todas as lojas)</h2>
         <p className="mb-4 text-sm text-slate-500">
           Fluxo em duas etapas: primeiro dispara a exportacao de todas as lojas de uma vez (rapido), depois
-          coleta o resultado de cada uma - repita "Coletar" ate nenhuma loja ficar pendente, ja que o tempo
-          de exportacao varia bastante de loja para loja.
+          coleta o resultado de cada uma automaticamente - clique uma vez em "Coletar" e ele repete sozinho
+          ate nenhuma loja ficar pendente, ja que o tempo de exportacao varia bastante de loja para loja.
         </p>
 
         <div className="mb-4 flex flex-wrap items-end gap-4">
@@ -383,8 +442,9 @@ export default function EmarsysPage() {
             <input
               value={campanhaMassa}
               onChange={(e) => setCampanhaMassa(e.target.value)}
+              disabled={autoColetando}
               placeholder="ex: NPI Setembro"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
             />
           </label>
           {!baixarArquivoMassa && (
@@ -393,28 +453,49 @@ export default function EmarsysPage() {
               <input
                 value={emailTesteMassa}
                 onChange={(e) => setEmailTesteMassa(e.target.value)}
+                disabled={autoColetando}
                 placeholder="seuemail@iplace.com.br"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
               />
             </label>
           )}
           {!baixarArquivoMassa && (
             <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-              <input type="checkbox" checked={dryRunMassa} onChange={(e) => setDryRunMassa(e.target.checked)} />
+              <input type="checkbox" checked={dryRunMassa} disabled={autoColetando} onChange={(e) => setDryRunMassa(e.target.checked)} />
               Simular (dry run)
             </label>
           )}
           {!baixarArquivoMassa && !dryRunMassa && (
             <label className="flex items-center gap-2 pb-2 text-sm font-semibold text-rose-700">
-              <input type="checkbox" checked={confirmarMassa} onChange={(e) => setConfirmarMassa(e.target.checked)} />
+              <input type="checkbox" checked={confirmarMassa} disabled={autoColetando} onChange={(e) => setConfirmarMassa(e.target.checked)} />
               Confirmar envio real em massa
             </label>
           )}
           <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-            <input type="checkbox" checked={baixarArquivoMassa} onChange={(e) => setBaixarArquivoMassa(e.target.checked)} />
+            <input type="checkbox" checked={baixarArquivoMassa} disabled={autoColetando} onChange={(e) => setBaixarArquivoMassa(e.target.checked)} />
             Baixar arquivos (.zip) em vez de enviar por e-mail
           </label>
         </div>
+
+        {progressoMassa.total > 0 && (
+          <div className="mb-4">
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
+              {progressoMassa.ok > 0 && (
+                <div className="bg-emerald-500" style={{ width: `${(progressoMassa.ok / progressoMassa.total) * 100}%` }} />
+              )}
+              {progressoMassa.pendente > 0 && (
+                <div className="bg-amber-400" style={{ width: `${(progressoMassa.pendente / progressoMassa.total) * 100}%` }} />
+              )}
+              {progressoMassa.falha > 0 && (
+                <div className="bg-rose-500" style={{ width: `${(progressoMassa.falha / progressoMassa.total) * 100}%` }} />
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {progressoMassa.ok} concluida(s), {progressoMassa.pendente} em andamento, {progressoMassa.falha} falharam,{' '}
+              {progressoMassa.aguardando} aguardando - {progressoMassa.total} loja(s) no total
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3">
           <button
@@ -426,13 +507,21 @@ export default function EmarsysPage() {
           </button>
           <button
             onClick={handleColetar}
-            disabled={coletarLoading || lotePendente.length === 0}
+            disabled={autoColetando || lotePendente.length === 0}
             className="rounded-lg border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {coletarLoading
-              ? 'Coletando...'
+            {autoColetando
+              ? `Coletando automaticamente... (${lotePendente.length} pendente(s))`
               : `2. Coletar e ${baixarArquivoMassa ? 'baixar' : 'enviar'} (${lotePendente.length} pendente(s))`}
           </button>
+          {autoColetando && (
+            <button
+              onClick={handlePararColeta}
+              className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+            >
+              Parar
+            </button>
+          )}
         </div>
 
         {iniciarErro && (
