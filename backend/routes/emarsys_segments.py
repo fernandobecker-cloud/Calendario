@@ -55,10 +55,12 @@ SEGURANCA
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import logging
 import os
+import re
 import smtplib
 import tempfile
 from email.message import EmailMessage
@@ -395,6 +397,29 @@ def _escrever_csv_temp(diretorio: Path, codigo_loja: str, linhas: list[dict]) ->
     return destino
 
 
+_CARACTERES_INVALIDOS_ARQUIVO = re.compile(r'[\\/:*?"<>|]')
+
+
+def _nome_arquivo_loja(codigo_loja: str) -> str:
+    """Nome de arquivo com o nome da loja (pedido do usuario, pra nao
+    confundir quando baixar de varias lojas de uma vez) - cai pro codigo
+    puro se a loja nao estiver mapeada."""
+    try:
+        loja = obter_loja(codigo_loja)
+        base = f"{codigo_loja} - {loja.descricao}"
+    except KeyError:
+        base = f"contatos_loja_{codigo_loja}"
+    return _CARACTERES_INVALIDOS_ARQUIVO.sub("_", base).strip() + ".csv"
+
+
+def _csv_bytes_em_memoria(linhas: list[dict]) -> bytes:
+    buffer = io.StringIO()
+    escritor = csv.DictWriter(buffer, fieldnames=list(linhas[0].keys()))
+    escritor.writeheader()
+    escritor.writerows(linhas)
+    return buffer.getvalue().encode("utf-8-sig")
+
+
 def _enviar_email(destinatarios: list[str], assunto: str, corpo: str, anexo: Path) -> None:
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
         raise HTTPException(status_code=500, detail="SMTP_HOST/SMTP_USER/SMTP_PASSWORD nao configurados no ambiente.")
@@ -453,10 +478,17 @@ def _dividir_e_enviar(
     campanha: str,
     dry_run: bool,
     email_teste: str,
+    baixar_arquivo: bool = False,
 ) -> dict[str, Any]:
     """Divide o CSV ja baixado pelo campo de loja e manda (ou simula, se
     dry_run) um e-mail por loja encontrada. Usado tanto pelo fluxo sincrono
-    de loja unica quanto pela etapa `coletar` do fluxo em duas fases."""
+    de loja unica quanto pela etapa `coletar` do fluxo em duas fases.
+
+    Se `baixar_arquivo=True`, NAO manda e-mail nenhum (ignora dry_run e
+    email_teste) - so devolve o CSV de cada loja em base64 dentro do
+    resultado, pro chamador (endpoint HTTP) devolver como download pro
+    navegador. Existe pra quem prefere distribuir os arquivos por fora
+    (outra automacao/ferramenta) em vez de usar o SMTP deste backend."""
     por_loja_bruto = _dividir_csv_por_loja(csv_bytes, campo_loja, filial_padrao=loja.filial)
     outras_filiais = sorted(set(por_loja_bruto) - {loja.filial})
     if outras_filiais:
@@ -482,8 +514,29 @@ def _dividir_e_enviar(
         "excluidos_opt_out": excluidos_opt_out or None,
         "aviso_outras_filiais": outras_filiais or None,
         "dry_run": dry_run,
+        "baixar_arquivo": baixar_arquivo,
         "envios": [],
     }
+
+    if baixar_arquivo:
+        # So gera os bytes do CSV em memoria, nunca escreve em disco no
+        # servidor - quem baixa o arquivo e o navegador do admin, direto na
+        # resposta HTTP (ver endpoints /enviar/{filial} e .../coletar).
+        for codigo_loja, linhas in sorted(por_loja.items()):
+            if not linhas:
+                resultado["envios"].append({
+                    "codigo_loja": codigo_loja, "contatos": 0,
+                    "arquivo_nome": None, "arquivo_base64": None,
+                    "motivo": "todos os contatos dessa loja foram excluidos por opt-out",
+                })
+                continue
+            conteudo = _csv_bytes_em_memoria(linhas)
+            resultado["envios"].append({
+                "codigo_loja": codigo_loja, "contatos": len(linhas),
+                "arquivo_nome": _nome_arquivo_loja(codigo_loja),
+                "arquivo_base64": base64.b64encode(conteudo).decode("ascii"),
+            })
+        return resultado
 
     assunto_base = f"[iPlace CRM] Lista de clientes - {campanha}".strip()
     corpo_base = (
@@ -548,6 +601,7 @@ def _processar_loja(
     campanha: str,
     dry_run: bool,
     email_teste: str,
+    baixar_arquivo: bool = False,
 ) -> dict[str, Any]:
     """Fluxo completo e sincrono (acha segmento -> exporta -> espera ficar
     pronto -> divide -> envia) para uma loja - usado por /enviar/{filial} e
@@ -567,6 +621,7 @@ def _processar_loja(
         loja, csv_bytes,
         segmento_id=segmento_id, campo_loja=campo_loja,
         campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+        baixar_arquivo=baixar_arquivo,
     )
 
 
@@ -579,6 +634,7 @@ def enviar_uma_loja(
     campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
+    baixar_arquivo: bool = Query(default=False, description="Se true, NAO envia e-mail nenhum (ignora dry_run/email_teste) - so devolve o CSV em base64 pro navegador baixar"),
 ) -> dict[str, Any]:
     require_admin(request)
     try:
@@ -593,6 +649,7 @@ def enviar_uma_loja(
             client, loja,
             campos_exportacao=campos_exportacao, campo_loja=campo_loja,
             campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+            baixar_arquivo=baixar_arquivo,
         )
     except HTTPException:
         raise
@@ -709,6 +766,7 @@ def coletar_todas_lojas(
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     confirmar: bool = Query(default=False, description="precisa ser true (alem de dry_run=false) para disparar envio real em massa"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
+    baixar_arquivo: bool = Query(default=False, description="Se true, NAO envia e-mail nenhum (ignora dry_run/confirmar/email_teste) - so devolve os CSVs em base64 pro navegador baixar"),
 ) -> dict[str, Any]:
     """Fase 2: recebe de volta o 'lote' devolvido por /enviar-todas/iniciar
     e, para cada item, checa o status UMA vez (sem esperar/repetir polling).
@@ -717,7 +775,7 @@ def coletar_todas_lojas(
     /coletar de novo mais tarde com o MESMO lote (so reenviando os itens
     ainda pendentes evita repetir o envio dos que ja foram concluidos)."""
     require_admin(request)
-    if not dry_run and not confirmar:
+    if not baixar_arquivo and not dry_run and not confirmar:
         raise HTTPException(
             status_code=400,
             detail="Envio em massa real exige dry_run=false E confirmar=true explicitos.",
@@ -726,7 +784,7 @@ def coletar_todas_lojas(
     client = _get_client()
     resultados = []
     for item in body.lote:
-        if not dry_run and item.export_id in _exports_ja_enviados:
+        if not baixar_arquivo and not dry_run and item.export_id in _exports_ja_enviados:
             resultados.append({
                 "filial": item.filial, "ok": True, "ja_enviado": True,
                 "envios": [],
@@ -768,9 +826,10 @@ def coletar_todas_lojas(
             loja, csv_bytes,
             segmento_id=item.segmento_id, campo_loja=campo_loja,
             campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+            baixar_arquivo=baixar_arquivo,
         )
         algum_email_enviado = any(e.get("enviado") for e in resultado_loja.get("envios", []))
-        if not dry_run and algum_email_enviado:
+        if not baixar_arquivo and not dry_run and algum_email_enviado:
             # Marca como enviado se PELO MENOS um e-mail de verdade saiu -
             # "ok" sozinho nao serve (fica True mesmo se todo envio de
             # e-mail falhar, ja que so descreve o split ter funcionado).

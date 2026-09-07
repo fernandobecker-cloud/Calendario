@@ -1,4 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import JSZip from 'jszip'
+
+function base64ParaBlob(base64, mimeType = 'text/csv') {
+  const bytes = atob(base64)
+  const array = new Uint8Array(bytes.length)
+  for (let i = 0; i < bytes.length; i += 1) array[i] = bytes.charCodeAt(i)
+  return new Blob([array], { type: mimeType })
+}
+
+function baixarBlob(blob, nomeArquivo) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = nomeArquivo
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
 function StatusBadge({ resultado }) {
   if (!resultado) {
@@ -37,9 +56,15 @@ function ResultadoDetalhe({ resultado }) {
       )}
       {Array.isArray(resultado.envios) && resultado.envios.map((envio, i) => (
         <p key={i}>
-          Loja {envio.codigo_loja}: {envio.contatos} contato(s) -{' '}
-          {envio.enviado ? 'enviado' : resultado.dry_run ? 'simulado' : (envio.erro || envio.motivo || 'nao enviado')} para{' '}
-          {(envio.destinatarios || []).join(', ') || '-'}
+          {resultado.baixar_arquivo ? (
+            <>Loja {envio.codigo_loja}: {envio.contatos} contato(s) - {envio.arquivo_nome ? `arquivo "${envio.arquivo_nome}" baixado` : (envio.motivo || 'sem arquivo')}</>
+          ) : (
+            <>
+              Loja {envio.codigo_loja}: {envio.contatos} contato(s) -{' '}
+              {envio.enviado ? 'enviado' : resultado.dry_run ? 'simulado' : (envio.erro || envio.motivo || 'nao enviado')} para{' '}
+              {(envio.destinatarios || []).join(', ') || '-'}
+            </>
+          )}
         </p>
       ))}
     </div>
@@ -55,6 +80,7 @@ export default function EmarsysPage() {
   const [campanhaIndividual, setCampanhaIndividual] = useState('')
   const [dryRunIndividual, setDryRunIndividual] = useState(true)
   const [emailTesteIndividual, setEmailTesteIndividual] = useState('')
+  const [baixarArquivoIndividual, setBaixarArquivoIndividual] = useState(false)
   const [individualLoading, setIndividualLoading] = useState(false)
   const [individualErro, setIndividualErro] = useState('')
   const [individualResultado, setIndividualResultado] = useState(null)
@@ -63,6 +89,7 @@ export default function EmarsysPage() {
   const [dryRunMassa, setDryRunMassa] = useState(true)
   const [confirmarMassa, setConfirmarMassa] = useState(false)
   const [emailTesteMassa, setEmailTesteMassa] = useState('')
+  const [baixarArquivoMassa, setBaixarArquivoMassa] = useState(false)
 
   const [iniciarLoading, setIniciarLoading] = useState(false)
   const [iniciarErro, setIniciarErro] = useState('')
@@ -110,17 +137,25 @@ export default function EmarsysPage() {
         campanha: campanhaIndividual,
         dry_run: String(dryRunIndividual),
         email_teste: emailTesteIndividual,
+        baixar_arquivo: String(baixarArquivoIndividual),
       })
       const res = await fetch(`/api/emarsys/enviar/${filialSelecionada}?${params}`, { method: 'POST' })
       const payload = await res.json().catch(() => null)
       if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
       setIndividualResultado(payload)
+      if (baixarArquivoIndividual) {
+        for (const envio of payload.envios || []) {
+          if (envio.arquivo_base64) {
+            baixarBlob(base64ParaBlob(envio.arquivo_base64), envio.arquivo_nome)
+          }
+        }
+      }
     } catch (err) {
       setIndividualErro(err instanceof Error ? err.message : 'Erro ao enviar.')
     } finally {
       setIndividualLoading(false)
     }
-  }, [filialSelecionada, campanhaIndividual, dryRunIndividual, emailTesteIndividual])
+  }, [filialSelecionada, campanhaIndividual, dryRunIndividual, emailTesteIndividual, baixarArquivoIndividual])
 
   const handleIniciar = useCallback(async () => {
     setIniciarLoading(true)
@@ -143,7 +178,7 @@ export default function EmarsysPage() {
 
   const handleColetar = useCallback(async () => {
     if (lotePendente.length === 0) return
-    if (!dryRunMassa && !confirmarMassa) {
+    if (!baixarArquivoMassa && !dryRunMassa && !confirmarMassa) {
       setColetarErro('Marque "Confirmar envio real" (alem de desmarcar simulacao) para mandar de verdade.')
       return
     }
@@ -155,6 +190,7 @@ export default function EmarsysPage() {
         dry_run: String(dryRunMassa),
         confirmar: String(confirmarMassa),
         email_teste: emailTesteMassa,
+        baixar_arquivo: String(baixarArquivoMassa),
       })
       const res = await fetch(`/api/emarsys/enviar-todas/coletar?${params}`, {
         method: 'POST',
@@ -172,12 +208,30 @@ export default function EmarsysPage() {
       const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
       setLotePendente((prev) => prev.filter((item) => aindaPendentes.has(item.filial)))
       setColetarResumoUltima(payload)
+
+      if (baixarArquivoMassa) {
+        const zip = new JSZip()
+        let arquivos = 0
+        for (const r of payload.resultados || []) {
+          for (const envio of r.envios || []) {
+            if (envio.arquivo_base64) {
+              zip.file(envio.arquivo_nome, base64ParaBlob(envio.arquivo_base64))
+              arquivos += 1
+            }
+          }
+        }
+        if (arquivos > 0) {
+          const blob = await zip.generateAsync({ type: 'blob' })
+          const agora = new Date().toISOString().slice(0, 16).replace(':', 'h')
+          baixarBlob(blob, `emarsys_lojas_${agora}.zip`)
+        }
+      }
     } catch (err) {
       setColetarErro(err instanceof Error ? err.message : 'Erro ao coletar envios.')
     } finally {
       setColetarLoading(false)
     }
-  }, [lotePendente, dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa])
+  }, [lotePendente, dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa])
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
@@ -265,25 +319,33 @@ export default function EmarsysPage() {
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            E-mail de teste (opcional)
-            <input
-              value={emailTesteIndividual}
-              onChange={(e) => setEmailTesteIndividual(e.target.value)}
-              placeholder="seuemail@iplace.com.br"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
+          {!baixarArquivoIndividual && (
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              E-mail de teste (opcional)
+              <input
+                value={emailTesteIndividual}
+                onChange={(e) => setEmailTesteIndividual(e.target.value)}
+                placeholder="seuemail@iplace.com.br"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+          )}
+          {!baixarArquivoIndividual && (
+            <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
+              <input type="checkbox" checked={dryRunIndividual} onChange={(e) => setDryRunIndividual(e.target.checked)} />
+              Simular (dry run)
+            </label>
+          )}
           <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-            <input type="checkbox" checked={dryRunIndividual} onChange={(e) => setDryRunIndividual(e.target.checked)} />
-            Simular (dry run)
+            <input type="checkbox" checked={baixarArquivoIndividual} onChange={(e) => setBaixarArquivoIndividual(e.target.checked)} />
+            Baixar arquivo (em vez de enviar por e-mail)
           </label>
           <button
             type="submit"
             disabled={individualLoading}
             className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
           >
-            {individualLoading ? 'Enviando...' : dryRunIndividual ? 'Simular envio' : 'Enviar de verdade'}
+            {individualLoading ? 'Processando...' : baixarArquivoIndividual ? 'Baixar CSV' : dryRunIndividual ? 'Simular envio' : 'Enviar de verdade'}
           </button>
         </form>
         {individualErro && (
@@ -294,7 +356,7 @@ export default function EmarsysPage() {
             <div className="mb-2 flex items-center gap-2">
               <StatusBadge resultado={individualResultado} />
               <span className="text-xs text-slate-500">
-                {individualResultado.dry_run ? 'Simulacao' : 'Envio real'}
+                {individualResultado.baixar_arquivo ? 'Arquivo baixado' : individualResultado.dry_run ? 'Simulacao' : 'Envio real'}
               </span>
             </div>
             <ResultadoDetalhe resultado={individualResultado} />
@@ -320,25 +382,33 @@ export default function EmarsysPage() {
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            E-mail de teste (opcional)
-            <input
-              value={emailTesteMassa}
-              onChange={(e) => setEmailTesteMassa(e.target.value)}
-              placeholder="seuemail@iplace.com.br"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-            <input type="checkbox" checked={dryRunMassa} onChange={(e) => setDryRunMassa(e.target.checked)} />
-            Simular (dry run)
-          </label>
-          {!dryRunMassa && (
+          {!baixarArquivoMassa && (
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              E-mail de teste (opcional)
+              <input
+                value={emailTesteMassa}
+                onChange={(e) => setEmailTesteMassa(e.target.value)}
+                placeholder="seuemail@iplace.com.br"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
+          )}
+          {!baixarArquivoMassa && (
+            <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
+              <input type="checkbox" checked={dryRunMassa} onChange={(e) => setDryRunMassa(e.target.checked)} />
+              Simular (dry run)
+            </label>
+          )}
+          {!baixarArquivoMassa && !dryRunMassa && (
             <label className="flex items-center gap-2 pb-2 text-sm font-semibold text-rose-700">
               <input type="checkbox" checked={confirmarMassa} onChange={(e) => setConfirmarMassa(e.target.checked)} />
               Confirmar envio real em massa
             </label>
           )}
+          <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
+            <input type="checkbox" checked={baixarArquivoMassa} onChange={(e) => setBaixarArquivoMassa(e.target.checked)} />
+            Baixar arquivos (.zip) em vez de enviar por e-mail
+          </label>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -354,7 +424,9 @@ export default function EmarsysPage() {
             disabled={coletarLoading || lotePendente.length === 0}
             className="rounded-lg border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {coletarLoading ? 'Coletando...' : `2. Coletar e enviar (${lotePendente.length} pendente(s))`}
+            {coletarLoading
+              ? 'Coletando...'
+              : `2. Coletar e ${baixarArquivoMassa ? 'baixar' : 'enviar'} (${lotePendente.length} pendente(s))`}
           </button>
         </div>
 
@@ -387,7 +459,7 @@ export default function EmarsysPage() {
         {coletarResumoUltima && (
           <p className="mt-2 text-sm text-slate-600">
             Ultima coleta: {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
-            {coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
+            {baixarArquivoMassa ? ' (arquivos baixados em .zip)' : coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
           </p>
         )}
 
