@@ -10,6 +10,49 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
 
 const INTERVALO_AUTO_COLETA_MS = 8000
 
+const LOTE_STORAGE_KEY = 'emarsys_lote_massa_v1'
+
+function salvarProgressoLote(estado) {
+  try {
+    localStorage.setItem(LOTE_STORAGE_KEY, JSON.stringify(estado))
+  } catch {
+    // localStorage indisponivel (modo privado, quota cheia, etc.) - so perde a
+    // persistencia entre reloads, nao quebra o fluxo normal.
+  }
+}
+
+function carregarProgressoLote() {
+  try {
+    const bruto = localStorage.getItem(LOTE_STORAGE_KEY)
+    return bruto ? JSON.parse(bruto) : null
+  } catch {
+    return null
+  }
+}
+
+function limparProgressoLote() {
+  try {
+    localStorage.removeItem(LOTE_STORAGE_KEY)
+  } catch {
+    // ignora
+  }
+}
+
+function semArquivoBase64(resultado) {
+  // Tira o conteudo do arquivo (pode ser grande) antes de persistir no
+  // localStorage - so guarda nome/contagem pra exibir na tela depois de um
+  // reload, nao o CSV inteiro de novo.
+  if (!resultado || !Array.isArray(resultado.envios)) return resultado
+  return {
+    ...resultado,
+    envios: resultado.envios.map((e) => {
+      if (!e.arquivo_base64) return e
+      const { arquivo_base64, ...resto } = e
+      return resto
+    }),
+  }
+}
+
 function extrairDetalheErro(payload) {
   const detail = payload?.detail
   if (!detail) return ''
@@ -137,6 +180,19 @@ export default function EmarsysPage() {
     loadLojas()
   }, [loadLojas])
 
+  // Restaura o progresso do lote em massa se a pagina foi recarregada no
+  // meio de um "iniciar"/"coletar" - sem isso, um F5 sem querer jogava fora
+  // o lote e obrigava a disparar exportacao de novo pra todas as lojas.
+  useEffect(() => {
+    const salvo = carregarProgressoLote()
+    if (!salvo) return
+    setLoteTotal(salvo.loteTotal || [])
+    setLotePendente(salvo.lotePendente || [])
+    setResultadosPorFilial(salvo.resultadosPorFilial || {})
+    setIniciarResumo(salvo.iniciarResumo || null)
+    setColetarResumoUltima(salvo.coletarResumoUltima || null)
+  }, [])
+
   const totalProntas = useMemo(() => lojas.filter((l) => l.segmento_base_id).length, [lojas])
 
   const progressoMassa = useMemo(() => {
@@ -203,6 +259,17 @@ export default function EmarsysPage() {
       setResultadosPorFilial({})
       setColetarResumoUltima(null)
       arquivosAcumulados.current = []
+      if ((payload?.lote || []).length > 0) {
+        salvarProgressoLote({
+          loteTotal: payload.lote,
+          lotePendente: payload.lote,
+          resultadosPorFilial: {},
+          iniciarResumo: payload,
+          coletarResumoUltima: null,
+        })
+      } else {
+        limparProgressoLote()
+      }
     } catch (err) {
       setIniciarErro(err instanceof Error ? err.message : 'Erro ao iniciar exportacao.')
     } finally {
@@ -229,9 +296,11 @@ export default function EmarsysPage() {
     const payload = await res.json().catch(() => null)
     if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
 
+    let resultadosAtualizados = {}
     setResultadosPorFilial((prev) => {
       const next = { ...prev }
       for (const r of payload.resultados || []) next[r.filial] = r
+      resultadosAtualizados = next
       return next
     })
     const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
@@ -258,8 +327,24 @@ export default function EmarsysPage() {
         arquivosAcumulados.current = []
       }
     }
+
+    if (novoLotePendente.length === 0) {
+      limparProgressoLote()
+    } else {
+      const resultadosParaSalvar = {}
+      for (const [filial, r] of Object.entries(resultadosAtualizados)) {
+        resultadosParaSalvar[filial] = semArquivoBase64(r)
+      }
+      salvarProgressoLote({
+        loteTotal,
+        lotePendente: novoLotePendente,
+        resultadosPorFilial: resultadosParaSalvar,
+        iniciarResumo,
+        coletarResumoUltima: payload,
+      })
+    }
     return novoLotePendente
-  }, [dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa])
+  }, [dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa, loteTotal, iniciarResumo])
 
   // Loop de auto-coleta: chama /coletar sozinho, de tempos em tempos, ate
   // nao sobrar ninguem pendente - o usuario nao precisa mais ficar clicando
@@ -486,6 +571,15 @@ export default function EmarsysPage() {
             Baixar arquivos (.zip) em vez de enviar por e-mail
           </label>
         </div>
+
+        {baixarArquivoMassa && (
+          <p className="mb-4 text-xs text-amber-700">
+            Nesse modo, evite fechar a aba no meio da coleta - os arquivos ja
+            coletados so ficam guardados na memoria do navegador ate o .zip
+            final ser baixado (a Emarsys apaga o arquivo original assim que a
+            gente baixa).
+          </p>
+        )}
 
         {progressoMassa.total > 0 && (
           <div className="mb-4">
