@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 
 function base64ParaBlob(base64, mimeType = 'text/csv') {
@@ -101,6 +101,7 @@ export default function EmarsysPage() {
   const [coletarErro, setColetarErro] = useState('')
   const [coletarResumoUltima, setColetarResumoUltima] = useState(null)
   const [resultadosPorFilial, setResultadosPorFilial] = useState({})
+  const arquivosAcumulados = useRef([])
 
   const loadLojas = useCallback(async () => {
     setLojasLoading(true)
@@ -169,6 +170,7 @@ export default function EmarsysPage() {
       setLotePendente(payload?.lote || [])
       setResultadosPorFilial({})
       setColetarResumoUltima(null)
+      arquivosAcumulados.current = []
     } catch (err) {
       setIniciarErro(err instanceof Error ? err.message : 'Erro ao iniciar exportacao.')
     } finally {
@@ -206,24 +208,27 @@ export default function EmarsysPage() {
         return next
       })
       const aindaPendentes = new Set((payload.resultados || []).filter((r) => r.pendente).map((r) => r.filial))
-      setLotePendente((prev) => prev.filter((item) => aindaPendentes.has(item.filial)))
+      const novoLotePendente = lotePendente.filter((item) => aindaPendentes.has(item.filial))
+      setLotePendente(novoLotePendente)
       setColetarResumoUltima(payload)
 
       if (baixarArquivoMassa) {
-        const zip = new JSZip()
-        let arquivos = 0
         for (const r of payload.resultados || []) {
           for (const envio of r.envios || []) {
             if (envio.arquivo_base64) {
-              zip.file(envio.arquivo_nome, base64ParaBlob(envio.arquivo_base64))
-              arquivos += 1
+              arquivosAcumulados.current.push({ nome: envio.arquivo_nome, base64: envio.arquivo_base64 })
             }
           }
         }
-        if (arquivos > 0) {
+        if (novoLotePendente.length === 0 && arquivosAcumulados.current.length > 0) {
+          const zip = new JSZip()
+          for (const arq of arquivosAcumulados.current) {
+            zip.file(arq.nome, base64ParaBlob(arq.base64))
+          }
           const blob = await zip.generateAsync({ type: 'blob' })
           const agora = new Date().toISOString().slice(0, 16).replace(':', 'h')
           baixarBlob(blob, `emarsys_lojas_${agora}.zip`)
+          arquivosAcumulados.current = []
         }
       }
     } catch (err) {
@@ -459,7 +464,9 @@ export default function EmarsysPage() {
         {coletarResumoUltima && (
           <p className="mt-2 text-sm text-slate-600">
             Ultima coleta: {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
-            {baixarArquivoMassa ? ' (arquivos baixados em .zip)' : coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
+            {baixarArquivoMassa
+              ? (lotePendente.length === 0 ? ' - .zip baixado' : ` - ${arquivosAcumulados.current.length} arquivo(s) aguardando o restante ficar pronto`)
+              : coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
           </p>
         )}
 
