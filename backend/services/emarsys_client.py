@@ -255,7 +255,10 @@ class EmarsysClient:
         export_id = created.get("data", {}).get("id")
         if not export_id:
             raise EmarsysError(f"Nao recebi um id de exportacao da Emarsys: {created}")
-        return export_id
+        # A Emarsys devolve isso como numero (int), nao string - convertido
+        # aqui pra ficar consistente onde quer que o export_id seja usado
+        # (endpoints/{...}, corpo JSON do fluxo iniciar/coletar, etc.).
+        return str(export_id)
 
     def verificar_export(self, export_id: int | str) -> dict:
         """GET /export/{id} cru - so o status atual, sem baixar nada.

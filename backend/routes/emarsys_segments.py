@@ -68,7 +68,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.services.emarsys_client import (
     EMARSYS_EXPORT_PATH,
@@ -711,6 +711,11 @@ def enviar_todas_lojas(
 # ---------------------------------------------------------------------------
 
 class ItemLote(BaseModel):
+    # coerce_numbers_to_str: a Emarsys devolve export_id como numero (int) -
+    # sem isso, o Pydantic v2 rejeita com 422 (numero != string, mais
+    # estrito que o v1) mesmo com o campo tipado como str.
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
     filial: str
     segmento_id: str
     export_id: str

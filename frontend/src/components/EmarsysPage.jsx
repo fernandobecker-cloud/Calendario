@@ -10,6 +10,16 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
 
 const INTERVALO_AUTO_COLETA_MS = 8000
 
+function extrairDetalheErro(payload) {
+  const detail = payload?.detail
+  if (!detail) return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d?.msg || JSON.stringify(d)).join('; ')
+  }
+  return JSON.stringify(detail)
+}
+
 function baixarBlob(blob, nomeArquivo) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -114,7 +124,7 @@ export default function EmarsysPage() {
     try {
       const res = await fetch('/api/emarsys/lojas')
       const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
       setLojas(payload?.items || [])
     } catch (err) {
       setLojasErro(err instanceof Error ? err.message : 'Erro ao carregar lojas.')
@@ -161,7 +171,7 @@ export default function EmarsysPage() {
       })
       const res = await fetch(`/api/emarsys/enviar/${filialSelecionada}?${params}`, { method: 'POST' })
       const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
       setIndividualResultado(payload)
       if (baixarArquivoIndividual) {
         for (const envio of payload.envios || []) {
@@ -186,7 +196,7 @@ export default function EmarsysPage() {
     try {
       const res = await fetch('/api/emarsys/enviar-todas/iniciar', { method: 'POST' })
       const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
       setIniciarResumo(payload)
       setLoteTotal(payload?.lote || [])
       setLotePendente(payload?.lote || [])
@@ -217,7 +227,7 @@ export default function EmarsysPage() {
       body: JSON.stringify({ lote: loteParaColetar }),
     })
     const payload = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+    if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
 
     setResultadosPorFilial((prev) => {
       const next = { ...prev }
