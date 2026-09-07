@@ -10,7 +10,13 @@ function base64ParaBlob(base64, mimeType = 'text/csv') {
 
 const INTERVALO_AUTO_COLETA_MS = 8000
 const LOTE_TAMANHO_INICIAR = 10
-const LOTE_TAMANHO_COLETAR = 10
+// No modo "baixar arquivo", cada loja do lote mantem o CSV inteiro em
+// memoria varias vezes (bruto, filtrado, reserializado, base64) ate a
+// resposta ser montada - lote grande com lojas grandes estourava a memoria
+// do Render gratuito (512MB). Por e-mail e mais leve (escreve em arquivo
+// temporario, nao acumula base64 na resposta), entao aguenta lote maior.
+const LOTE_TAMANHO_COLETAR_ARQUIVO = 3
+const LOTE_TAMANHO_COLETAR_EMAIL = 10
 
 const LOTE_STORAGE_KEY = 'emarsys_lote_massa_v1'
 
@@ -312,12 +318,13 @@ export default function EmarsysPage() {
 
   // executa UMA chamada a /coletar - so com uma FATIA do lote pendente (nao
   // tudo de uma vez: baixar/dividir varias lojas grandes numa unica
-  // requisicao e o mesmo problema do /iniciar - o proxy do Render derruba
-  // com 502 antes de terminar). Devolve o lote pendente atualizado: o resto
-  // que nem foi tocado nesta chamada + quem da fatia continuou pendente.
+  // requisicao ja causou tanto 502 de timeout quanto estouro de memoria no
+  // Render gratuito). Devolve o lote pendente atualizado: o resto que nem
+  // foi tocado nesta chamada + quem da fatia continuou pendente.
   const executarColeta = useCallback(async (lotePendenteAtual) => {
-    const fatia = lotePendenteAtual.slice(0, LOTE_TAMANHO_COLETAR)
-    const resto = lotePendenteAtual.slice(LOTE_TAMANHO_COLETAR)
+    const tamanhoFatia = baixarArquivoMassa ? LOTE_TAMANHO_COLETAR_ARQUIVO : LOTE_TAMANHO_COLETAR_EMAIL
+    const fatia = lotePendenteAtual.slice(0, tamanhoFatia)
+    const resto = lotePendenteAtual.slice(tamanhoFatia)
 
     const params = new URLSearchParams({
       campanha: campanhaMassa,
@@ -716,7 +723,7 @@ export default function EmarsysPage() {
 
         {coletarResumoUltima && (
           <p className="mt-2 text-sm text-slate-600">
-            Ultimo lote verificado ({LOTE_TAMANHO_COLETAR} loja(s) por vez): {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
+            Ultimo lote verificado ({baixarArquivoMassa ? LOTE_TAMANHO_COLETAR_ARQUIVO : LOTE_TAMANHO_COLETAR_EMAIL} loja(s) por vez): {coletarResumoUltima.sucesso} concluida(s), {coletarResumoUltima.pendente} ainda pendente(s), {coletarResumoUltima.falha} falha(s)
             {baixarArquivoMassa
               ? (lotePendente.length === 0 ? ' - .zip baixado' : ` - ${arquivosAcumulados.current.length} arquivo(s) aguardando o restante ficar pronto`)
               : coletarResumoUltima.dry_run ? ' (simulacao)' : ' (envio real)'}.
