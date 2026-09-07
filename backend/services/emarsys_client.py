@@ -239,12 +239,11 @@ class EmarsysClient:
                 return item
         return None
 
-    def export_segment(self, segment_id: int | str, field_ids: list[int | str],
-                        poll_seconds: int = 5, timeout_seconds: int = 240) -> bytes:
-        """Dispara a exportacao de um segmento (POST /export/filter) e aguarda
-        o CSV ficar pronto, via polling em GET /export/{id} + download pelo
-        WebDAV da Emarsys (GET /export/{id}/data nao funciona - ver docstring
-        do modulo)."""
+    def iniciar_export(self, segment_id: int | str, field_ids: list[int | str]) -> str:
+        """So dispara a exportacao (POST /export/filter) e devolve o
+        export_id, sem esperar ficar pronto - usado no fluxo em duas fases
+        (iniciar todas as lojas, depois coletar todas) pra nao serializar a
+        espera de cada loja numa unica requisicao longa."""
         body = {
             "distribution_method": EMARSYS_DISTRIBUTION_METHOD,
             "filter": int(segment_id) if str(segment_id).lstrip("-").isdigit() else segment_id,
@@ -256,23 +255,43 @@ class EmarsysClient:
         export_id = created.get("data", {}).get("id")
         if not export_id:
             raise EmarsysError(f"Nao recebi um id de exportacao da Emarsys: {created}")
+        return export_id
+
+    def verificar_export(self, export_id: int | str) -> dict:
+        """GET /export/{id} cru - so o status atual, sem baixar nada.
+        Confirmado contra a conta real (2026-09): ha mais status
+        intermediarios do que a doc/collection publica sugere ("scheduled",
+        "in_progress", possivelmente outros) - em vez de tentar enumerar
+        todos os valores de "ainda processando", quem chama deve so
+        considerar pronto quando `file_name` de fato aparecer."""
+        status_data = self._request("GET", f"/export/{export_id}")
+        return status_data.get("data", {})
+
+    def baixar_export(self, file_name: str) -> bytes:
+        """Baixa (e apaga) um export ja pronto do WebDAV - exposto separado
+        do polling pra ser chamado no fluxo em duas fases assim que
+        `verificar_export` disser que o `file_name` esta disponivel."""
+        return self._baixar_do_webdav(file_name)
+
+    def export_segment(self, segment_id: int | str, field_ids: list[int | str],
+                        poll_seconds: int = 5, timeout_seconds: int = 240) -> bytes:
+        """Dispara a exportacao de um segmento e aguarda o CSV ficar pronto,
+        via polling + download pelo WebDAV da Emarsys (GET /export/{id}/data
+        nao funciona - ver docstring do modulo). Envelope sincrono de
+        `iniciar_export`/`verificar_export`/`baixar_export` para o fluxo de
+        loja unica (`/enviar/{filial}`)."""
+        export_id = self.iniciar_export(segment_id, field_ids)
 
         waited = 0
         ultimo_status = ""
         while waited < timeout_seconds:
-            status_data = self._request("GET", f"/export/{export_id}")
-            data = status_data.get("data", {})
-            # Confirmado contra a conta real (2026-09): ha mais status
-            # intermediarios do que a doc/collection publica sugere
-            # ("scheduled", "in_progress", possivelmente outros) - em vez de
-            # tentar enumerar todos os valores de "ainda processando", so
-            # consideramos pronto quando file_name de fato aparecer.
+            data = self.verificar_export(export_id)
             ultimo_status = str(data.get("status", "")).strip().lower()
             if ultimo_status in ("error", "failed", "falhou"):
-                raise EmarsysError(f"Exportacao {export_id} falhou: {status_data}")
+                raise EmarsysError(f"Exportacao {export_id} falhou: {data}")
             file_name = data.get("file_name")
             if file_name:
-                return self._baixar_do_webdav(file_name)
+                return self.baixar_export(file_name)
             time.sleep(poll_seconds)
             waited += poll_seconds
 

@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from backend.services.emarsys_client import (
     EMARSYS_EXPORT_PATH,
@@ -77,6 +78,72 @@ SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USER
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() != "false"
 
 CAMPO_LOJA_EXPORT = os.getenv("EMARSYS_CAMPO_LOJA_EXPORT", "codigo_loja").strip()
+
+# IDs numericos sempre incluidos no export, mesmo que o admin nao peca em
+# 'campos'. 13504/13505 (confirmados via GET /field/translate/en contra a
+# conta real) sao os campos de opt-out de WhatsApp - o filtro de opt-out
+# (ver `_filtrar_opt_out`) depende deles existirem no CSV. 17506 e campo
+# customizado da iPlace que marca cliente SuperVIP (confirmado pelo
+# usuario) - so informativo no CSV, sem logica de filtro em cima dele.
+CAMPO_OPT_IN_ID = "13504"
+CAMPO_OPT_IN_NOME = "Conversational WhatsApp Opt-In"
+CAMPO_BAD_NUMBER_ID = "13505"
+CAMPO_BAD_NUMBER_NOME = "Conversational WhatsApp Bad Number"
+CAMPO_SUPERVIP_ID = "17506"
+CAMPOS_OBRIGATORIOS_IDS = [CAMPO_OPT_IN_ID, CAMPO_BAD_NUMBER_ID, CAMPO_SUPERVIP_ID]
+
+# Campos "de conteudo" usados como padrao quando o admin nao informa
+# 'campos' explicitamente - confirmados contra um export real (2026-09):
+# 1=First Name, 2=Last Name, 3=Email, 37=Mobile (Phone/15 e Nome da
+# Loja/14831, loja/16493, Contact source/33 e Contact form/34 foram
+# removidos do padrao a pedido do usuario - so celular, sem telefone fixo
+# nem esses outros campos). Os obrigatorios (opt-out + SuperVIP) sao sempre
+# somados a esta lista por `_com_campos_obrigatorios`, nao precisam ser
+# repetidos aqui.
+CAMPOS_PADRAO = "1,2,3,37"
+
+# Guarda quais export_id ja foram efetivamente enviados (dry_run=false) pelo
+# fluxo em duas fases (/enviar-todas/coletar), pra nao mandar o mesmo e-mail
+# duas vezes se o admin passar o mesmo lote de novo por engano. So faz
+# sentido em memoria porque o gunicorn roda com --workers 1 (ver start.sh) -
+# nao sobrevive a reinicio do processo, o que e aceitavel pq o fluxo
+# esperado e iniciar+coletar dentro do mesmo deploy.
+_exports_ja_enviados: set[str] = set()
+
+
+def _com_campos_obrigatorios(campos_exportacao: list[str]) -> list[str]:
+    resultado = list(campos_exportacao)
+    for campo_id in CAMPOS_OBRIGATORIOS_IDS:
+        if campo_id not in resultado:
+            resultado.append(campo_id)
+    return resultado
+
+
+def _filtrar_opt_out(linhas: list[dict]) -> tuple[list[dict], int]:
+    """Remove contatos com opt-out de WhatsApp confirmado: opt-in != 'True'
+    ou numero marcado como invalido pela Emarsys (campo nao-vazio). Se o CSV
+    nao trouxer essas colunas (export antigo, ou 'campos' que por algum
+    motivo nao incluiu os IDs obrigatorios), nao filtra nada - so avisa no
+    log, pra nao excluir todo mundo por engano."""
+    if not linhas:
+        return linhas, 0
+    colunas = linhas[0].keys()
+    if CAMPO_OPT_IN_NOME not in colunas and CAMPO_BAD_NUMBER_NOME not in colunas:
+        log.warning(
+            "Export sem as colunas de opt-out ('%s' / '%s') - pulando filtro de opt-out.",
+            CAMPO_OPT_IN_NOME, CAMPO_BAD_NUMBER_NOME,
+        )
+        return linhas, 0
+    mantidos = []
+    excluidos = 0
+    for linha in linhas:
+        opt_in = (linha.get(CAMPO_OPT_IN_NOME) or "").strip()
+        bad_number = (linha.get(CAMPO_BAD_NUMBER_NOME) or "").strip()
+        if opt_in.lower() != "true" or bad_number:
+            excluidos += 1
+            continue
+        mantidos.append(linha)
+    return mantidos, excluidos
 
 # Dominios+bases candidatos para /discover. https://api.emarsys.net/api/v3 e
 # o confirmado por documentacao publica (Postman collections oficiais da
@@ -335,49 +402,46 @@ def _enviar_email(destinatarios: list[str], assunto: str, corpo: str, anexo: Pat
         server.send_message(msg)
 
 
-def _processar_loja(
-    client: EmarsysClient,
+def _resolver_segmento_id(client: EmarsysClient, loja: Loja) -> tuple[str, str]:
+    """Acha o id do segmento combinado da loja. Devolve (segmento_id, erro) -
+    exatamente um dos dois preenchido. Preferido: `segmento_combinado_id` do
+    CSV de lojas, via GET /filter/{id} direto (confirmado funcionando).
+    Fallback: busca por nome (GET /filter lista, que da 403 nesta conta
+    mesmo com a permissao certa ativa - ver docstring de
+    find_segment_by_name)."""
+    try:
+        if loja.segmento_combinado_id:
+            segmento = client.get_segment_by_id(loja.segmento_combinado_id)
+        else:
+            segmento = client.find_segment_by_name(loja.nome_segmento_combinado)
+    except EmarsysError as exc:
+        return "", f"Falha ao buscar segmento '{loja.nome_segmento_combinado}': {exc}"
+    if not segmento:
+        return "", (
+            f"Segmento '{loja.nome_segmento_combinado}' nao encontrado. "
+            f"Crie manualmente na tela do Emarsys antes de rodar este envio "
+            f"(estrutura AND/NOT ainda nao confirmada para criacao automatica), "
+            f"ou preencha 'segmento_combinado_id' no CSV de lojas se ja existir."
+        )
+    segmento_id = segmento.get("id") or segmento.get("id_", "")
+    return str(segmento_id), ""
+
+
+def _dividir_e_enviar(
     loja: Loja,
+    csv_bytes: bytes,
     *,
-    campos_exportacao: list[str],
+    segmento_id: str,
     campo_loja: str,
     campanha: str,
     dry_run: bool,
     email_teste: str,
 ) -> dict[str, Any]:
-    try:
-        if loja.segmento_combinado_id:
-            # GET /filter/{id} direto - confirmado funcionando. Preferido
-            # sobre a busca por nome (GET /filter lista, que da 403 nesta
-            # conta mesmo com a permissao certa ativa - ver docstring de
-            # find_segment_by_name).
-            segmento = client.get_segment_by_id(loja.segmento_combinado_id)
-        else:
-            segmento = client.find_segment_by_name(loja.nome_segmento_combinado)
-    except EmarsysError as exc:
-        return {
-            "filial": loja.filial,
-            "ok": False,
-            "erro": f"Falha ao buscar segmento '{loja.nome_segmento_combinado}': {exc}",
-        }
-    if not segmento:
-        return {
-            "filial": loja.filial,
-            "ok": False,
-            "erro": f"Segmento '{loja.nome_segmento_combinado}' nao encontrado. "
-                    f"Crie manualmente na tela do Emarsys antes de rodar este envio "
-                    f"(estrutura AND/NOT ainda nao confirmada para criacao automatica), "
-                    f"ou preencha 'segmento_combinado_id' no CSV de lojas se ja existir.",
-        }
-    segmento_id = segmento.get("id") or segmento.get("id_", "")
-
-    try:
-        csv_bytes = client.export_segment(str(segmento_id), campos_exportacao)
-    except EmarsysError as exc:
-        return {"filial": loja.filial, "ok": False, "erro": f"Falha ao exportar segmento: {exc}"}
-
-    por_loja = _dividir_csv_por_loja(csv_bytes, campo_loja, filial_padrao=loja.filial)
-    outras_filiais = sorted(set(por_loja) - {loja.filial})
+    """Divide o CSV ja baixado pelo campo de loja e manda (ou simula, se
+    dry_run) um e-mail por loja encontrada. Usado tanto pelo fluxo sincrono
+    de loja unica quanto pela etapa `coletar` do fluxo em duas fases."""
+    por_loja_bruto = _dividir_csv_por_loja(csv_bytes, campo_loja, filial_padrao=loja.filial)
+    outras_filiais = sorted(set(por_loja_bruto) - {loja.filial})
     if outras_filiais:
         log.warning(
             "Segmento %s (filial %s) trouxe contatos de outras filiais no export: %s "
@@ -385,11 +449,20 @@ def _processar_loja(
             loja.nome_segmento_combinado, loja.filial, outras_filiais,
         )
 
+    por_loja: dict[str, list[dict]] = {}
+    excluidos_opt_out: dict[str, int] = {}
+    for codigo, linhas in por_loja_bruto.items():
+        filtradas, excluidas = _filtrar_opt_out(linhas)
+        por_loja[codigo] = filtradas
+        if excluidas:
+            excluidos_opt_out[codigo] = excluidas
+
     resultado: dict[str, Any] = {
         "filial": loja.filial,
         "ok": True,
         "segmento_id": segmento_id,
         "grupos_no_export": {k: len(v) for k, v in por_loja.items()},
+        "excluidos_opt_out": excluidos_opt_out or None,
         "aviso_outras_filiais": outras_filiais or None,
         "dry_run": dry_run,
         "envios": [],
@@ -407,6 +480,13 @@ def _processar_loja(
     with tempfile.TemporaryDirectory(prefix="emarsys_lojas_") as tmp:
         tmp_path = Path(tmp)
         for codigo_loja, linhas in sorted(por_loja.items()):
+            if not linhas:
+                resultado["envios"].append({
+                    "codigo_loja": codigo_loja, "contatos": 0,
+                    "destinatarios": [], "enviado": False,
+                    "motivo": "todos os contatos dessa loja foram excluidos por opt-out",
+                })
+                continue
             arquivo = _escrever_csv_temp(tmp_path, codigo_loja, linhas)
             if email_teste:
                 destinatarios = [email_teste]
@@ -442,12 +522,43 @@ def _processar_loja(
     return resultado
 
 
+def _processar_loja(
+    client: EmarsysClient,
+    loja: Loja,
+    *,
+    campos_exportacao: list[str],
+    campo_loja: str,
+    campanha: str,
+    dry_run: bool,
+    email_teste: str,
+) -> dict[str, Any]:
+    """Fluxo completo e sincrono (acha segmento -> exporta -> espera ficar
+    pronto -> divide -> envia) para uma loja - usado por /enviar/{filial} e
+    /enviar-todas. Para o fluxo em duas fases (iniciar-todas/coletar), veja
+    `_resolver_segmento_id` + `client.iniciar_export`/`verificar_export` +
+    `_dividir_e_enviar` chamados separadamente."""
+    segmento_id, erro = _resolver_segmento_id(client, loja)
+    if erro:
+        return {"filial": loja.filial, "ok": False, "erro": erro}
+
+    try:
+        csv_bytes = client.export_segment(segmento_id, campos_exportacao)
+    except EmarsysError as exc:
+        return {"filial": loja.filial, "ok": False, "erro": f"Falha ao exportar segmento: {exc}"}
+
+    return _dividir_e_enviar(
+        loja, csv_bytes,
+        segmento_id=segmento_id, campo_loja=campo_loja,
+        campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+    )
+
+
 @router.post("/enviar/{filial}")
 def enviar_uma_loja(
     filial: str,
     request: Request,
     campanha: str = Query(default=""),
-    campos: str = Query(default="", description="IDs NUMERICOS de campo da Emarsys a exportar (ex: 3 = e-mail), separados por virgula - confirme na tela de campos do Emarsys"),
+    campos: str = Query(default=CAMPOS_PADRAO, description="IDs NUMERICOS de campo da Emarsys a exportar, separados por virgula - padrao ja cobre nome/email/telefone/loja; opt-out e SuperVIP sao sempre adicionados por baixo dos panos"),
     campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
@@ -458,7 +569,7 @@ def enviar_uma_loja(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    campos_exportacao = [c.strip() for c in campos.split(",") if c.strip()]
+    campos_exportacao = _com_campos_obrigatorios([c.strip() for c in campos.split(",") if c.strip()])
     client = _get_client()
     try:
         return _processar_loja(
@@ -476,7 +587,7 @@ def enviar_uma_loja(
 def enviar_todas_lojas(
     request: Request,
     campanha: str = Query(default=""),
-    campos: str = Query(default=""),
+    campos: str = Query(default=CAMPOS_PADRAO),
     campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
     dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
     confirmar: bool = Query(default=False, description="precisa ser true (alem de dry_run=false) para disparar envio real em massa"),
@@ -489,7 +600,7 @@ def enviar_todas_lojas(
             detail="Envio em massa real exige dry_run=false E confirmar=true explicitos.",
         )
 
-    campos_exportacao = [c.strip() for c in campos.split(",") if c.strip()]
+    campos_exportacao = _com_campos_obrigatorios([c.strip() for c in campos.split(",") if c.strip()])
     client = _get_client()
     mapa = carregar_mapa()
 
@@ -511,5 +622,149 @@ def enviar_todas_lojas(
         "total_lojas": len(resultados),
         "sucesso": sum(1 for r in resultados if r.get("ok")),
         "falha": sum(1 for r in resultados if not r.get("ok")),
+        "resultados": resultados,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fluxo em duas fases (iniciar todas / coletar todas) - resolve o problema de
+# tempo de exportacao muito variavel entre lojas (algumas com poucos
+# contatos, outras com milhares): em vez de UMA requisicao serial esperando
+# cada loja terminar (o que /enviar-todas faz), aqui o admin primeiro dispara
+# o export de todas de uma vez (rapido, so o POST) e recebe um "lote" com o
+# export_id de cada loja; depois chama /coletar passando esse lote de volta,
+# quantas vezes for preciso, ate todas saírem de "pendente".
+# ---------------------------------------------------------------------------
+
+class ItemLote(BaseModel):
+    filial: str
+    segmento_id: str
+    export_id: str
+
+
+class ColetarBody(BaseModel):
+    lote: list[ItemLote]
+
+
+@router.post("/enviar-todas/iniciar")
+def iniciar_todas_lojas(
+    request: Request,
+    campos: str = Query(default=CAMPOS_PADRAO, description="IDs NUMERICOS de campo da Emarsys a exportar, separados por virgula - os mesmos que serao usados depois em /coletar"),
+) -> dict[str, Any]:
+    """Fase 1: acha o segmento e dispara o export (POST /export/filter) de
+    TODAS as lojas, sem esperar nenhum ficar pronto. Devolve o 'lote' que
+    deve ser guardado (pelo chamador) e reenviado para /enviar-todas/coletar
+    depois - nao ha estado guardado no servidor entre as duas chamadas."""
+    require_admin(request)
+    campos_exportacao = _com_campos_obrigatorios([c.strip() for c in campos.split(",") if c.strip()])
+    client = _get_client()
+    mapa = carregar_mapa()
+
+    lote: list[dict[str, Any]] = []
+    falhas: list[dict[str, Any]] = []
+    for loja in mapa.values():
+        segmento_id, erro = _resolver_segmento_id(client, loja)
+        if erro:
+            falhas.append({"filial": loja.filial, "ok": False, "erro": erro})
+            continue
+        try:
+            export_id = client.iniciar_export(segmento_id, campos_exportacao)
+        except EmarsysError as exc:
+            falhas.append({"filial": loja.filial, "ok": False, "erro": f"Falha ao disparar exportacao: {exc}"})
+            continue
+        lote.append({"filial": loja.filial, "segmento_id": segmento_id, "export_id": export_id})
+
+    return {
+        "total_lojas": len(mapa),
+        "iniciados": len(lote),
+        "falhas": len(falhas),
+        "lote": lote,
+        "erros": falhas,
+    }
+
+
+@router.post("/enviar-todas/coletar")
+def coletar_todas_lojas(
+    body: ColetarBody,
+    request: Request,
+    campanha: str = Query(default=""),
+    campo_loja: str = Query(default=CAMPO_LOJA_EXPORT, description="Nome da coluna de loja no CSV exportado - so tem efeito se o ID numerico do campo correspondente tambem estiver em 'campos'; senao o export inteiro conta como da filial pedida"),
+    dry_run: bool = Query(default=True, description="true (padrao) = simula sem enviar e-mail nenhum"),
+    confirmar: bool = Query(default=False, description="precisa ser true (alem de dry_run=false) para disparar envio real em massa"),
+    email_teste: str = Query(default="", description="Se definido, envia so para este endereco em vez do gerente/subgerente real"),
+) -> dict[str, Any]:
+    """Fase 2: recebe de volta o 'lote' devolvido por /enviar-todas/iniciar
+    e, para cada item, checa o status UMA vez (sem esperar/repetir polling).
+    As que ja estao prontas (tem file_name): baixa, divide, envia (ou
+    simula). As que ainda nao: marca como 'pendente' para o admin rodar
+    /coletar de novo mais tarde com o MESMO lote (so reenviando os itens
+    ainda pendentes evita repetir o envio dos que ja foram concluidos)."""
+    require_admin(request)
+    if not dry_run and not confirmar:
+        raise HTTPException(
+            status_code=400,
+            detail="Envio em massa real exige dry_run=false E confirmar=true explicitos.",
+        )
+
+    client = _get_client()
+    resultados = []
+    for item in body.lote:
+        if not dry_run and item.export_id in _exports_ja_enviados:
+            resultados.append({
+                "filial": item.filial, "ok": True, "ja_enviado": True,
+                "envios": [],
+            })
+            continue
+
+        try:
+            loja = obter_loja(item.filial)
+        except KeyError as exc:
+            resultados.append({"filial": item.filial, "ok": False, "erro": str(exc)})
+            continue
+
+        try:
+            status_data = client.verificar_export(item.export_id)
+        except EmarsysError as exc:
+            resultados.append({"filial": item.filial, "ok": False, "erro": f"Falha ao checar status: {exc}"})
+            continue
+
+        status_atual = str(status_data.get("status", "")).strip().lower()
+        if status_atual in ("error", "failed", "falhou"):
+            resultados.append({"filial": item.filial, "ok": False, "erro": f"Exportacao falhou: {status_data}"})
+            continue
+
+        file_name = status_data.get("file_name")
+        if not file_name:
+            resultados.append({
+                "filial": item.filial, "ok": False, "pendente": True,
+                "status_atual": status_atual or "desconhecido",
+            })
+            continue
+
+        try:
+            csv_bytes = client.baixar_export(file_name)
+        except EmarsysError as exc:
+            resultados.append({"filial": item.filial, "ok": False, "erro": f"Falha ao baixar export: {exc}"})
+            continue
+
+        resultado_loja = _dividir_e_enviar(
+            loja, csv_bytes,
+            segmento_id=item.segmento_id, campo_loja=campo_loja,
+            campanha=campanha, dry_run=dry_run, email_teste=email_teste,
+        )
+        algum_email_enviado = any(e.get("enviado") for e in resultado_loja.get("envios", []))
+        if not dry_run and algum_email_enviado:
+            # Marca como enviado se PELO MENOS um e-mail de verdade saiu -
+            # "ok" sozinho nao serve (fica True mesmo se todo envio de
+            # e-mail falhar, ja que so descreve o split ter funcionado).
+            _exports_ja_enviados.add(item.export_id)
+        resultados.append(resultado_loja)
+
+    return {
+        "dry_run": dry_run,
+        "total": len(resultados),
+        "sucesso": sum(1 for r in resultados if r.get("ok")),
+        "pendente": sum(1 for r in resultados if r.get("pendente")),
+        "falha": sum(1 for r in resultados if not r.get("ok") and not r.get("pendente")),
         "resultados": resultados,
     }
