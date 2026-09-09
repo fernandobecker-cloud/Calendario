@@ -1336,11 +1336,9 @@ CAPTACAO_LEADS_FORMULARIOS = {
 
 
 def _build_captacao_leads_sql() -> str:
-    """Cadastros por formulário de captação (si_contacts.contact_source) e por loja
-    (si_contacts.nome_da_loja - campo customizado do Emarsys, ID 14831, exportado no
-    Open Data com esse nome de coluna), filtrados por registered_on. COUNT(DISTINCT
-    si_contact_id) evita contagem dupla se a mesma linha de contato aparecer mais de
-    uma vez na tabela.
+    """Cadastros por formulário de captação (si_contacts.contact_source), filtrados por
+    registered_on. COUNT(DISTINCT si_contact_id) evita contagem dupla se a mesma linha
+    de contato aparecer mais de uma vez na tabela.
     """
     project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
@@ -1349,12 +1347,11 @@ def _build_captacao_leads_sql() -> str:
     return f"""
 SELECT
   contact_source,
-  nome_da_loja,
   COUNT(DISTINCT si_contact_id) AS qtd
 FROM `{project}.{dataset}.{table}`
 WHERE contact_source IN ({fontes})
   AND registered_on BETWEEN @start_date AND @end_date
-GROUP BY contact_source, nome_da_loja
+GROUP BY contact_source
 """.strip()
 
 
@@ -1373,17 +1370,7 @@ def captacao_leads(
             bigquery.ScalarQueryParameter("end_date", "DATE", e),
         ]
         records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None, params=params)
-
-        qtd_by_source: dict[str, int] = {}
-        qtd_by_loja: dict[str, int] = {}
-        fonte_lojas = CAPTACAO_LEADS_FORMULARIOS["lojas"]
-        for r in records:
-            fonte = str(r.get("contact_source") or "")
-            qtd = int(r.get("qtd") or 0)
-            qtd_by_source[fonte] = qtd_by_source.get(fonte, 0) + qtd
-            if fonte == fonte_lojas:
-                nome_loja = str(r.get("nome_da_loja") or "").strip() or "Não informado"
-                qtd_by_loja[nome_loja] = qtd_by_loja.get(nome_loja, 0) + qtd
+        qtd_by_source = {str(r.get("contact_source") or ""): int(r.get("qtd") or 0) for r in records}
 
         formularios = {
             categoria: {
@@ -1393,15 +1380,10 @@ def captacao_leads(
             for categoria, fonte in CAPTACAO_LEADS_FORMULARIOS.items()
         }
         total = sum(item["qtd"] for item in formularios.values())
-        por_loja = sorted(
-            ({"loja": loja, "qtd": qtd} for loja, qtd in qtd_by_loja.items()),
-            key=lambda item: -item["qtd"],
-        )
 
         return {
             "formularios":  formularios,
             "total":        total,
-            "por_loja":     por_loja,
             "start_date":   s,
             "end_date":     e,
             "dataset":      EMARSYS_OPEN_DATA_DATASET,

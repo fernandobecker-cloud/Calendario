@@ -107,30 +107,6 @@ export default function CaptacaoLeadsPage() {
             <StatTile label="Lojas" value={data.formularios?.lojas?.qtd} />
             <StatTile label="Total" value={data.total} accent />
           </div>
-
-          {Array.isArray(data.por_loja) && data.por_loja.length > 0 && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900">Captação por loja</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-2">Loja</th>
-                      <th className="px-3 py-2 text-right">Cadastros</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.por_loja.map((item, i) => (
-                      <tr key={item.loja} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-700">{item.loja}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{fmtN(item.qtd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
         </div>
       )}
     </div>
