@@ -36,9 +36,11 @@ from backend.ga4_client import (
     get_crm_ltv,
     get_crm_monthly_report,
     get_crm_range_report,
+    get_item_sales,
     get_session_duration,
     get_sessions_yesterday,
 )
+from backend.vendas_npi_skus import VENDAS_NPI_SKUS
 from backend.ga4_funnel import get_crm_funnel
 from backend.routers.projects import router as projects_router
 from backend.routes.open_data import router as open_data_router
@@ -912,6 +914,35 @@ def ga4_automation_revenue_by_campaign(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+
+@app.get("/api/ga4/vendas-npi")
+def ga4_vendas_npi(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    property_id: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Vendas (GA4, dimensao itemId) dos SKUs do lancamento NPI iPhone 18 -
+    ver backend/vendas_npi_skus.py."""
+    effective_property_id = (property_id or "").strip() or GA4_PROPERTY_ID
+    if not effective_property_id:
+        raise HTTPException(status_code=500, detail="Variavel GA4_PROPERTY_ID nao configurada")
+
+    try:
+        resultado = get_item_sales(effective_property_id, start, end, list(VENDAS_NPI_SKUS.keys()))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Falha ao consultar Google Analytics Data API") from exc
+
+    encontrados = {item["sku"] for item in resultado["items"]}
+    for item in resultado["items"]:
+        item["descricao"] = VENDAS_NPI_SKUS.get(item["sku"], item.get("item_name") or "")
+    for sku, descricao in VENDAS_NPI_SKUS.items():
+        if sku not in encontrados:
+            resultado["items"].append({"sku": sku, "item_name": "", "descricao": descricao, "qtd": 0, "revenue": 0.0})
+    resultado["items"].sort(key=lambda x: -x["qtd"])
+    return resultado
 
 
 @app.get("/api/ga4/crm-funnel")

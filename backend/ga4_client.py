@@ -667,6 +667,59 @@ def get_session_duration(property_id: str, start_date: str, end_date: str) -> di
     }
 
 
+def get_item_sales(property_id: str, start_date: str, end_date: str, item_ids: list[str]) -> dict[str, Any]:
+    """Retorna quantidade e receita vendidas no GA4 por item (dimensao 'itemId',
+    o mesmo valor do 'skuId' usado nas URLs de produto do site), para uma lista
+    de SKUs. Usado pela aba Vendas_NPI."""
+    start = _validate_iso_date(start_date)
+    end = _validate_iso_date(end_date)
+    normalized_period = _normalize_period_to_today(start, end)
+    if normalized_period is None:
+        return {"items": [], "total_qtd": 0, "total_revenue": 0.0, "start_date": start, "end_date": end}
+    start, end = normalized_period
+
+    normalized_ids = [str(i or "").strip() for i in item_ids if str(i or "").strip()]
+    if not normalized_ids:
+        raise RuntimeError("Informe ao menos um SKU (item_id) valido")
+
+    property_resource = _resolve_property_resource(property_id)
+    client = _get_ga4_client()
+
+    request = RunReportRequest(
+        property=property_resource,
+        dimensions=[Dimension(name="itemId"), Dimension(name="itemName")],
+        metrics=[Metric(name="itemsPurchased"), Metric(name="itemRevenue")],
+        date_ranges=[DateRange(start_date=start, end_date=end)],
+        dimension_filter=_build_in_list_filter("itemId", normalized_ids),
+    )
+    response = _run_report(request, client)
+
+    items = []
+    total_qtd = 0
+    total_revenue = 0.0
+    for row in response.rows:
+        dim_vals = row.dimension_values
+        met_vals = row.metric_values
+        if len(dim_vals) < 2 or len(met_vals) < 2:
+            continue
+        sku = (dim_vals[0].value or "").strip()
+        item_name = (dim_vals[1].value or "").strip()
+        qtd = int(met_vals[0].value or 0)
+        revenue = float(met_vals[1].value or 0.0)
+        total_qtd += qtd
+        total_revenue += revenue
+        items.append({"sku": sku, "item_name": item_name, "qtd": qtd, "revenue": round(revenue, 2)})
+
+    items.sort(key=lambda x: -x["qtd"])
+    return {
+        "items": items,
+        "total_qtd": total_qtd,
+        "total_revenue": round(total_revenue, 2),
+        "start_date": start,
+        "end_date": end,
+    }
+
+
 def get_automation_revenue_by_campaign(
     property_id: str,
     start_date: str,

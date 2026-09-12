@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
 
 from backend.event_sources import run_bigquery_records
+from backend.vendas_npi_skus import VENDAS_NPI_SKUS, modelo_do_sku
 
 # ---------------------------------------------------------------------------
 # CPF prefetch cache — evita re-executar a query Emarsys EU quando o usuário
@@ -1394,6 +1395,83 @@ def captacao_leads(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao consultar captação de leads: {exc}") from exc
+
+
+def _build_vendas_npi_sql() -> str:
+    """Vendas dos SKUs do lancamento NPI iPhone 18 no Emarsys (si_purchases),
+    casando por product_external_id (confirmado como o mesmo codigo de SKU
+    usado no site, ver backend/vendas_npi_skus.py). SUM(quantity) contabiliza
+    devolucoes (quantity negativo) como venda liquida.
+    """
+    project = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    table   = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    return f"""
+SELECT
+  product_external_id AS sku,
+  ANY_VALUE(product_name) AS nome_produto,
+  SUM(quantity) AS qtd,
+  SUM(sales_amount) AS valor
+FROM `{project}.{dataset}.{table}`
+WHERE product_external_id IN UNNEST(@skus)
+  AND DATE(purchase_date) BETWEEN @start_date AND @end_date
+GROUP BY product_external_id
+""".strip()
+
+
+@router.get("/vendas-npi")
+def vendas_npi(
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Vendas (Emarsys si_purchases) dos SKUs do lancamento NPI iPhone 18 -
+    ver backend/vendas_npi_skus.py. Complementa GET /api/ga4/vendas-npi
+    (mesmos SKUs, fonte Google Analytics)."""
+    try:
+        s = _validate_optional_iso_date(start) or start
+        e = _validate_optional_iso_date(end) or end
+        sql = _build_vendas_npi_sql()
+        skus = list(VENDAS_NPI_SKUS.keys())
+        params = [
+            bigquery.ArrayQueryParameter("skus", "STRING", skus),
+            bigquery.ScalarQueryParameter("start_date", "DATE", s),
+            bigquery.ScalarQueryParameter("end_date", "DATE", e),
+        ]
+        records = run_bigquery_records(sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None, params=params)
+        por_sku = {str(r.get("sku") or ""): r for r in records}
+
+        items = []
+        total_qtd = 0
+        total_valor = 0.0
+        for sku, descricao in VENDAS_NPI_SKUS.items():
+            r = por_sku.get(sku)
+            qtd = int(r.get("qtd") or 0) if r else 0
+            valor = float(r.get("valor") or 0.0) if r else 0.0
+            total_qtd += qtd
+            total_valor += valor
+            items.append({
+                "sku": sku,
+                "descricao": descricao,
+                "modelo": modelo_do_sku(sku),
+                "qtd": qtd,
+                "valor": round(valor, 2),
+            })
+        items.sort(key=lambda x: -x["qtd"])
+
+        return {
+            "items":       items,
+            "total_qtd":   total_qtd,
+            "total_valor": round(total_valor, 2),
+            "start_date":  s,
+            "end_date":    e,
+            "dataset":     EMARSYS_OPEN_DATA_DATASET,
+            "project_id":  EMARSYS_OPEN_DATA_PROJECT_ID,
+            "source":      "bigquery_si_purchases_product_external_id",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar vendas NPI (Emarsys): {exc}") from exc
 
 
 def _build_attribution_date_filters(

@@ -9,11 +9,13 @@ import AuditoriaPage from './components/AuditoriaPage'
 import AdmPage from './components/AdmPage'
 import PortalMapPage from './components/PortalMapPage'
 import EmarsysPage from './components/EmarsysPage'
+import VendasNpiPage from './components/VendasNpiPage'
 import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
   { to: '/resultado-geral', label: 'Resultado Geral', key: 'resultado-geral' },
   { to: '/captacao-leads', label: 'Captação de Leads', key: 'captacao-leads' },
+  { to: '/vendas-npi', label: 'Vendas_NPI', key: 'vendas-npi' },
   { to: '/campanhas', label: 'Campanhas', key: 'campanhas' },
   { to: '/gantt', label: 'Projetos', key: 'projetos' },
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
@@ -29,7 +31,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
-    if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'captacao-leads'
+    if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'captacao-leads' || tab.key === 'vendas-npi'
     if (tab.key === 'adm' || tab.key === 'mapa' || tab.key === 'emarsys') return currentRole === 'admin'
     if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
     if (currentRole === 'admin') return true
@@ -200,6 +202,7 @@ export default function AppRouter() {
           <Route path="/gantt" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
           <Route path="/captacao-leads" element={<CaptacaoLeadsPage />} />
+          <Route path="/vendas-npi" element={<VendasNpiPage />} />
           <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to="/resultado-geral" replace />} />
