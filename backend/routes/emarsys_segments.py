@@ -861,3 +861,53 @@ def coletar_todas_lojas(
         "falha": sum(1 for r in resultados if not r.get("ok") and not r.get("pendente")),
         "resultados": resultados,
     }
+
+
+# ---------------------------------------------------------------------------
+# Export de um segmento qualquer, por ID direto - nao precisa estar mapeado
+# numa loja. Usado pra consultas pontuais (ex: cruzar uma lista de clientes
+# de outra ferramenta, como uma campanha de WhatsApp feita fora da Emarsys,
+# com a Base de Vendas).
+# ---------------------------------------------------------------------------
+
+@router.post("/segmento/{segmento_id}/exportar")
+def exportar_segmento_generico(
+    segmento_id: str,
+    request: Request,
+    campos: str = Query(default=CAMPOS_PADRAO, description="IDs NUMERICOS de campo da Emarsys a exportar, separados por virgula"),
+    baixar_arquivo: bool = Query(default=False, description="Se true, tambem devolve o CSV inteiro em base64 pro navegador baixar"),
+) -> dict[str, Any]:
+    """Exporta um segmento pelo ID, sem precisar de mapeamento de loja.
+    Devolve as colunas e uma amostra das primeiras linhas (pra conferir o que
+    veio sem precisar decodificar nada), e opcionalmente o CSV inteiro."""
+    require_admin(request)
+    client = _get_client()
+    try:
+        segmento = client.get_segment_by_id(segmento_id)
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar segmento {segmento_id}: {exc}") from exc
+    if not segmento:
+        raise HTTPException(status_code=404, detail=f"Segmento {segmento_id} nao encontrado.")
+
+    campos_exportacao = [c.strip() for c in campos.split(",") if c.strip()]
+    try:
+        csv_bytes = client.export_segment(segmento_id, campos_exportacao)
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar segmento {segmento_id}: {exc}") from exc
+
+    texto = csv_bytes.decode("utf-8-sig")
+    leitor = csv.DictReader(io.StringIO(texto))
+    linhas = list(leitor)
+
+    resultado: dict[str, Any] = {
+        "segmento_id": segmento_id,
+        "segmento_nome": segmento.get("name"),
+        "segmento_tipo": segmento.get("type"),
+        "colunas": leitor.fieldnames,
+        "total_contatos": len(linhas),
+        "amostra": linhas[:5],
+    }
+    if baixar_arquivo:
+        resultado["arquivo_nome"] = f"segmento_{segmento_id}.csv"
+        resultado["arquivo_base64"] = base64.b64encode(csv_bytes).decode("ascii")
+    return resultado
