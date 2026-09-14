@@ -81,16 +81,14 @@ export default function VendasNpiPage() {
         modelo,
         qtdGa,
         qtdEmarsys,
-        qtdTotal: qtdGa + qtdEmarsys,
       })
-      if (!porModelo[modelo]) porModelo[modelo] = { modelo, qtdGa: 0, qtdEmarsys: 0, qtdTotal: 0 }
+      if (!porModelo[modelo]) porModelo[modelo] = { modelo, qtdGa: 0, qtdEmarsys: 0 }
       porModelo[modelo].qtdGa += qtdGa
       porModelo[modelo].qtdEmarsys += qtdEmarsys
-      porModelo[modelo].qtdTotal += qtdGa + qtdEmarsys
     }
-    items.sort((a, b) => b.qtdTotal - a.qtdTotal)
+    items.sort((a, b) => b.qtdEmarsys - a.qtdEmarsys)
   }
-  const resumoModelo = Object.values(porModelo).sort((a, b) => b.qtdTotal - a.qtdTotal)
+  const resumoModelo = Object.values(porModelo).sort((a, b) => b.qtdEmarsys - a.qtdEmarsys)
   const totalGa = ga?.total_qtd ?? 0
   const totalEmarsys = emarsys?.total_qtd ?? 0
 
@@ -144,9 +142,12 @@ export default function VendasNpiPage() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-4 sm:flex-row">
             <StatTile label="Google Analytics" value={totalGa} />
-            <StatTile label="Emarsys" value={totalEmarsys} />
-            <StatTile label="Total" value={totalGa + totalEmarsys} accent />
+            <StatTile label="Emarsys" value={totalEmarsys} accent />
           </div>
+          <p className="text-xs text-slate-400">
+            Os dois números não devem ser somados: são sistemas diferentes medindo a mesma venda, e o
+            Emarsys já contempla o que o GA mede no site.
+          </p>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Por modelo</h2>
@@ -157,7 +158,6 @@ export default function VendasNpiPage() {
                     <th className="px-3 py-2">Modelo</th>
                     <th className="px-3 py-2 text-right">GA</th>
                     <th className="px-3 py-2 text-right">Emarsys</th>
-                    <th className="px-3 py-2 text-right">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,8 +165,7 @@ export default function VendasNpiPage() {
                     <tr key={item.modelo} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                       <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-700">{item.modelo}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{fmtN(item.qtdGa)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{fmtN(item.qtdEmarsys)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtN(item.qtdTotal)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtN(item.qtdEmarsys)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -184,7 +183,6 @@ export default function VendasNpiPage() {
                     <th className="px-3 py-2">Descrição</th>
                     <th className="px-3 py-2 text-right">GA</th>
                     <th className="px-3 py-2 text-right">Emarsys</th>
-                    <th className="px-3 py-2 text-right">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -193,8 +191,7 @@ export default function VendasNpiPage() {
                       <td className="whitespace-nowrap px-3 py-2 text-slate-500">{item.sku}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-slate-700">{item.descricao}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{fmtN(item.qtdGa)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-700">{fmtN(item.qtdEmarsys)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtN(item.qtdTotal)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums font-semibold text-slate-900">{fmtN(item.qtdEmarsys)}</td>
                     </tr>
                   ))}
                 </tbody>
