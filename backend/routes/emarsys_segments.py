@@ -77,7 +77,11 @@ from backend.services.emarsys_client import (
     EmarsysError,
 )
 from backend.services.mapa_lojas import Loja, carregar_mapa, obter_loja
-from backend.routes.open_data import _normalize_match_key, receita_atribuida_por_cpfs
+from backend.routes.open_data import (
+    _normalize_match_key,
+    receita_atribuida_por_cpfs,
+    receita_pos_disparo_por_cpfs,
+)
 
 router = APIRouter(prefix="/api/emarsys", tags=["emarsys"])
 log = logging.getLogger("emarsys_segments")
@@ -918,24 +922,38 @@ def exportar_segmento_generico(
 # Receita atribuida para os contatos de um segmento - usado para segmentos
 # que viraram audiencia em outra ferramenta (ex: uma campanha de WhatsApp
 # disparada pelo Omnichat). Exporta so o CPF (campo 12908, confirmado pelo
-# usuario) e cruza com revenue_attribution no BigQuery - nunca usa telefone,
-# que nao existe no Open Data (ver backend/routes/open_data.py).
+# usuario) e cruza com si_purchases/revenue_attribution no BigQuery - nunca
+# usa telefone, que nao existe no Open Data (ver backend/routes/open_data.py).
+#
+# Duas metricas, propositalmente separadas:
+# - `receita_pos_disparo` (o que interessa de verdade aqui): comprou algo
+#   entre a data do disparo e o fim da janela, sem depender de qual canal (ou
+#   nenhum) a Emarsys credita internamente - ela nao enxerga o Omnichat, entao
+#   e a unica forma de medir esse disparo.
+# - `atribuicao_nativa_emarsys`: o que o modelo de atribuicao por canal da
+#   propria Emarsys (revenue_attribution) credita pra esses contatos no mesmo
+#   periodo - mantido so como contexto/comparacao, NAO mede o Omnichat (so
+#   canais que a Emarsys mesma dispara: email, SMS, WhatsApp nativo dela).
 # ---------------------------------------------------------------------------
 
 @router.post("/segmento/{segmento_id}/receita-atribuida")
 def receita_atribuida_segmento(
     segmento_id: str,
     request: Request,
-    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data inicial do pedido (event_time), YYYY-MM-DD"),
-    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data final do pedido (event_time), YYYY-MM-DD"),
+    data_disparo: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data em que o disparo foi feito (ex: no Omnichat), YYYY-MM-DD"),
+    janela_dias: int = Query(default=7, ge=1, le=60, description="Quantos dias apos o disparo contam como janela de atribuicao"),
+    campanha: str = Query(default="", description="Nome da campanha/disparo, so para identificar o resultado - nao afeta a consulta"),
     campo_cpf: str = Query(default="12908", description="ID numerico do campo de CPF na Emarsys"),
 ) -> dict[str, Any]:
     """Pega os contatos de um segmento da Emarsys (ex: a audiencia usada para
     montar um disparo de WhatsApp em outra ferramenta, como o Omnichat),
-    exporta so o CPF de cada um e cruza com `revenue_attribution` no
-    BigQuery pra calcular a receita atribuida nativa da Emarsys pra esse
-    publico, no periodo informado. O cruzamento e 100% por CPF - telefone
-    nunca entra nessa conta, porque nao existe no Open Data."""
+    exporta so o CPF de cada um e mede quantos compraram (e quanto) entre a
+    data do disparo e o fim da janela - direto em `si_purchases`, sem
+    depender do modelo de atribuicao por canal da Emarsys (que nao enxerga
+    disparos feitos fora dela). Tambem devolve, so como contexto, o que a
+    atribuicao nativa da Emarsys credita pra esses contatos no mesmo
+    periodo. O cruzamento e 100% por CPF - telefone nunca entra nessa conta,
+    porque nao existe no Open Data."""
     require_admin(request)
     client = _get_client()
     try:
@@ -972,11 +990,36 @@ def receita_atribuida_segmento(
     cpfs_normalizados = [_normalize_match_key(linha.get(coluna_cpf) or "") for linha in linhas]
 
     try:
-        resultado = receita_atribuida_por_cpfs(cpfs_normalizados, start, end)
+        pos_disparo = receita_pos_disparo_por_cpfs(cpfs_normalizados, data_disparo, janela_dias)
+        nativo = receita_atribuida_por_cpfs(cpfs_normalizados, data_disparo, pos_disparo["fim_janela"])
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita atribuida: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita: {exc}") from exc
 
-    resultado["segmento_id"] = segmento_id
-    resultado["segmento_nome"] = segmento.get("name")
-    resultado["total_contatos_segmento"] = total_contatos_segmento
-    return resultado
+    return {
+        "segmento_id": segmento_id,
+        "segmento_nome": segmento.get("name"),
+        "campanha": campanha or None,
+        "total_contatos_segmento": total_contatos_segmento,
+        "total_cpfs_informados": pos_disparo["total_cpfs_informados"],
+        "data_disparo": pos_disparo["data_disparo"],
+        "janela_dias": pos_disparo["janela_dias"],
+        "fim_janela": pos_disparo["fim_janela"],
+        "receita_pos_disparo": {
+            "compradores_unicos": pos_disparo["compradores_unicos"],
+            "pedidos": pos_disparo["pedidos"],
+            "receita": pos_disparo["receita"],
+            "metric_definition": pos_disparo["metric_definition"],
+        },
+        "atribuicao_nativa_emarsys": {
+            "nota": (
+                "Isto NAO mede o Omnichat - a Emarsys so credita canais que ela "
+                "mesma dispara (email, SMS, WhatsApp nativo dela). Mantido aqui "
+                "so como contexto/comparacao com receita_pos_disparo."
+            ),
+            "total_cpfs_encontrados_emarsys": nativo["total_cpfs_encontrados_emarsys"],
+            "taxa_match_pct": nativo["taxa_match_pct"],
+            "by_channel": nativo["by_channel"],
+            "total_pedidos_atribuidos": nativo["total_pedidos_atribuidos"],
+            "total_receita_atribuida": nativo["total_receita_atribuida"],
+        },
+    }

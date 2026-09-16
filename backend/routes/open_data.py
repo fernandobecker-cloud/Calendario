@@ -1537,6 +1537,11 @@ def _build_cpf_matched_contacts_cte() -> str:
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     case_sql = _cpf_match_case_sql("c.external_id")
+    # Traz contact_id (usado no join com revenue_attribution, atribuicao
+    # nativa da Emarsys) e si_contact_id (usado no join com si_purchases,
+    # compra crua - ver `_build_cpf_raw_purchases_sql`) na mesma CTE. Cada
+    # join especifico ja ignora sozinho a coluna que nao usa (JOIN com NULL
+    # nunca casa), entao nao precisa de dois CASE/dois CTEs separados.
     return f"""
 key_list AS (
   SELECT DISTINCT key
@@ -1546,11 +1551,12 @@ key_list AS (
 matched_contacts AS (
   SELECT DISTINCT
     k.key AS normalized_cpf,
-    CAST(c.contact_id AS STRING) AS contact_id
+    CAST(c.contact_id AS STRING) AS contact_id,
+    CAST(c.si_contact_id AS STRING) AS si_contact_id
   FROM key_list k
   INNER JOIN `{project_id}.{dataset}.{contacts_table}` c
     ON k.key = {case_sql}
-  WHERE c.external_id IS NOT NULL AND c.contact_id IS NOT NULL
+  WHERE c.external_id IS NOT NULL
 )"""
 
 
@@ -1643,6 +1649,89 @@ SELECT
   ROUND(SUM(order_attributed), 2) AS receita_atribuida
 FROM per_order
 """.strip()
+
+
+def _build_cpf_raw_purchases_sql(start_date: str, end_date: str) -> str:
+    """Compra 'crua' (tabela `si_purchases`, sem passar pelo modelo de
+    atribuicao por canal da Emarsys) para os CPFs em @cpfs, dentro do
+    periodo informado.
+
+    Existe porque `revenue_attribution` so mostra receita quando a propria
+    Emarsys credita algum canal dela (email/SMS/WhatsApp nativo) a um
+    pedido - ela nao enxerga (e nunca vai enxergar) um disparo feito por
+    fora, tipo Omnichat. Pra medir o efeito de um disparo assim, a unica
+    saida e olhar se o contato comprou algo dentro da janela pos-disparo,
+    independente de qual canal (ou nenhum) a Emarsys credita internamente.
+    """
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    cte = _build_cpf_matched_contacts_cte()
+
+    return f"""
+WITH {cte}
+SELECT
+  COUNT(DISTINCT mc.normalized_cpf) AS compradores_unicos,
+  COUNT(DISTINCT p.order_id) AS pedidos,
+  ROUND(SUM(p.sales_amount), 2) AS receita
+FROM matched_contacts mc
+INNER JOIN `{project_id}.{dataset}.{purchases_table}` p ON CAST(p.si_contact_id AS STRING) = mc.si_contact_id
+WHERE DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+""".strip()
+
+
+def receita_pos_disparo_por_cpfs(
+    cpfs_normalizados: list[str],
+    data_disparo: str,
+    janela_dias: int = 7,
+) -> dict[str, Any]:
+    """Receita 'pos-disparo' pra uma lista de CPFs (ex: contatos de um
+    segmento da Emarsys que virou audiencia de um disparo em outra
+    ferramenta, como o Omnichat): olha se cada contato comprou algo entre
+    `data_disparo` e `data_disparo + janela_dias`, usando `si_purchases`
+    direto - NAO depende do modelo de atribuicao por canal da Emarsys (ver
+    docstring de `_build_cpf_raw_purchases_sql`). E essa a receita que a
+    Emarsys hoje nao consegue atribuir sozinha, porque o envio aconteceu
+    fora dela.
+    """
+    cpfs_unicos = sorted({c for c in cpfs_normalizados if c})
+    inicio = _validate_optional_iso_date(data_disparo)
+    if not inicio:
+        raise ValueError("data_disparo invalida ou ausente.")
+    fim = (date.fromisoformat(inicio) + timedelta(days=max(1, janela_dias))).isoformat()
+
+    resultado: dict[str, Any] = {
+        "data_disparo": inicio,
+        "janela_dias": janela_dias,
+        "fim_janela": fim,
+        "total_cpfs_informados": len(cpfs_unicos),
+        "compradores_unicos": 0,
+        "pedidos": 0,
+        "receita": 0.0,
+        "metric_definition": (
+            "Receita de contatos do segmento que compraram (si_purchases, sem "
+            "filtro de canal) entre a data do disparo e o fim da janela - nao "
+            "depende do modelo de atribuicao por canal da Emarsys, que nao "
+            "enxerga disparos feitos fora dela (ex: Omnichat)."
+        ),
+        "source": "bigquery_emarsys_open_data_si_purchases_x_cpf_list",
+    }
+    if not cpfs_unicos:
+        return resultado
+
+    cpfs_param = [bigquery.ArrayQueryParameter("cpfs", "STRING", cpfs_unicos)]
+    records = run_bigquery_records(
+        _build_cpf_raw_purchases_sql(inicio, fim),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=45,
+        params=cpfs_param,
+    )
+    if records:
+        resultado["compradores_unicos"] = int(records[0].get("compradores_unicos") or 0)
+        resultado["pedidos"] = int(records[0].get("pedidos") or 0)
+        resultado["receita"] = round(float(records[0].get("receita") or 0), 2)
+    return resultado
 
 
 def receita_atribuida_por_cpfs(
