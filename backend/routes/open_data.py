@@ -1506,6 +1506,216 @@ def _build_attribution_date_filters(
     return event_time_filter, partition_filter
 
 
+# ---------------------------------------------------------------------------
+# Receita atribuída para uma lista arbitrária de CPFs (ex: contatos de um
+# segmento da Emarsys usado para montar uma audiência em outra ferramenta,
+# como uma campanha de WhatsApp disparada pelo Omnichat). Cruza 100% por CPF
+# (si_contacts.external_id) - nunca por telefone, que não existe no Open
+# Data. Usado por `/api/emarsys/segmento/{id}/receita-atribuida`.
+# ---------------------------------------------------------------------------
+
+def _cpf_match_case_sql(external_id_expr: str) -> str:
+    """Expressão CASE que normaliza `external_id_expr` (CPF) do mesmo jeito
+    que `_normalize_match_key` faz do lado Python - dígitos com <11
+    caracteres levam zero-padding à esquerda. Mantém os dois lados do join
+    (CPF vindo da Emarsys via export, CPF vindo do BigQuery) comparáveis."""
+    cleaned = f"REGEXP_REPLACE(LOWER(CAST({external_id_expr} AS STRING)), r'[^0-9a-z]', '')"
+    return f"""CASE
+      WHEN REGEXP_CONTAINS({cleaned}, r'^[0-9]+$') AND LENGTH({cleaned}) < 11
+      THEN LPAD({cleaned}, 11, '0')
+      ELSE {cleaned}
+    END"""
+
+
+def _build_cpf_matched_contacts_cte(document_keys: list[str]) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    key_values = ", ".join(_sql_string_literal(v) for v in document_keys)
+    case_sql = _cpf_match_case_sql("c.external_id")
+    return f"""
+key_list AS (
+  SELECT DISTINCT key
+  FROM UNNEST([{key_values}]) AS key
+  WHERE key IS NOT NULL AND key != ''
+),
+matched_contacts AS (
+  SELECT DISTINCT
+    k.key AS normalized_cpf,
+    CAST(c.contact_id AS STRING) AS contact_id
+  FROM key_list k
+  INNER JOIN `{project_id}.{dataset}.{contacts_table}` c
+    ON k.key = {case_sql}
+  WHERE c.external_id IS NOT NULL AND c.contact_id IS NOT NULL
+)"""
+
+
+def _build_cpf_match_stats_sql(document_keys: list[str]) -> str:
+    cte = _build_cpf_matched_contacts_cte(document_keys)
+    return f"""
+WITH {cte}
+SELECT
+  (SELECT COUNT(*) FROM key_list) AS total_cpfs_informados,
+  COUNT(DISTINCT normalized_cpf) AS total_cpfs_encontrados
+FROM matched_contacts
+""".strip()
+
+
+def _build_cpf_revenue_by_channel_sql(
+    document_keys: list[str],
+    start_date: str | None,
+    end_date: str | None,
+) -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    cte = _build_cpf_matched_contacts_cte(document_keys)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, table_alias="r")
+
+    return f"""
+WITH {cte},
+per_order_channel AS (
+  -- Agrupa por (order_id, canal) para não contar duas vezes a receita de um
+  -- pedido com tratamentos de múltiplos canais - mesmo padrão de
+  -- `_build_monthly_revenue_by_channel_sql`.
+  SELECT
+    r.order_id,
+    mc.normalized_cpf,
+    LOWER(t.channel) AS canal,
+    ROUND(SUM(t.attributed_amount), 2) AS order_channel_attributed
+  FROM matched_contacts mc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON CAST(r.contact_id AS STRING) = mc.contact_id
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND r.event_time IS NOT NULL
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY r.order_id, mc.normalized_cpf, canal
+)
+SELECT
+  canal,
+  COUNT(DISTINCT normalized_cpf) AS compradores_unicos,
+  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
+  ROUND(SUM(order_channel_attributed), 2) AS receita_atribuida
+FROM per_order_channel
+GROUP BY canal
+ORDER BY receita_atribuida DESC
+""".strip()
+
+
+def _build_cpf_revenue_total_sql(
+    document_keys: list[str],
+    start_date: str | None,
+    end_date: str | None,
+) -> str:
+    """Total sem quebra por canal - evita contar o mesmo pedido mais de uma
+    vez quando ele tem tratamentos de canais diferentes (o que aconteceria
+    se a linha 'Total' fosse apenas a soma das linhas de `by_channel`)."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    cte = _build_cpf_matched_contacts_cte(document_keys)
+    event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, table_alias="r")
+
+    return f"""
+WITH {cte},
+per_order AS (
+  SELECT
+    r.order_id,
+    mc.normalized_cpf,
+    ROUND(SUM(t.attributed_amount), 2) AS order_attributed
+  FROM matched_contacts mc
+  INNER JOIN `{project_id}.{dataset}.{revenue_table}` r ON CAST(r.contact_id AS STRING) = mc.contact_id
+  CROSS JOIN UNNEST(r.treatments) AS t
+  WHERE ARRAY_LENGTH(r.treatments) > 0
+    AND r.event_time IS NOT NULL
+    AND t.attributed_amount > 0
+    AND {event_time_filter}
+    AND {partition_filter}
+  GROUP BY r.order_id, mc.normalized_cpf
+)
+SELECT
+  COUNT(DISTINCT normalized_cpf) AS compradores_unicos,
+  COUNT(DISTINCT order_id) AS pedidos_atribuidos,
+  ROUND(SUM(order_attributed), 2) AS receita_atribuida
+FROM per_order
+""".strip()
+
+
+def receita_atribuida_por_cpfs(
+    cpfs_normalizados: list[str],
+    start_date: str | None,
+    end_date: str | None,
+) -> dict[str, Any]:
+    """Recebe uma lista de CPFs já normalizados (ver `_normalize_match_key`) -
+    tipicamente extraída de um export de segmento da Emarsys usado para
+    montar uma audiência em outra ferramenta (ex: Omnichat) - e devolve a
+    receita atribuída nativa da Emarsys (`revenue_attribution`) para esses
+    contatos, com quebra por canal. O cruzamento é 100% por CPF
+    (`si_contacts.external_id`); telefone nunca entra nessa conta porque não
+    existe no Open Data. Usada por
+    `/api/emarsys/segmento/{id}/receita-atribuida` (backend/routes/emarsys_segments.py).
+    """
+    cpfs_unicos = sorted({c for c in cpfs_normalizados if c})
+    resultado: dict[str, Any] = {
+        "total_cpfs_informados": len(cpfs_unicos),
+        "total_cpfs_encontrados_emarsys": 0,
+        "taxa_match_pct": 0.0,
+        "by_channel": [],
+        "total_pedidos_atribuidos": 0,
+        "total_receita_atribuida": 0.0,
+        "start_date": _validate_optional_iso_date(start_date),
+        "end_date": _validate_optional_iso_date(end_date),
+        "metric_definition": (
+            "Receita atribuída nativa Emarsys (revenue_attribution) para os "
+            "contatos cujo CPF bateu com si_contacts.external_id, agrupada por "
+            "canal do treatment. Cruzamento 100% por CPF - telefone nao e "
+            "usado em nenhum momento."
+        ),
+        "source": "bigquery_emarsys_open_data_revenue_attribution_x_cpf_list",
+    }
+    if not cpfs_unicos:
+        return resultado
+
+    match_records = run_bigquery_records(
+        _build_cpf_match_stats_sql(cpfs_unicos),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=30,
+    )
+    if match_records:
+        resultado["total_cpfs_informados"] = int(match_records[0].get("total_cpfs_informados") or len(cpfs_unicos))
+        resultado["total_cpfs_encontrados_emarsys"] = int(match_records[0].get("total_cpfs_encontrados") or 0)
+        if resultado["total_cpfs_informados"]:
+            resultado["taxa_match_pct"] = round(
+                100 * resultado["total_cpfs_encontrados_emarsys"] / resultado["total_cpfs_informados"], 1
+            )
+
+    if not resultado["total_cpfs_encontrados_emarsys"]:
+        return resultado
+
+    by_channel_records = run_bigquery_records(
+        _build_cpf_revenue_by_channel_sql(cpfs_unicos, start_date, end_date),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=45,
+    )
+    resultado["by_channel"] = _records_to_response_items(by_channel_records)
+
+    total_records = run_bigquery_records(
+        _build_cpf_revenue_total_sql(cpfs_unicos, start_date, end_date),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=45,
+    )
+    if total_records:
+        resultado["total_pedidos_atribuidos"] = int(total_records[0].get("pedidos_atribuidos") or 0)
+        resultado["total_receita_atribuida"] = round(float(total_records[0].get("receita_atribuida") or 0), 2)
+
+    return resultado
+
+
 def _build_audit_discrepancia_sql(start_date: str | None = None, end_date: str | None = None) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)

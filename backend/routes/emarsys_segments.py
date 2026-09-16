@@ -77,6 +77,7 @@ from backend.services.emarsys_client import (
     EmarsysError,
 )
 from backend.services.mapa_lojas import Loja, carregar_mapa, obter_loja
+from backend.routes.open_data import _normalize_match_key, receita_atribuida_por_cpfs
 
 router = APIRouter(prefix="/api/emarsys", tags=["emarsys"])
 log = logging.getLogger("emarsys_segments")
@@ -910,4 +911,72 @@ def exportar_segmento_generico(
     if baixar_arquivo:
         resultado["arquivo_nome"] = f"segmento_{segmento_id}.csv"
         resultado["arquivo_base64"] = base64.b64encode(csv_bytes).decode("ascii")
+    return resultado
+
+
+# ---------------------------------------------------------------------------
+# Receita atribuida para os contatos de um segmento - usado para segmentos
+# que viraram audiencia em outra ferramenta (ex: uma campanha de WhatsApp
+# disparada pelo Omnichat). Exporta so o CPF (campo 12908, confirmado pelo
+# usuario) e cruza com revenue_attribution no BigQuery - nunca usa telefone,
+# que nao existe no Open Data (ver backend/routes/open_data.py).
+# ---------------------------------------------------------------------------
+
+@router.post("/segmento/{segmento_id}/receita-atribuida")
+def receita_atribuida_segmento(
+    segmento_id: str,
+    request: Request,
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data inicial do pedido (event_time), YYYY-MM-DD"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data final do pedido (event_time), YYYY-MM-DD"),
+    campo_cpf: str = Query(default="12908", description="ID numerico do campo de CPF na Emarsys"),
+) -> dict[str, Any]:
+    """Pega os contatos de um segmento da Emarsys (ex: a audiencia usada para
+    montar um disparo de WhatsApp em outra ferramenta, como o Omnichat),
+    exporta so o CPF de cada um e cruza com `revenue_attribution` no
+    BigQuery pra calcular a receita atribuida nativa da Emarsys pra esse
+    publico, no periodo informado. O cruzamento e 100% por CPF - telefone
+    nunca entra nessa conta, porque nao existe no Open Data."""
+    require_admin(request)
+    client = _get_client()
+    try:
+        segmento = client.get_segment_by_id(segmento_id)
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar segmento {segmento_id}: {exc}") from exc
+    if not segmento:
+        raise HTTPException(status_code=404, detail=f"Segmento {segmento_id} nao encontrado.")
+
+    try:
+        csv_bytes = client.export_segment(segmento_id, [campo_cpf.strip()])
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar segmento {segmento_id}: {exc}") from exc
+
+    texto = csv_bytes.decode("utf-8-sig")
+    leitor = csv.DictReader(io.StringIO(texto))
+    linhas = list(leitor)
+    colunas = leitor.fieldnames or []
+    total_contatos_segmento = len(linhas)
+
+    coluna_cpf = colunas[0] if len(colunas) == 1 else next(
+        (c for c in colunas if "cpf" in c.strip().lower()), None
+    )
+    if not coluna_cpf:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Nao consegui identificar a coluna de CPF no export do segmento {segmento_id} "
+                f"(colunas recebidas: {colunas}). Confira o ID do campo ({campo_cpf}) na tela "
+                "de campos da Emarsys."
+            ),
+        )
+
+    cpfs_normalizados = [_normalize_match_key(linha.get(coluna_cpf) or "") for linha in linhas]
+
+    try:
+        resultado = receita_atribuida_por_cpfs(cpfs_normalizados, start, end)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao calcular receita atribuida: {exc}") from exc
+
+    resultado["segmento_id"] = segmento_id
+    resultado["segmento_nome"] = segmento.get("name")
+    resultado["total_contatos_segmento"] = total_contatos_segmento
     return resultado
