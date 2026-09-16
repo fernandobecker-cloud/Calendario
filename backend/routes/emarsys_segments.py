@@ -943,6 +943,7 @@ def receita_atribuida_segmento(
     data_disparo: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data em que o disparo foi feito (ex: no Omnichat), YYYY-MM-DD"),
     janela_dias: int = Query(default=7, ge=1, le=60, description="Quantos dias apos o disparo contam como janela de atribuicao"),
     campanha: str = Query(default="", description="Nome da campanha/disparo, so para identificar o resultado - nao afeta a consulta"),
+    skus: str = Query(default="", description="SKUs (product_external_id) do produto promovido, separados por virgula - filtra a metrica 'npi'. Vazio = usa a lista padrao do lancamento iPhone 18 (VENDAS_NPI_SKUS)"),
     campo_cpf: str = Query(default="12908", description="ID numerico do campo de CPF na Emarsys"),
 ) -> dict[str, Any]:
     """Pega os contatos de um segmento da Emarsys (ex: a audiencia usada para
@@ -950,7 +951,9 @@ def receita_atribuida_segmento(
     exporta so o CPF de cada um e mede quantos compraram (e quanto) entre a
     data do disparo e o fim da janela - direto em `si_purchases`, sem
     depender do modelo de atribuicao por canal da Emarsys (que nao enxerga
-    disparos feitos fora dela). Tambem devolve, so como contexto, o que a
+    disparos feitos fora dela). Devolve receita 'total' (qualquer compra -
+    teto superior) e 'npi' (so os SKUs do produto promovido - proxy mais
+    proxima do efeito real). Tambem devolve, so como contexto, o que a
     atribuicao nativa da Emarsys credita pra esses contatos no mesmo
     periodo. O cruzamento e 100% por CPF - telefone nunca entra nessa conta,
     porque nao existe no Open Data."""
@@ -989,8 +992,10 @@ def receita_atribuida_segmento(
 
     cpfs_normalizados = [_normalize_match_key(linha.get(coluna_cpf) or "") for linha in linhas]
 
+    skus_campanha = [s.strip() for s in skus.split(",") if s.strip()] or None
+
     try:
-        pos_disparo = receita_pos_disparo_por_cpfs(cpfs_normalizados, data_disparo, janela_dias)
+        pos_disparo = receita_pos_disparo_por_cpfs(cpfs_normalizados, data_disparo, janela_dias, skus_campanha)
         nativo = receita_atribuida_por_cpfs(cpfs_normalizados, data_disparo, pos_disparo["fim_janela"])
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular receita: {exc}") from exc
@@ -1004,10 +1009,10 @@ def receita_atribuida_segmento(
         "data_disparo": pos_disparo["data_disparo"],
         "janela_dias": pos_disparo["janela_dias"],
         "fim_janela": pos_disparo["fim_janela"],
+        "skus_campanha": pos_disparo["skus_campanha"],
         "receita_pos_disparo": {
-            "compradores_unicos": pos_disparo["compradores_unicos"],
-            "pedidos": pos_disparo["pedidos"],
-            "receita": pos_disparo["receita"],
+            "total": pos_disparo["total"],
+            "npi": pos_disparo["npi"],
             "metric_definition": pos_disparo["metric_definition"],
         },
         "atribuicao_nativa_emarsys": {

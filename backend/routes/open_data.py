@@ -1651,17 +1651,23 @@ FROM per_order
 """.strip()
 
 
-def _build_cpf_raw_purchases_sql(start_date: str, end_date: str) -> str:
+def _build_cpf_raw_purchases_sql() -> str:
     """Compra 'crua' (tabela `si_purchases`, sem passar pelo modelo de
-    atribuicao por canal da Emarsys) para os CPFs em @cpfs, dentro do
-    periodo informado.
+    atribuicao por canal da Emarsys) para os CPFs em @cpfs, dentro da janela
+    [@start_date, @end_date] - total geral E recorte pelos SKUs da campanha
+    em @skus (ex: os SKUs do lancamento NPI iPhone 18, ver
+    backend/vendas_npi_skus.py). `receita_npi` e a soma so das linhas desses
+    SKUs (mesmo criterio de `_build_vendas_npi_sql`), nao o valor cheio do
+    pedido que contem um desses itens.
 
     Existe porque `revenue_attribution` so mostra receita quando a propria
     Emarsys credita algum canal dela (email/SMS/WhatsApp nativo) a um
     pedido - ela nao enxerga (e nunca vai enxergar) um disparo feito por
-    fora, tipo Omnichat. Pra medir o efeito de um disparo assim, a unica
-    saida e olhar se o contato comprou algo dentro da janela pos-disparo,
-    independente de qual canal (ou nenhum) a Emarsys credita internamente.
+    fora, tipo Omnichat. `receita_total` (qualquer compra) super-estima o
+    efeito do disparo pra publicos grandes/periodos de lancamento (compra
+    que ia acontecer de qualquer jeito); `receita_npi` (so o produto
+    promovido) e uma proxy bem mais defensavel, ainda que nao seja prova de
+    causalidade (isso exigiria grupo de controle).
     """
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
@@ -1671,12 +1677,15 @@ def _build_cpf_raw_purchases_sql(start_date: str, end_date: str) -> str:
     return f"""
 WITH {cte}
 SELECT
-  COUNT(DISTINCT mc.normalized_cpf) AS compradores_unicos,
-  COUNT(DISTINCT p.order_id) AS pedidos,
-  ROUND(SUM(p.sales_amount), 2) AS receita
+  COUNT(DISTINCT mc.normalized_cpf) AS compradores_unicos_total,
+  COUNT(DISTINCT p.order_id) AS pedidos_total,
+  ROUND(SUM(p.sales_amount), 2) AS receita_total,
+  COUNT(DISTINCT IF(p.product_external_id IN UNNEST(@skus), mc.normalized_cpf, NULL)) AS compradores_unicos_npi,
+  COUNT(DISTINCT IF(p.product_external_id IN UNNEST(@skus), p.order_id, NULL)) AS pedidos_npi,
+  ROUND(SUM(IF(p.product_external_id IN UNNEST(@skus), p.sales_amount, 0)), 2) AS receita_npi
 FROM matched_contacts mc
 INNER JOIN `{project_id}.{dataset}.{purchases_table}` p ON CAST(p.si_contact_id AS STRING) = mc.si_contact_id
-WHERE DATE(p.purchase_date) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+WHERE DATE(p.purchase_date) BETWEEN DATE(@start_date) AND DATE(@end_date)
 """.strip()
 
 
@@ -1684,53 +1693,76 @@ def receita_pos_disparo_por_cpfs(
     cpfs_normalizados: list[str],
     data_disparo: str,
     janela_dias: int = 7,
+    skus_campanha: list[str] | None = None,
 ) -> dict[str, Any]:
     """Receita 'pos-disparo' pra uma lista de CPFs (ex: contatos de um
     segmento da Emarsys que virou audiencia de um disparo em outra
     ferramenta, como o Omnichat): olha se cada contato comprou algo entre
     `data_disparo` e `data_disparo + janela_dias`, usando `si_purchases`
     direto - NAO depende do modelo de atribuicao por canal da Emarsys (ver
-    docstring de `_build_cpf_raw_purchases_sql`). E essa a receita que a
-    Emarsys hoje nao consegue atribuir sozinha, porque o envio aconteceu
-    fora dela.
+    docstring de `_build_cpf_raw_purchases_sql`). Devolve dois recortes:
+    `total` (qualquer compra - teto superior, inclui compra sem relacao
+    nenhuma com o disparo) e `npi` (so os SKUs em `skus_campanha` - proxy
+    mais proxima do que o disparo de fato promoveu). Se `skus_campanha` vier
+    vazio, usa por padrao os SKUs do lancamento NPI iPhone 18
+    (VENDAS_NPI_SKUS).
     """
     cpfs_unicos = sorted({c for c in cpfs_normalizados if c})
     inicio = _validate_optional_iso_date(data_disparo)
     if not inicio:
         raise ValueError("data_disparo invalida ou ausente.")
     fim = (date.fromisoformat(inicio) + timedelta(days=max(1, janela_dias))).isoformat()
+    skus = skus_campanha or list(VENDAS_NPI_SKUS.keys())
 
     resultado: dict[str, Any] = {
         "data_disparo": inicio,
         "janela_dias": janela_dias,
         "fim_janela": fim,
         "total_cpfs_informados": len(cpfs_unicos),
-        "compradores_unicos": 0,
-        "pedidos": 0,
-        "receita": 0.0,
+        "skus_campanha": skus,
+        "total": {"compradores_unicos": 0, "pedidos": 0, "receita": 0.0},
+        "npi": {"compradores_unicos": 0, "pedidos": 0, "receita": 0.0},
         "metric_definition": (
-            "Receita de contatos do segmento que compraram (si_purchases, sem "
-            "filtro de canal) entre a data do disparo e o fim da janela - nao "
-            "depende do modelo de atribuicao por canal da Emarsys, que nao "
-            "enxerga disparos feitos fora dela (ex: Omnichat)."
+            "'total': qualquer compra (si_purchases, sem filtro de produto) de "
+            "contatos do segmento entre a data do disparo e o fim da janela - "
+            "teto superior, super-estima o efeito real porque inclui compra sem "
+            "relacao com o disparo. 'npi': mesma janela, so a receita das linhas "
+            "de pedido dos SKUs em skus_campanha - proxy mais proxima do "
+            "produto que o disparo promoveu. Nenhum dos dois depende do modelo "
+            "de atribuicao por canal da Emarsys, que nao enxerga disparos "
+            "feitos fora dela (ex: Omnichat). Nenhum dos dois prova causalidade "
+            "- isso exigiria grupo de controle."
         ),
         "source": "bigquery_emarsys_open_data_si_purchases_x_cpf_list",
     }
     if not cpfs_unicos:
         return resultado
 
-    cpfs_param = [bigquery.ArrayQueryParameter("cpfs", "STRING", cpfs_unicos)]
+    params = [
+        bigquery.ArrayQueryParameter("cpfs", "STRING", cpfs_unicos),
+        bigquery.ArrayQueryParameter("skus", "STRING", skus),
+        bigquery.ScalarQueryParameter("start_date", "DATE", inicio),
+        bigquery.ScalarQueryParameter("end_date", "DATE", fim),
+    ]
     records = run_bigquery_records(
-        _build_cpf_raw_purchases_sql(inicio, fim),
+        _build_cpf_raw_purchases_sql(),
         EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=45,
-        params=cpfs_param,
+        params=params,
     )
     if records:
-        resultado["compradores_unicos"] = int(records[0].get("compradores_unicos") or 0)
-        resultado["pedidos"] = int(records[0].get("pedidos") or 0)
-        resultado["receita"] = round(float(records[0].get("receita") or 0), 2)
+        r = records[0]
+        resultado["total"] = {
+            "compradores_unicos": int(r.get("compradores_unicos_total") or 0),
+            "pedidos": int(r.get("pedidos_total") or 0),
+            "receita": round(float(r.get("receita_total") or 0), 2),
+        }
+        resultado["npi"] = {
+            "compradores_unicos": int(r.get("compradores_unicos_npi") or 0),
+            "pedidos": int(r.get("pedidos_npi") or 0),
+            "receita": round(float(r.get("receita_npi") or 0), 2),
+        }
     return resultado
 
 
