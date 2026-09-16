@@ -1527,16 +1527,20 @@ def _cpf_match_case_sql(external_id_expr: str) -> str:
     END"""
 
 
-def _build_cpf_matched_contacts_cte(document_keys: list[str]) -> str:
+def _build_cpf_matched_contacts_cte() -> str:
+    """Usa o parâmetro `@cpfs` (bigquery.ArrayQueryParameter) em vez de
+    inlinar os CPFs como literais na SQL - um segmento grande (dezenas de
+    milhares de contatos) facilmente estoura o limite de 1MB de texto de
+    query do BigQuery se cada CPF virar um literal `'12345678901'` dentro de
+    um `UNNEST([...])`. Como parâmetro, o array vai fora do texto da query."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
-    key_values = ", ".join(_sql_string_literal(v) for v in document_keys)
     case_sql = _cpf_match_case_sql("c.external_id")
     return f"""
 key_list AS (
   SELECT DISTINCT key
-  FROM UNNEST([{key_values}]) AS key
+  FROM UNNEST(@cpfs) AS key
   WHERE key IS NOT NULL AND key != ''
 ),
 matched_contacts AS (
@@ -1550,8 +1554,8 @@ matched_contacts AS (
 )"""
 
 
-def _build_cpf_match_stats_sql(document_keys: list[str]) -> str:
-    cte = _build_cpf_matched_contacts_cte(document_keys)
+def _build_cpf_match_stats_sql() -> str:
+    cte = _build_cpf_matched_contacts_cte()
     return f"""
 WITH {cte}
 SELECT
@@ -1562,14 +1566,13 @@ FROM matched_contacts
 
 
 def _build_cpf_revenue_by_channel_sql(
-    document_keys: list[str],
     start_date: str | None,
     end_date: str | None,
 ) -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    cte = _build_cpf_matched_contacts_cte(document_keys)
+    cte = _build_cpf_matched_contacts_cte()
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, table_alias="r")
 
     return f"""
@@ -1605,7 +1608,6 @@ ORDER BY receita_atribuida DESC
 
 
 def _build_cpf_revenue_total_sql(
-    document_keys: list[str],
     start_date: str | None,
     end_date: str | None,
 ) -> str:
@@ -1615,7 +1617,7 @@ def _build_cpf_revenue_total_sql(
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
-    cte = _build_cpf_matched_contacts_cte(document_keys)
+    cte = _build_cpf_matched_contacts_cte()
     event_time_filter, partition_filter = _build_attribution_date_filters(start_date, end_date, table_alias="r")
 
     return f"""
@@ -1678,11 +1680,18 @@ def receita_atribuida_por_cpfs(
     if not cpfs_unicos:
         return resultado
 
+    # Array como query parameter, nao como literais inlined na SQL - uma
+    # lista grande (segmentos costumam ter dezenas/centenas de milhares de
+    # contatos) estoura o limite de 1MB de texto de query do BigQuery se
+    # virar `UNNEST(['12345678901', ...])` direto no SQL.
+    cpfs_param = [bigquery.ArrayQueryParameter("cpfs", "STRING", cpfs_unicos)]
+
     match_records = run_bigquery_records(
-        _build_cpf_match_stats_sql(cpfs_unicos),
+        _build_cpf_match_stats_sql(),
         EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=30,
+        params=cpfs_param,
     )
     if match_records:
         resultado["total_cpfs_informados"] = int(match_records[0].get("total_cpfs_informados") or len(cpfs_unicos))
@@ -1696,18 +1705,20 @@ def receita_atribuida_por_cpfs(
         return resultado
 
     by_channel_records = run_bigquery_records(
-        _build_cpf_revenue_by_channel_sql(cpfs_unicos, start_date, end_date),
+        _build_cpf_revenue_by_channel_sql(start_date, end_date),
         EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=45,
+        params=cpfs_param,
     )
     resultado["by_channel"] = _records_to_response_items(by_channel_records)
 
     total_records = run_bigquery_records(
-        _build_cpf_revenue_total_sql(cpfs_unicos, start_date, end_date),
+        _build_cpf_revenue_total_sql(start_date, end_date),
         EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=45,
+        params=cpfs_param,
     )
     if total_records:
         resultado["total_pedidos_atribuidos"] = int(total_records[0].get("pedidos_atribuidos") or 0)
