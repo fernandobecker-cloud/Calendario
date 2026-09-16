@@ -1560,6 +1560,86 @@ matched_contacts AS (
 )"""
 
 
+def _build_cpf_campaign_sends_sql() -> str:
+    """Casa os CPFs em @cpfs com envios REAIS de uma campanha de
+    conversa/WhatsApp (`conversation_messages` + `conversation_sends`, ver
+    `/whatsapp-apuracao`), filtrando por nome (LIKE, case-insensitive, em
+    @nome_like). Agrupa por (message_id, data_envio) - serve pra descobrir a
+    data de disparo REAL de cada contato quando o segmento estatico junta
+    varios dias/campanhas numa lista so (ex: um segmento tipo
+    "recebeu WPP de 12 a 16/09" nao diz sozinho QUAL dia cada contato
+    recebeu - essas tabelas dizem, porque tem event_time por contato)."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    cte = _build_cpf_matched_contacts_cte()
+    return f"""
+WITH {cte},
+msgs AS (
+  SELECT message_id, ANY_VALUE(name) AS nome_campanha
+  FROM `{project_id}.{dataset}.conversation_messages_1091660394`
+  WHERE LOWER(name) LIKE LOWER(@nome_like) AND name IS NOT NULL AND TRIM(name) != ''
+  GROUP BY message_id
+),
+sends AS (
+  SELECT s.contact_id, s.message_id, DATE(s.event_time) AS data_envio
+  FROM `{project_id}.{dataset}.conversation_sends_1091660394` s
+  INNER JOIN msgs USING (message_id)
+)
+SELECT
+  s.message_id,
+  ANY_VALUE(m.nome_campanha) AS nome_campanha,
+  s.data_envio,
+  COUNT(DISTINCT mc.normalized_cpf) AS cpfs_do_segmento_encontrados,
+  COUNT(DISTINCT s.contact_id) AS contatos_totais_no_envio
+FROM sends s
+INNER JOIN matched_contacts mc ON mc.contact_id = CAST(s.contact_id AS STRING)
+INNER JOIN msgs m ON m.message_id = s.message_id
+GROUP BY s.message_id, s.data_envio
+ORDER BY s.data_envio, cpfs_do_segmento_encontrados DESC
+""".strip()
+
+
+def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: str) -> dict[str, Any]:
+    """Descobre, pra uma lista de CPFs (ex: contatos de um segmento
+    estatico), se existe um envio REAL rastreado em `conversation_sends` /
+    `conversation_messages` (nome batendo com `nome_campanha_like`, LIKE
+    case-insensitive - use `%` como coringa) - e em quais datas. Existe pra
+    responder "consigo saber por qual campanha/dia cada CPF passou?" sem
+    depender de um `data_disparo` unico informado manualmente pro segmento
+    inteiro (util quando o segmento junta disparos de dias diferentes).
+    """
+    cpfs_unicos = sorted({c for c in cpfs_normalizados if c})
+    resultado: dict[str, Any] = {
+        "nome_campanha_like": nome_campanha_like,
+        "total_cpfs_informados": len(cpfs_unicos),
+        "envios": [],
+        "metric_definition": (
+            "Por (message_id, data_envio): quantos CPFs do segmento aparecem em "
+            "conversation_sends para uma conversation_messages.name que bate com "
+            "nome_campanha_like. Se vier vazio, esse disparo nao esta rastreado "
+            "nessas tabelas (ai nao da pra saber a data por contato, so a data "
+            "informada manualmente pro segmento inteiro)."
+        ),
+        "source": "bigquery_conversation_sends_x_conversation_messages_x_cpf_list",
+    }
+    if not cpfs_unicos or not nome_campanha_like.strip():
+        return resultado
+
+    params = [
+        bigquery.ArrayQueryParameter("cpfs", "STRING", cpfs_unicos),
+        bigquery.ScalarQueryParameter("nome_like", "STRING", f"%{nome_campanha_like.strip()}%"),
+    ]
+    records = run_bigquery_records(
+        _build_cpf_campaign_sends_sql(),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=45,
+        params=params,
+    )
+    resultado["envios"] = _records_to_response_items(records)
+    return resultado
+
+
 def _build_cpf_match_stats_sql() -> str:
     cte = _build_cpf_matched_contacts_cte()
     return f"""

@@ -79,6 +79,7 @@ from backend.services.emarsys_client import (
 from backend.services.mapa_lojas import Loja, carregar_mapa, obter_loja
 from backend.routes.open_data import (
     _normalize_match_key,
+    disparos_reais_por_cpfs,
     receita_atribuida_por_cpfs,
     receita_pos_disparo_por_cpfs,
 )
@@ -934,7 +935,53 @@ def exportar_segmento_generico(
 #   propria Emarsys (revenue_attribution) credita pra esses contatos no mesmo
 #   periodo - mantido so como contexto/comparacao, NAO mede o Omnichat (so
 #   canais que a Emarsys mesma dispara: email, SMS, WhatsApp nativo dela).
+#
+# LIMITACAO: um segmento estatico (ex: "recebeu WPP de 12 a 16/09") junta
+# disparos de dias/campanhas diferentes numa lista so - por isso o endpoint
+# abaixo pede UM `data_disparo` unico pro segmento inteiro, o que so e
+# preciso se o segmento de fato corresponder a um unico dia/disparo. Pra
+# descobrir a data REAL de cada contato (quando o segmento junta varios
+# dias), ver `/segmento/{id}/disparos-reais` mais abaixo.
 # ---------------------------------------------------------------------------
+
+def _exportar_cpfs_do_segmento(client: EmarsysClient, segmento_id: str, campo_cpf: str) -> tuple[dict, list[str], int]:
+    """Busca o segmento, exporta so o campo de CPF e devolve
+    (segmento, cpfs_normalizados, total_contatos_no_csv) - logica comum aos
+    endpoints de receita-atribuida e disparos-reais, que partem do mesmo
+    export de segmento."""
+    try:
+        segmento = client.get_segment_by_id(segmento_id)
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar segmento {segmento_id}: {exc}") from exc
+    if not segmento:
+        raise HTTPException(status_code=404, detail=f"Segmento {segmento_id} nao encontrado.")
+
+    try:
+        csv_bytes = client.export_segment(segmento_id, [campo_cpf.strip()])
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao exportar segmento {segmento_id}: {exc}") from exc
+
+    texto = csv_bytes.decode("utf-8-sig")
+    leitor = csv.DictReader(io.StringIO(texto))
+    linhas = list(leitor)
+    colunas = leitor.fieldnames or []
+
+    coluna_cpf = colunas[0] if len(colunas) == 1 else next(
+        (c for c in colunas if "cpf" in c.strip().lower()), None
+    )
+    if not coluna_cpf:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Nao consegui identificar a coluna de CPF no export do segmento {segmento_id} "
+                f"(colunas recebidas: {colunas}). Confira o ID do campo ({campo_cpf}) na tela "
+                "de campos da Emarsys."
+            ),
+        )
+
+    cpfs_normalizados = [_normalize_match_key(linha.get(coluna_cpf) or "") for linha in linhas]
+    return segmento, cpfs_normalizados, len(linhas)
+
 
 @router.post("/segmento/{segmento_id}/receita-atribuida")
 def receita_atribuida_segmento(
@@ -959,38 +1006,7 @@ def receita_atribuida_segmento(
     porque nao existe no Open Data."""
     require_admin(request)
     client = _get_client()
-    try:
-        segmento = client.get_segment_by_id(segmento_id)
-    except EmarsysError as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao buscar segmento {segmento_id}: {exc}") from exc
-    if not segmento:
-        raise HTTPException(status_code=404, detail=f"Segmento {segmento_id} nao encontrado.")
-
-    try:
-        csv_bytes = client.export_segment(segmento_id, [campo_cpf.strip()])
-    except EmarsysError as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao exportar segmento {segmento_id}: {exc}") from exc
-
-    texto = csv_bytes.decode("utf-8-sig")
-    leitor = csv.DictReader(io.StringIO(texto))
-    linhas = list(leitor)
-    colunas = leitor.fieldnames or []
-    total_contatos_segmento = len(linhas)
-
-    coluna_cpf = colunas[0] if len(colunas) == 1 else next(
-        (c for c in colunas if "cpf" in c.strip().lower()), None
-    )
-    if not coluna_cpf:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"Nao consegui identificar a coluna de CPF no export do segmento {segmento_id} "
-                f"(colunas recebidas: {colunas}). Confira o ID do campo ({campo_cpf}) na tela "
-                "de campos da Emarsys."
-            ),
-        )
-
-    cpfs_normalizados = [_normalize_match_key(linha.get(coluna_cpf) or "") for linha in linhas]
+    segmento, cpfs_normalizados, total_contatos_segmento = _exportar_cpfs_do_segmento(client, segmento_id, campo_cpf)
 
     skus_campanha = [s.strip() for s in skus.split(",") if s.strip()] or None
 
@@ -1028,3 +1044,42 @@ def receita_atribuida_segmento(
             "total_receita_atribuida": nativo["total_receita_atribuida"],
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Diagnostico: descobre se um disparo de WhatsApp esta rastreado por contato
+# em `conversation_sends`/`conversation_messages` (o mesmo par de tabelas do
+# `/whatsapp-apuracao` existente) - se sim, devolve a data REAL de envio de
+# cada combinacao (message_id, dia), em vez de depender de um unico
+# `data_disparo` informado manualmente pro segmento inteiro. Util quando o
+# segmento e estatico e junta disparos de dias diferentes (ex: "recebeu WPP
+# de 12 a 16/09").
+# ---------------------------------------------------------------------------
+
+@router.post("/segmento/{segmento_id}/disparos-reais")
+def disparos_reais_segmento(
+    segmento_id: str,
+    request: Request,
+    nome_campanha: str = Query(min_length=2, description="Trecho do nome da campanha em conversation_messages.name (LIKE, sem diferenciar maiusculas)"),
+    campo_cpf: str = Query(default="12908", description="ID numerico do campo de CPF na Emarsys"),
+) -> dict[str, Any]:
+    """Pega os contatos de um segmento, exporta o CPF de cada um e verifica
+    se aparecem em `conversation_sends` para alguma `conversation_messages`
+    cujo nome bata com `nome_campanha` - se aparecerem, devolve por
+    (message_id, data_envio) quantos CPFs do segmento receberam naquele dia
+    especificamente. Isso permite tratar cada contato com a data de disparo
+    dele mesmo, em vez de uma data unica pro segmento inteiro - use isso
+    antes de rodar `/receita-atribuida` num segmento que junta varios dias."""
+    require_admin(request)
+    client = _get_client()
+    segmento, cpfs_normalizados, total_contatos_segmento = _exportar_cpfs_do_segmento(client, segmento_id, campo_cpf)
+
+    try:
+        resultado = disparos_reais_por_cpfs(cpfs_normalizados, nome_campanha)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar disparos reais: {exc}") from exc
+
+    resultado["segmento_id"] = segmento_id
+    resultado["segmento_nome"] = segmento.get("name")
+    resultado["total_contatos_segmento"] = total_contatos_segmento
+    return resultado

@@ -54,6 +54,11 @@ export default function ReceitaPosDisparoPage() {
   const [erro, setErro] = useState('')
   const [resultado, setResultado] = useState(null)
 
+  const [nomeCampanhaDiag, setNomeCampanhaDiag] = useState('')
+  const [diagLoading, setDiagLoading] = useState(false)
+  const [diagErro, setDiagErro] = useState('')
+  const [diagResultado, setDiagResultado] = useState(null)
+
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault()
@@ -86,6 +91,37 @@ export default function ReceitaPosDisparoPage() {
       }
     },
     [segmentoId, dataDisparo, janelaDias, campanha, skus, campoCpf]
+  )
+
+  const handleDiagnostico = useCallback(
+    async (event) => {
+      event.preventDefault()
+      if (!segmentoId.trim() || !nomeCampanhaDiag.trim()) {
+        setDiagErro('Informe o ID do segmento e um trecho do nome da campanha.')
+        return
+      }
+      setDiagLoading(true)
+      setDiagErro('')
+      setDiagResultado(null)
+      try {
+        const params = new URLSearchParams({
+          nome_campanha: nomeCampanhaDiag.trim(),
+          campo_cpf: campoCpf || '12908',
+        })
+        const res = await fetch(
+          `/api/emarsys/segmento/${encodeURIComponent(segmentoId.trim())}/disparos-reais?${params}`,
+          { method: 'POST' }
+        )
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+        setDiagResultado(payload)
+      } catch (err) {
+        setDiagErro(err instanceof Error ? err.message : 'Erro ao consultar disparos reais.')
+      } finally {
+        setDiagLoading(false)
+      }
+    },
+    [segmentoId, nomeCampanhaDiag, campoCpf]
   )
 
   return (
@@ -174,6 +210,85 @@ export default function ReceitaPosDisparoPage() {
         </details>
 
         {erro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
+      </section>
+
+      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="mb-1 text-lg font-semibold text-slate-900">Verificar disparos reais (por campanha)</h2>
+        <p className="mb-4 text-sm text-slate-500">
+          Um segmento estatico pode juntar disparos de dias diferentes numa lista so - antes de usar uma
+          unica "data do disparo" pra todo mundo, verifique aqui se o envio esta rastreado por contato em
+          `conversation_sends`/`conversation_messages` (mesma fonte do "whatsapp-apuracao"). Se aparecer
+          resultado, cada linha mostra em que dia aquele grupo de contatos do segmento realmente recebeu.
+        </p>
+        <form onSubmit={handleDiagnostico} className="flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1 text-sm text-slate-600">
+            ID do segmento (Emarsys)
+            <input
+              value={segmentoId}
+              onChange={(e) => setSegmentoId(e.target.value)}
+              placeholder="ex: 305785"
+              className="min-w-[160px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-slate-600">
+            Trecho do nome da campanha
+            <input
+              value={nomeCampanhaDiag}
+              onChange={(e) => setNomeCampanhaDiag(e.target.value)}
+              placeholder="ex: NPI"
+              className="min-w-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={diagLoading}
+            className="rounded-lg border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+          >
+            {diagLoading ? 'Verificando...' : 'Verificar disparos reais'}
+          </button>
+        </form>
+
+        {diagErro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{diagErro}</p>}
+
+        {diagResultado && (
+          <div className="mt-4">
+            {Array.isArray(diagResultado.envios) && diagResultado.envios.length > 0 ? (
+              <>
+                <p className="mb-2 text-sm text-emerald-700">
+                  Encontrado! {diagResultado.envios.length} combinacao(oes) de mensagem/dia rastreada(s) para
+                  contatos deste segmento.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-3 py-2">Data do envio</th>
+                        <th className="px-3 py-2">Campanha (conversation_messages)</th>
+                        <th className="px-3 py-2">CPFs do segmento encontrados</th>
+                        <th className="px-3 py-2">Contatos totais no envio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diagResultado.envios.map((linha, i) => (
+                        <tr key={`${linha.message_id}-${linha.data_envio}`} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{linha.data_envio}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{linha.nome_campanha}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{formatarNumero(linha.cpfs_do_segmento_encontrados)}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-slate-700">{formatarNumero(linha.contatos_totais_no_envio)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-amber-700">
+                Nada encontrado com esse nome - esse disparo nao esta rastreado por contato nessas tabelas
+                (ou o nome nao bateu). Continue usando a "data do disparo" unica no formulario acima.
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {resultado && (
