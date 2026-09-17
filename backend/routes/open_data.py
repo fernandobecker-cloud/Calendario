@@ -1653,6 +1653,12 @@ def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: st
 # ---------------------------------------------------------------------------
 
 def _build_automation_node_summary_sql() -> str:
+    # `automation_node_executions` e uma view sobre uma tabela particionada
+    # do lado da Emarsys (ems-real-time-interaction) que EXIGE filtro de
+    # particao - sem isso, BigQuery recusa a query com 400 antes mesmo de
+    # rodar (erro real: "Cannot query ... without a filter over column(s)
+    # _PARTITION_LOAD_TIME/_PARTITIONDATE/_PARTITIONTIME"). Mesmo padrao das
+    # outras views do dataset: filtrar por `partitiontime`.
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     return f"""
@@ -1666,6 +1672,7 @@ WITH exec AS (
   FROM `{project_id}.{dataset}.automation_node_executions_1091660394` a
   LEFT JOIN UNNEST(a.participants) AS p
   WHERE CAST(a.ac_program_id AS STRING) = @ac_program_id
+    AND DATE(a.partitiontime) BETWEEN @start_date AND @end_date
 )
 SELECT
   node_id,
@@ -1681,21 +1688,36 @@ ORDER BY node_id, execution_phase
 """.strip()
 
 
-def automation_node_diagnostico(ac_program_id: str) -> dict[str, Any]:
+def automation_node_diagnostico(
+    ac_program_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """Resumo por (node_id, execution_phase) de um programa da Automation
     Center classica (`ac_program_id`, o numero depois de `/edit/ac/` na URL
     do Emarsys) - quantas execucoes, primeiro/ultimo evento, e um JSON de
     exemplo do conteudo de `participants` (pra descobrir o nome real do
-    campo de contato, ex: contact_id, sem adivinhar)."""
+    campo de contato, ex: contact_id, sem adivinhar). `start_date`/`end_date`
+    (default: ultimos 30 dias) filtram `partitiontime` - exigido pela
+    tabela de origem, ver `_build_automation_node_summary_sql`."""
+    normalized_end = _validate_optional_iso_date(end_date) or date.today().isoformat()
+    normalized_start = _validate_optional_iso_date(start_date) or (date.today() - timedelta(days=30)).isoformat()
+
     records = run_bigquery_records(
         _build_automation_node_summary_sql(),
         EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=45,
-        params=[bigquery.ScalarQueryParameter("ac_program_id", "STRING", ac_program_id)],
+        params=[
+            bigquery.ScalarQueryParameter("ac_program_id", "STRING", ac_program_id),
+            bigquery.ScalarQueryParameter("start_date", "DATE", normalized_start),
+            bigquery.ScalarQueryParameter("end_date", "DATE", normalized_end),
+        ],
     )
     return {
         "ac_program_id": ac_program_id,
+        "start_date": normalized_start,
+        "end_date": normalized_end,
         "nodes": _records_to_response_items(records),
         "source": "bigquery_automation_node_executions",
     }

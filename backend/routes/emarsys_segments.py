@@ -1098,7 +1098,12 @@ def disparos_reais_segmento(
 # ---------------------------------------------------------------------------
 
 @router.get("/automation/{ac_program_id}/diagnostico")
-def automation_diagnostico(ac_program_id: str, request: Request) -> dict[str, Any]:
+def automation_diagnostico(
+    ac_program_id: str,
+    request: Request,
+    start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data inicial (partitiontime), YYYY-MM-DD - default: 30 dias atras"),
+    end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$", description="Data final (partitiontime), YYYY-MM-DD - default: hoje"),
+) -> dict[str, Any]:
     """Resume `automation_node_executions` para um programa da Automation
     Center classica: por (node_id, execution_phase), quantas linhas,
     primeiro/ultimo evento, e um JSON de exemplo do participante - usado
@@ -1107,6 +1112,6 @@ def automation_diagnostico(ac_program_id: str, request: Request) -> dict[str, An
     uma consulta de cruzamento CPF x execucao do node."""
     require_admin(request)
     try:
-        return automation_node_diagnostico(ac_program_id.strip())
+        return automation_node_diagnostico(ac_program_id.strip(), start, end)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao consultar automation_node_executions: {exc}") from exc
