@@ -195,6 +195,10 @@ function RegionalPanel({ data }) {
 
 function formatOpenDataValue(value) {
   if (value === null || value === undefined || value === '') return '-'
+  // Colunas STRUCT/RECORD (ex: `participants` em automation_node_executions)
+  // chegam como objeto/array aninhado - String(objeto) vira o inutil
+  // "[object Object]" em JS. JSON.stringify mostra o conteudo de verdade.
+  if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }
 
@@ -231,7 +235,7 @@ function isGa4NoDataError(detail) {
 }
 
 function toCsvValue(value) {
-  const text = value === null || value === undefined ? '' : String(value)
+  const text = value === null || value === undefined ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value))
   const escaped = text.replace(/"/g, '""')
   return `"${escaped}"`
 }
