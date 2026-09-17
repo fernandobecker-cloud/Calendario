@@ -79,6 +79,7 @@ from backend.services.emarsys_client import (
 from backend.services.mapa_lojas import Loja, carregar_mapa, obter_loja
 from backend.routes.open_data import (
     _normalize_match_key,
+    automation_node_diagnostico,
     disparos_reais_por_cpfs,
     receita_atribuida_por_cpfs,
     receita_pos_disparo_por_cpfs,
@@ -1083,3 +1084,29 @@ def disparos_reais_segmento(
     resultado["segmento_nome"] = segmento.get("name")
     resultado["total_contatos_segmento"] = total_contatos_segmento
     return resultado
+
+
+# ---------------------------------------------------------------------------
+# Diagnostico de automacao (Automation Center classico) - quando o disparo
+# sai por um node de webhook (ex: chamando o Omnichat) em vez do canal
+# nativo de WhatsApp da Emarsys, ele nao aparece em conversation_sends (ver
+# `/disparos-reais` acima). Esse endpoint olha `automation_node_executions`
+# direto pelo ac_program_id (numero depois de "/edit/ac/" na URL do
+# Emarsys), sem precisar do segmento/CPF - so pra descobrir QUAIS nodes
+# existem, quantas execucoes cada um teve, quando, e o formato real do
+# campo `participants` (via JSON de exemplo, sem adivinhar nome de campo).
+# ---------------------------------------------------------------------------
+
+@router.get("/automation/{ac_program_id}/diagnostico")
+def automation_diagnostico(ac_program_id: str, request: Request) -> dict[str, Any]:
+    """Resume `automation_node_executions` para um programa da Automation
+    Center classica: por (node_id, execution_phase), quantas linhas,
+    primeiro/ultimo evento, e um JSON de exemplo do participante - usado
+    pra achar o node_id certo (ex: o node que chama o webhook do Omnichat)
+    e o nome do campo de contato dentro de `participants`, antes de montar
+    uma consulta de cruzamento CPF x execucao do node."""
+    require_admin(request)
+    try:
+        return automation_node_diagnostico(ac_program_id.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar automation_node_executions: {exc}") from exc

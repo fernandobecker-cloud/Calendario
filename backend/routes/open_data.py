@@ -1640,6 +1640,67 @@ def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: st
     return resultado
 
 
+# ---------------------------------------------------------------------------
+# Diagnostico de `automation_node_executions` - descobre, por node de uma
+# automacao (Automation Center classico, `ac_program_id`), quantas execucoes
+# existem e QUANDO, sem precisar saber de antemao o schema do campo
+# `participants` (ARRAY<STRUCT>, formato interno nao documentado por nos
+# ainda) - usa TO_JSON_STRING pra revelar o conteudo real de um participante
+# de exemplo por node. Existe pra achar a data real de disparo por contato
+# quando o envio sai por um node de webhook (ex: chamando o Omnichat) dentro
+# de uma automacao, que nao aparece em conversation_sends (ver
+# `disparos_reais_por_cpfs` acima, que so cobre o canal nativo da Emarsys).
+# ---------------------------------------------------------------------------
+
+def _build_automation_node_summary_sql() -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    return f"""
+WITH exec AS (
+  SELECT
+    a.node_id,
+    a.execution_phase,
+    a.execution_id,
+    a.event_time,
+    p AS participante
+  FROM `{project_id}.{dataset}.automation_node_executions_1091660394` a
+  LEFT JOIN UNNEST(a.participants) AS p
+  WHERE CAST(a.ac_program_id AS STRING) = @ac_program_id
+)
+SELECT
+  node_id,
+  execution_phase,
+  COUNT(*) AS linhas,
+  COUNT(DISTINCT execution_id) AS execution_ids_distintos,
+  MIN(event_time) AS primeiro_evento,
+  MAX(event_time) AS ultimo_evento,
+  ANY_VALUE(TO_JSON_STRING(participante)) AS exemplo_participant_json
+FROM exec
+GROUP BY node_id, execution_phase
+ORDER BY node_id, execution_phase
+""".strip()
+
+
+def automation_node_diagnostico(ac_program_id: str) -> dict[str, Any]:
+    """Resumo por (node_id, execution_phase) de um programa da Automation
+    Center classica (`ac_program_id`, o numero depois de `/edit/ac/` na URL
+    do Emarsys) - quantas execucoes, primeiro/ultimo evento, e um JSON de
+    exemplo do conteudo de `participants` (pra descobrir o nome real do
+    campo de contato, ex: contact_id, sem adivinhar)."""
+    records = run_bigquery_records(
+        _build_automation_node_summary_sql(),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=45,
+        params=[bigquery.ScalarQueryParameter("ac_program_id", "STRING", ac_program_id)],
+    )
+    return {
+        "ac_program_id": ac_program_id,
+        "nodes": _records_to_response_items(records),
+        "source": "bigquery_automation_node_executions",
+    }
+
+
 def _build_cpf_match_stats_sql() -> str:
     cte = _build_cpf_matched_contacts_cte()
     return f"""
