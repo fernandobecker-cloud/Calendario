@@ -4805,10 +4805,27 @@ ORDER BY o.purchase_date
 """
 
 
+def _deslocar_data_um_ano(data_iso: str) -> str:
+    """Mesma data um ano antes - trata 29/fev caindo num ano nao-bissexto
+    voltando pro dia 28 (nao existe erro de calendario nesse caso)."""
+    d = date.fromisoformat(data_iso)
+    try:
+        return d.replace(year=d.year - 1).isoformat()
+    except ValueError:
+        return d.replace(year=d.year - 1, day=28).isoformat()
+
+
+def _variacao_pct(atual: float, anterior: float) -> float | None:
+    if not anterior:
+        return None
+    return round(100 * (atual - anterior) / anterior, 1)
+
+
 @router.get("/emarsys/daily-revenue")
 def emarsys_daily_revenue(
     start: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    comparar_ano_anterior: bool = Query(default=True, description="Se true (padrao) e start/end informados, tambem calcula o total do mesmo periodo um ano antes e a variacao percentual"),
 ) -> dict[str, Any]:
     try:
         sql = _build_daily_revenue_sql(start, end)
@@ -4822,11 +4839,34 @@ def emarsys_daily_revenue(
                 "total_iplace": float(row.get("total_iplace") or 0),
                 "receita_atribuida": float(row.get("receita_atribuida") or 0),
             })
-        return {
+        resultado: dict[str, Any] = {
             "items": items,
             "start_date": _validate_optional_iso_date(start),
             "end_date": _validate_optional_iso_date(end),
         }
+
+        normalized_start = _validate_optional_iso_date(start)
+        normalized_end = _validate_optional_iso_date(end)
+        if comparar_ano_anterior and normalized_start and normalized_end:
+            start_ano_anterior = _deslocar_data_um_ano(normalized_start)
+            end_ano_anterior = _deslocar_data_um_ano(normalized_end)
+            sql_ano_anterior = _build_daily_revenue_sql(start_ano_anterior, end_ano_anterior)
+            records_ano_anterior = run_bigquery_records(
+                sql_ano_anterior, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None,
+            )
+            total_iplace_atual = sum(item["total_iplace"] for item in items)
+            receita_atribuida_atual = sum(item["receita_atribuida"] for item in items)
+            total_iplace_ano_anterior = round(sum(float(r.get("total_iplace") or 0) for r in records_ano_anterior), 2)
+            receita_atribuida_ano_anterior = round(sum(float(r.get("receita_atribuida") or 0) for r in records_ano_anterior), 2)
+            resultado["comparativo_ano_anterior"] = {
+                "start_date": start_ano_anterior,
+                "end_date": end_ano_anterior,
+                "total_iplace": total_iplace_ano_anterior,
+                "receita_atribuida": receita_atribuida_ano_anterior,
+                "total_iplace_var_pct": _variacao_pct(total_iplace_atual, total_iplace_ano_anterior),
+                "receita_atribuida_var_pct": _variacao_pct(receita_atribuida_atual, receita_atribuida_ano_anterior),
+            }
+        return resultado
     except HTTPException:
         raise
     except Exception as exc:

@@ -221,6 +221,7 @@ export default function ResultadoGeralPage({ currentRole }) {
             purchaseNonCrm,
           },
           dailyRevenue: daily.ok ? (daily.data?.items ?? []) : [],
+          comparativoAnoAnterior: daily.ok ? (daily.data?.comparativo_ano_anterior ?? null) : null,
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}), ...(canalAtribuida ? { canal: canalAtribuida } : {}) })
@@ -395,7 +396,19 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
-function DailyRevenueChart({ items }) {
+function VariacaoBadge({ pct }) {
+  if (pct === null || pct === undefined) {
+    return <span className="text-xs font-medium text-slate-400">sem dado no ano anterior</span>
+  }
+  const positivo = pct >= 0
+  return (
+    <span className={`text-xs font-semibold ${positivo ? 'text-emerald-600' : 'text-rose-600'}`}>
+      {positivo ? '▲' : '▼'} {Math.abs(pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% vs ano anterior
+    </span>
+  )
+}
+
+function DailyRevenueChart({ items, comparativoAnoAnterior }) {
   if (!items || items.length === 0) return null
 
   const data = items.map((r) => ({
@@ -413,7 +426,7 @@ function DailyRevenueChart({ items }) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Receita dia a dia
         </h2>
@@ -421,13 +434,34 @@ function DailyRevenueChart({ items }) {
           <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">Total iPlace</p>
             <p className="mt-0.5 text-base font-bold text-slate-900">{formatCurrency(totalIplace)}</p>
+            {comparativoAnoAnterior && (
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-slate-500">
+                  Ano anterior: {formatCurrency(comparativoAnoAnterior.total_iplace)}
+                </p>
+                <VariacaoBadge pct={comparativoAnoAnterior.total_iplace_var_pct} />
+              </div>
+            )}
           </div>
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Receita Atribuída</p>
             <p className="mt-0.5 text-base font-bold text-slate-900">{formatCurrency(totalAtribuida)}</p>
+            {comparativoAnoAnterior && (
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-slate-500">
+                  Ano anterior: {formatCurrency(comparativoAnoAnterior.receita_atribuida)}
+                </p>
+                <VariacaoBadge pct={comparativoAnoAnterior.receita_atribuida_var_pct} />
+              </div>
+            )}
           </div>
         </div>
       </div>
+      {comparativoAnoAnterior && (
+        <p className="mb-3 text-xs text-slate-400">
+          Comparando com {comparativoAnoAnterior.start_date} a {comparativoAnoAnterior.end_date} (mesmo período, um ano antes)
+        </p>
+      )}
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -698,12 +732,12 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
     )
   }
 
-  const { direta, dailyRevenue } = data
+  const { direta, dailyRevenue, comparativoAnoAnterior } = data
 
   return (
     <div className="flex flex-col gap-4">
       <DataDelayBanner dataDelay={dataDelay} />
-      <DailyRevenueChart items={dailyRevenue} />
+      <DailyRevenueChart items={dailyRevenue} comparativoAnoAnterior={comparativoAnoAnterior} />
 
       {conversao7Dias && <ConversaoCurvaChart state={conversao7Dias} />}
 
