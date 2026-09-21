@@ -11,13 +11,23 @@ from datetime import date, datetime, timedelta
 import re
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
+from pydantic import BaseModel
 
+from backend import sheets_db
 from backend.event_sources import run_bigquery_records
 from backend.vendas_npi_skus import VENDAS_NPI_SKUS, modelo_do_sku
+
+
+def _require_admin(request: Request) -> None:
+    auth_user = getattr(request.state, "auth_user", None)
+    if auth_user is None:
+        raise HTTPException(status_code=401, detail="Nao autenticado")
+    if getattr(auth_user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem executar esta acao")
 
 # ---------------------------------------------------------------------------
 # CPF prefetch cache — evita re-executar a query Emarsys EU quando o usuário
@@ -975,6 +985,23 @@ def emarsys_monthly_revenue(
         items = _records_to_response_items(records_total)
         by_channel = _records_to_response_items(records_canal)
         total_receita = sum(float(r.get("receita_atribuida") or 0) for r in items)
+
+        # WhatsApp (Omni) - lancamento manual (nao vem da Emarsys, que nao
+        # enxerga disparos feitos pelo Omnichat; ver conversa sobre isso).
+        # So aparece quando existe lancamento pro periodo EXATO pedido.
+        normalized_start = _validate_optional_iso_date(start)
+        normalized_end = _validate_optional_iso_date(end)
+        if normalized_start and normalized_end:
+            omni_entry = sheets_db.get_whatsapp_omni_entry(normalized_start, normalized_end)
+            if omni_entry and omni_entry.get("receita"):
+                by_channel = [*by_channel, {
+                    "canal": "whatsapp_omni",
+                    "receita_atribuida": round(float(omni_entry["receita"]), 2),
+                    "pedidos_atribuidos": int(omni_entry.get("pedidos") or 0),
+                    "compradores_unicos": int(omni_entry.get("compradores_unicos") or 0),
+                }]
+                total_receita = round(total_receita + float(omni_entry["receita"]), 2)
+
         return {
             "items": items,
             "by_channel": by_channel,
@@ -992,6 +1019,72 @@ def emarsys_monthly_revenue(
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao calcular receita mensal Emarsys: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp (Omni) - lancamento manual de receita pro periodo exato
+# (start_date, end_date) visto na tela "Atribuída Detalhada". Existe porque
+# a Emarsys nao tem visibilidade do que foi disparado pelo Omnichat (ver
+# reference_omnichat_api) - enquanto nao ha uma integracao automatica, o
+# time de CRM lanca o valor manualmente. So admin pode gravar (`PUT`);
+# qualquer usuario logado pode ler (`GET`), mas sem controle de edicao na
+# tela pra quem nao e admin. Persistido no Google Sheets (backend/sheets_db.py),
+# nao no SQLite local, porque o disco do Render nao e persistente entre deploys.
+# ---------------------------------------------------------------------------
+
+class WhatsappOmniPayload(BaseModel):
+    receita: float = 0.0
+    pedidos: int = 0
+    compradores_unicos: int = 0
+    nota: str | None = None
+
+
+@router.get("/emarsys/whatsapp-omni")
+def whatsapp_omni_get(
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    try:
+        entry = sheets_db.get_whatsapp_omni_entry(start, end)
+    except sheets_db.SheetsDBError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao consultar lancamento manual: {exc}") from exc
+    if entry:
+        return entry
+    return {
+        "id": 0,
+        "start_date": start,
+        "end_date": end,
+        "receita": 0.0,
+        "pedidos": 0,
+        "compradores_unicos": 0,
+        "nota": None,
+        "updated_by": None,
+        "updated_at": None,
+    }
+
+
+@router.put("/emarsys/whatsapp-omni")
+def whatsapp_omni_put(
+    request: Request,
+    payload: WhatsappOmniPayload,
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    _require_admin(request)
+    auth_user = request.state.auth_user
+    try:
+        entry = sheets_db.upsert_whatsapp_omni_entry(
+            start,
+            end,
+            receita=round(max(0.0, payload.receita), 2),
+            pedidos=max(0, payload.pedidos),
+            compradores_unicos=max(0, payload.compradores_unicos),
+            nota=payload.nota,
+            updated_by=getattr(auth_user, "username", "") or "admin",
+        )
+    except sheets_db.SheetsDBError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao salvar lancamento manual: {exc}") from exc
+    return entry
 
 
 @router.get("/emarsys/tables")
@@ -2453,6 +2546,16 @@ def emarsys_audit_receita_por_campanha(
         total_reportado = sum(float(r.get("receita_total") or 0) for r in resumo)
         total_marketing = sum(float(r.get("receita_total") or 0) for r in resumo if r.get("categoria") == "marketing")
         total_crm = float(total_crm_records[0].get("total_crm") or 0) if total_crm_records else 0.0
+
+        # WhatsApp (Omni) - lancamento manual soma no total "Atribuída CRM"
+        # (mesmo motivo do /monthly-revenue: a Emarsys nao enxerga esse canal).
+        normalized_start = _validate_optional_iso_date(start)
+        normalized_end = _validate_optional_iso_date(end)
+        if normalized_start and normalized_end:
+            omni_entry = sheets_db.get_whatsapp_omni_entry(normalized_start, normalized_end)
+            if omni_entry and omni_entry.get("receita"):
+                total_reportado += float(omni_entry["receita"])
+                total_marketing += float(omni_entry["receita"])
 
         return {
             "items": items,
