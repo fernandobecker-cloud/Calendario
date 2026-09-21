@@ -39,18 +39,6 @@ TASK_HEADERS = [
     "created_at",
 ]
 
-WHATSAPP_OMNI_HEADERS = [
-    "id",
-    "start_date",
-    "end_date",
-    "receita",
-    "pedidos",
-    "compradores_unicos",
-    "nota",
-    "updated_by",
-    "updated_at",
-]
-
 _SPREADSHEET_NAME = "crm_database"
 _TIMEOUT_SECONDS = 8
 _CACHE_TTL_SECONDS = 30
@@ -59,7 +47,6 @@ _cache_lock = threading.Lock()
 _cache: dict[str, tuple[float, list[dict[str, Any]]]] = {
     "projects": (0.0, []),
     "tasks": (0.0, []),
-    "whatsapp_omni": (0.0, []),
 }
 
 
@@ -88,13 +75,6 @@ def _coerce_optional(value: str | None) -> str | None:
 def _coerce_int(value: str | None, default: int = 0) -> int:
     try:
         return int(str(value or "").strip())
-    except ValueError:
-        return default
-
-
-def _coerce_float(value: str | None, default: float = 0.0) -> float:
-    try:
-        return float(str(value or "").strip().replace(",", "."))
     except ValueError:
         return default
 
@@ -235,20 +215,6 @@ def _normalize_task(raw: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def _normalize_whatsapp_omni(raw: dict[str, str]) -> dict[str, Any]:
-    return {
-        "id": _coerce_int(raw.get("id"), default=0),
-        "start_date": (raw.get("start_date") or "").strip(),
-        "end_date": (raw.get("end_date") or "").strip(),
-        "receita": _coerce_float(raw.get("receita"), default=0.0),
-        "pedidos": _coerce_int(raw.get("pedidos"), default=0),
-        "compradores_unicos": _coerce_int(raw.get("compradores_unicos"), default=0),
-        "nota": _coerce_optional(raw.get("nota")),
-        "updated_by": _coerce_optional(raw.get("updated_by")),
-        "updated_at": (raw.get("updated_at") or "").strip(),
-    }
-
-
 def _next_id(records: list[dict[str, Any]]) -> int:
     if not records:
         return 1
@@ -281,84 +247,6 @@ def _load_tasks() -> list[dict[str, Any]]:
     tasks.sort(key=lambda item: item["id"])
     _set_cache("tasks", tasks)
     return tasks
-
-
-def _load_whatsapp_omni() -> list[dict[str, Any]]:
-    cached = _get_cached("whatsapp_omni")
-    if cached is not None:
-        return cached
-
-    spreadsheet = _open_spreadsheet()
-    worksheet = _ensure_worksheet(spreadsheet, "whatsapp_omni", WHATSAPP_OMNI_HEADERS)
-    records = _read_records(worksheet, WHATSAPP_OMNI_HEADERS)
-    items = [_normalize_whatsapp_omni(item) for item in records if _coerce_int(item.get("id"), 0) > 0]
-    _set_cache("whatsapp_omni", items)
-    return items
-
-
-def get_whatsapp_omni_entry(start_date: str, end_date: str) -> dict[str, Any] | None:
-    """Lancamento manual de receita do WhatsApp (Omni) pra um periodo exato
-    (mesmo par start_date/end_date usado na tela) - nao soma periodos
-    parciais/sobrepostos, so bate exato. Ver `upsert_whatsapp_omni_entry`."""
-    for item in _load_whatsapp_omni():
-        if item["start_date"] == start_date and item["end_date"] == end_date:
-            return item
-    return None
-
-
-def upsert_whatsapp_omni_entry(
-    start_date: str,
-    end_date: str,
-    *,
-    receita: float,
-    pedidos: int,
-    compradores_unicos: int,
-    nota: str | None,
-    updated_by: str,
-) -> dict[str, Any]:
-    """Cria ou atualiza o lancamento manual pro par (start_date, end_date) -
-    so quem chama com `require_admin` ja verificado pode usar isso."""
-    spreadsheet = _open_spreadsheet()
-    worksheet = _ensure_worksheet(spreadsheet, "whatsapp_omni", WHATSAPP_OMNI_HEADERS)
-    indexed = _read_records_with_index(worksheet, WHATSAPP_OMNI_HEADERS)
-
-    target_row_idx: int | None = None
-    target_item: dict[str, Any] | None = None
-    for row_idx, raw in indexed:
-        item = _normalize_whatsapp_omni(raw)
-        if item["id"] > 0 and item["start_date"] == start_date and item["end_date"] == end_date:
-            target_row_idx = row_idx
-            target_item = item
-            break
-
-    now = _iso_now()
-    new_item = {
-        "id": target_item["id"] if target_item else _next_id(_load_whatsapp_omni()),
-        "start_date": start_date,
-        "end_date": end_date,
-        "receita": receita,
-        "pedidos": pedidos,
-        "compradores_unicos": compradores_unicos,
-        "nota": nota,
-        "updated_by": updated_by,
-        "updated_at": now,
-    }
-
-    if target_row_idx is not None:
-        end_col = rowcol_to_a1(target_row_idx, len(WHATSAPP_OMNI_HEADERS))
-        _run_with_timeout(
-            worksheet.update,
-            f"A{target_row_idx}:{end_col}",
-            [_as_row(new_item, WHATSAPP_OMNI_HEADERS)],
-            value_input_option="USER_ENTERED",
-        )
-    else:
-        _run_with_timeout(
-            worksheet.append_row, _as_row(new_item, WHATSAPP_OMNI_HEADERS), value_input_option="USER_ENTERED"
-        )
-
-    _invalidate_cache("whatsapp_omni")
-    return new_item
 
 
 def get_projects() -> list[dict[str, Any]]:

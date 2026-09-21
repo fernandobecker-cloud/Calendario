@@ -84,10 +84,9 @@ const VIEWS = [
 ]
 
 const CHANNEL_CONFIG = {
-  email:         { label: 'Email',           color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-200'    },
-  sms:           { label: 'SMS',              color: 'text-orange-600',  bg: 'bg-orange-50',  border: 'border-orange-200'  },
-  whatsapp:      { label: 'WhatsApp',         color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  whatsapp_omni: { label: 'WhatsApp (Omni)',  color: 'text-teal-600',    bg: 'bg-teal-50',    border: 'border-teal-200'    },
+  email:    { label: 'Email',    color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-200'    },
+  sms:      { label: 'SMS',      color: 'text-orange-600',  bg: 'bg-orange-50',  border: 'border-orange-200'  },
+  whatsapp: { label: 'WhatsApp', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 }
 
 const CATEGORIA_CONFIG = {
@@ -157,7 +156,6 @@ export default function ResultadoGeralPage({ currentRole }) {
   const [atribuidaByChannel, setAtribuidaByChannel] = useState(null)
   const [atribuidaTopProdutos, setAtribuidaTopProdutos] = useState(null)
   const [atribuidaTopCategorias, setAtribuidaTopCategorias] = useState(null)
-  const [atribuidaWhatsappOmni, setAtribuidaWhatsappOmni] = useState(null)
   const [diretaRefreshKey, setDiretaRefreshKey] = useState(0)
 
   const [canalAtribuida, setCanalAtribuida] = useState('')
@@ -227,13 +225,11 @@ export default function ResultadoGeralPage({ currentRole }) {
         })
       } else if (activeView === 'atribuida') {
         const params = new URLSearchParams({ start: startDate, ...(endDate ? { end: endDate } : {}), ...(canalAtribuida ? { canal: canalAtribuida } : {}) })
-        const omniParams = new URLSearchParams({ start: startDate, end: endDate || startDate })
-        const [res, monthlyRes, topProdRes, topCatRes, omniRes] = await Promise.all([
+        const [res, monthlyRes, topProdRes, topCatRes] = await Promise.all([
           fetchJson(`/api/open-data/emarsys/audit-receita-por-campanha?${params}`),
           fetchJson(`/api/open-data/emarsys/monthly-revenue?${params}`),
           fetchJson(`/api/open-data/emarsys/atribuida-top-produtos?${params}`),
           fetchJson(`/api/open-data/emarsys/atribuida-top-categorias?${params}`),
-          fetchJson(`/api/open-data/emarsys/whatsapp-omni?${omniParams}`),
         ])
         if (!res.ok) {
           setError('Falha ao carregar dados de receita atribuída.')
@@ -247,7 +243,6 @@ export default function ResultadoGeralPage({ currentRole }) {
         setAtribuidaByChannel(monthlyRes.ok ? monthlyRes.data : null)
         setAtribuidaTopProdutos(topProdRes.ok ? topProdRes.data : null)
         setAtribuidaTopCategorias(topCatRes.ok ? topCatRes.data : null)
-        setAtribuidaWhatsappOmni(omniRes.ok ? omniRes.data : null)
       } else if (activeView === 'direta') {
         setDiretaRefreshKey((k) => k + 1)
       }
@@ -365,11 +360,6 @@ export default function ResultadoGeralPage({ currentRole }) {
               byChannel={atribuidaByChannel}
               topProdutos={atribuidaTopProdutos}
               topCategorias={atribuidaTopCategorias}
-              currentRole={currentRole}
-              startDate={startDate}
-              endDate={endDate}
-              whatsappOmni={atribuidaWhatsappOmni}
-              onWhatsappOmniSaved={handleAtualizar}
             />
           )}
           {activeView === 'direta' && (
@@ -798,150 +788,7 @@ function ExecutivoView({ data, loading, canalAtribuida, canalLoading, canalError
   )
 }
 
-function WhatsappOmniEditModal({ startDate, endDate, initialValue, onClose, onSaved }) {
-  const [receita, setReceita] = useState(String(initialValue?.receita ?? 0))
-  const [pedidos, setPedidos] = useState(String(initialValue?.pedidos ?? 0))
-  const [compradoresUnicos, setCompradoresUnicos] = useState(String(initialValue?.compradores_unicos ?? 0))
-  const [nota, setNota] = useState(initialValue?.nota ?? '')
-  const [saving, setSaving] = useState(false)
-  const [erro, setErro] = useState('')
-
-  const handleSalvar = useCallback(async (event) => {
-    event.preventDefault()
-    setSaving(true)
-    setErro('')
-    try {
-      const params = new URLSearchParams({ start: startDate, end: endDate || startDate })
-      const res = await fetch(`/api/open-data/emarsys/whatsapp-omni?${params}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          receita: Number(String(receita).replace(',', '.')) || 0,
-          pedidos: parseInt(pedidos, 10) || 0,
-          compradores_unicos: parseInt(compradoresUnicos, 10) || 0,
-          nota: nota.trim() || null,
-        }),
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
-      onSaved()
-      onClose()
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao salvar.')
-    } finally {
-      setSaving(false)
-    }
-  }, [startDate, endDate, receita, pedidos, compradoresUnicos, nota, onSaved, onClose])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-        <h3 className="mb-1 text-sm font-semibold text-slate-900">WhatsApp (Omni) - lançamento manual</h3>
-        <p className="mb-4 text-xs text-slate-500">
-          Período: {startDate} a {endDate || startDate}
-        </p>
-        <form onSubmit={handleSalvar} className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Receita (R$)
-            <input
-              value={receita}
-              onChange={(e) => setReceita(e.target.value)}
-              inputMode="decimal"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Pedidos
-            <input
-              value={pedidos}
-              onChange={(e) => setPedidos(e.target.value)}
-              inputMode="numeric"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Compradores únicos
-            <input
-              value={compradoresUnicos}
-              onChange={(e) => setCompradoresUnicos(e.target.value)}
-              inputMode="numeric"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Nota (opcional)
-            <input
-              value={nota}
-              onChange={(e) => setNota(e.target.value)}
-              placeholder="ex: campanha NPI pré-venda"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-            />
-          </label>
-          {erro && <p className="text-xs text-rose-600">{erro}</p>}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {saving ? 'Salvando...' : 'Salvar'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function WhatsappOmniBox({ isAdmin, startDate, endDate, whatsappOmni, onSaved }) {
-  const [editing, setEditing] = useState(false)
-  const cfg = CHANNEL_CONFIG.whatsapp_omni
-
-  return (
-    <article className={`relative rounded-xl border ${cfg.border} ${cfg.bg} p-4`}>
-      {isAdmin && (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          title="Editar lançamento manual"
-          className="absolute right-3 top-3 rounded-full p-1 text-slate-400 hover:bg-white/70 hover:text-slate-700"
-        >
-          ✎
-        </button>
-      )}
-      <h3 className={`text-xs font-semibold uppercase tracking-wide ${cfg.color}`}>
-        {cfg.label}
-      </h3>
-      <p className="mt-2 text-xl font-bold text-slate-900">
-        {formatCurrency(whatsappOmni?.receita ?? 0)}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">
-        {(whatsappOmni?.pedidos ?? 0).toLocaleString('pt-BR')} pedidos
-        {' · '}
-        {(whatsappOmni?.compradores_unicos ?? 0).toLocaleString('pt-BR')} compradores únicos
-      </p>
-      <p className="mt-1 text-[11px] text-slate-400">Lançamento manual</p>
-      {editing && (
-        <WhatsappOmniEditModal
-          startDate={startDate}
-          endDate={endDate}
-          initialValue={whatsappOmni}
-          onClose={() => setEditing(false)}
-          onSaved={onSaved}
-        />
-      )}
-    </article>
-  )
-}
-
-function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCategorias, currentRole, startDate, endDate, whatsappOmni, onWhatsappOmniSaved }) {
+function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCategorias }) {
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando...</p>
   }
@@ -966,7 +813,7 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
     { key: 'receita_atribuida',  label: 'Receita Atribuída', right: true, format: formatCurrency },
   ]
 
-  const channels = (byChannel?.by_channel ?? []).filter((ch) => ch.canal !== 'whatsapp_omni')
+  const channels = byChannel?.by_channel ?? []
   const prodByReceita = topProdutos ? [...topProdutos].sort((a, b) => b.receita - a.receita) : []
   const prodByPedidos = topProdutos ? [...topProdutos].sort((a, b) => b.pedidos - a.pedidos) : []
   const catByReceita = topCategorias ? [...topCategorias].sort((a, b) => b.receita - a.receita) : []
@@ -999,7 +846,7 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
             </div>
           )}
 
-          {(channels.length > 0 || whatsappOmni) && (
+          {channels.length > 0 && (
             <div className={`grid gap-3 sm:grid-cols-3 ${totais ? 'border-t border-slate-100 pt-5' : ''}`}>
               {channels.map((ch) => {
                 const cfg = CHANNEL_CONFIG[ch.canal] ?? {
@@ -1024,15 +871,6 @@ function AtribuidaDetalhadaView({ data, loading, byChannel, topProdutos, topCate
                   </article>
                 )
               })}
-              {whatsappOmni && (
-                <WhatsappOmniBox
-                  isAdmin={currentRole === 'admin'}
-                  startDate={startDate}
-                  endDate={endDate}
-                  whatsappOmni={whatsappOmni}
-                  onSaved={onWhatsappOmniSaved}
-                />
-              )}
             </div>
           )}
 
