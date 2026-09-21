@@ -45,6 +45,7 @@ from backend.ga4_funnel import get_crm_funnel
 from backend.routers.projects import router as projects_router
 from backend.routes.open_data import router as open_data_router
 from backend.routes.emarsys_segments import router as emarsys_segments_router
+from backend.routes.npi_resultados import router as npi_resultados_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -70,6 +71,7 @@ app = FastAPI(title="CRM Campaign Planner API")
 app.include_router(projects_router)
 app.include_router(open_data_router)
 app.include_router(emarsys_segments_router)
+app.include_router(npi_resultados_router)
 
 
 def is_single_auth_mode() -> bool:

@@ -39,6 +39,25 @@ TASK_HEADERS = [
     "created_at",
 ]
 
+NPI_PERIODOS_HEADERS = [
+    "id",
+    "nome",
+    "start_date",
+    "end_date",
+    "ordem",
+    "created_by",
+    "created_at",
+]
+
+NPI_VALORES_HEADERS = [
+    "id",
+    "periodo_id",
+    "canal",
+    "receita",
+    "updated_by",
+    "updated_at",
+]
+
 _SPREADSHEET_NAME = "crm_database"
 _TIMEOUT_SECONDS = 8
 _CACHE_TTL_SECONDS = 30
@@ -47,6 +66,8 @@ _cache_lock = threading.Lock()
 _cache: dict[str, tuple[float, list[dict[str, Any]]]] = {
     "projects": (0.0, []),
     "tasks": (0.0, []),
+    "npi_periodos": (0.0, []),
+    "npi_valores": (0.0, []),
 }
 
 
@@ -75,6 +96,13 @@ def _coerce_optional(value: str | None) -> str | None:
 def _coerce_int(value: str | None, default: int = 0) -> int:
     try:
         return int(str(value or "").strip())
+    except ValueError:
+        return default
+
+
+def _coerce_float(value: str | None, default: float = 0.0) -> float:
+    try:
+        return float(str(value or "").strip().replace(",", "."))
     except ValueError:
         return default
 
@@ -215,6 +243,29 @@ def _normalize_task(raw: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def _normalize_npi_periodo(raw: dict[str, str]) -> dict[str, Any]:
+    return {
+        "id": _coerce_int(raw.get("id"), default=0),
+        "nome": (raw.get("nome") or "").strip(),
+        "start_date": (raw.get("start_date") or "").strip(),
+        "end_date": (raw.get("end_date") or "").strip(),
+        "ordem": _coerce_int(raw.get("ordem"), default=0),
+        "created_by": _coerce_optional(raw.get("created_by")),
+        "created_at": (raw.get("created_at") or "").strip(),
+    }
+
+
+def _normalize_npi_valor(raw: dict[str, str]) -> dict[str, Any]:
+    return {
+        "id": _coerce_int(raw.get("id"), default=0),
+        "periodo_id": _coerce_int(raw.get("periodo_id"), default=0),
+        "canal": (raw.get("canal") or "").strip(),
+        "receita": _coerce_float(raw.get("receita"), default=0.0),
+        "updated_by": _coerce_optional(raw.get("updated_by")),
+        "updated_at": (raw.get("updated_at") or "").strip(),
+    }
+
+
 def _next_id(records: list[dict[str, Any]]) -> int:
     if not records:
         return 1
@@ -247,6 +298,159 @@ def _load_tasks() -> list[dict[str, Any]]:
     tasks.sort(key=lambda item: item["id"])
     _set_cache("tasks", tasks)
     return tasks
+
+
+def _load_npi_periodos() -> list[dict[str, Any]]:
+    cached = _get_cached("npi_periodos")
+    if cached is not None:
+        return cached
+
+    spreadsheet = _open_spreadsheet()
+    worksheet = _ensure_worksheet(spreadsheet, "npi_periodos", NPI_PERIODOS_HEADERS)
+    records = _read_records(worksheet, NPI_PERIODOS_HEADERS)
+    periodos = [_normalize_npi_periodo(item) for item in records if _coerce_int(item.get("id"), 0) > 0]
+    periodos.sort(key=lambda item: (item["ordem"], item["id"]))
+    _set_cache("npi_periodos", periodos)
+    return periodos
+
+
+def _load_npi_valores() -> list[dict[str, Any]]:
+    cached = _get_cached("npi_valores")
+    if cached is not None:
+        return cached
+
+    spreadsheet = _open_spreadsheet()
+    worksheet = _ensure_worksheet(spreadsheet, "npi_valores", NPI_VALORES_HEADERS)
+    records = _read_records(worksheet, NPI_VALORES_HEADERS)
+    valores = [_normalize_npi_valor(item) for item in records if _coerce_int(item.get("id"), 0) > 0]
+    _set_cache("npi_valores", valores)
+    return valores
+
+
+def get_npi_periodos() -> list[dict[str, Any]]:
+    return _load_npi_periodos()
+
+
+def get_npi_valores() -> list[dict[str, Any]]:
+    return _load_npi_valores()
+
+
+def create_npi_periodo(nome: str, start_date: str, end_date: str, created_by: str) -> dict[str, Any]:
+    periodos = _load_npi_periodos()
+    new_item = {
+        "id": _next_id(periodos),
+        "nome": nome,
+        "start_date": start_date,
+        "end_date": end_date,
+        "ordem": (max((p["ordem"] for p in periodos), default=0) + 1),
+        "created_by": created_by,
+        "created_at": _iso_now(),
+    }
+    spreadsheet = _open_spreadsheet()
+    worksheet = _ensure_worksheet(spreadsheet, "npi_periodos", NPI_PERIODOS_HEADERS)
+    _run_with_timeout(worksheet.append_row, _as_row(new_item, NPI_PERIODOS_HEADERS), value_input_option="USER_ENTERED")
+    _invalidate_cache("npi_periodos")
+    return new_item
+
+
+def update_npi_periodo(periodo_id: int, update_data: dict[str, Any]) -> dict[str, Any] | None:
+    spreadsheet = _open_spreadsheet()
+    worksheet = _ensure_worksheet(spreadsheet, "npi_periodos", NPI_PERIODOS_HEADERS)
+    indexed = _read_records_with_index(worksheet, NPI_PERIODOS_HEADERS)
+
+    target_row_idx: int | None = None
+    target_item: dict[str, Any] | None = None
+    for row_idx, raw in indexed:
+        item = _normalize_npi_periodo(raw)
+        if item["id"] == periodo_id:
+            target_row_idx = row_idx
+            target_item = item
+            break
+
+    if target_row_idx is None or target_item is None:
+        return None
+
+    for key, value in update_data.items():
+        target_item[key] = value
+    target_item["id"] = periodo_id
+
+    end_col = rowcol_to_a1(target_row_idx, len(NPI_PERIODOS_HEADERS))
+    _run_with_timeout(
+        worksheet.update,
+        f"A{target_row_idx}:{end_col}",
+        [_as_row(target_item, NPI_PERIODOS_HEADERS)],
+        value_input_option="USER_ENTERED",
+    )
+    _invalidate_cache("npi_periodos")
+    return target_item
+
+
+def delete_npi_periodo(periodo_id: int) -> bool:
+    """Remove o periodo e todos os valores lancados nele (cascade)."""
+    spreadsheet = _open_spreadsheet()
+    periodos_ws = _ensure_worksheet(spreadsheet, "npi_periodos", NPI_PERIODOS_HEADERS)
+    valores_ws = _ensure_worksheet(spreadsheet, "npi_valores", NPI_VALORES_HEADERS)
+
+    indexed = _read_records_with_index(periodos_ws, NPI_PERIODOS_HEADERS)
+    target_row_idx: int | None = None
+    for row_idx, raw in indexed:
+        if _normalize_npi_periodo(raw)["id"] == periodo_id:
+            target_row_idx = row_idx
+            break
+    if target_row_idx is None:
+        return False
+
+    _run_with_timeout(periodos_ws.delete_rows, target_row_idx)
+
+    valores_indexed = _read_records_with_index(valores_ws, NPI_VALORES_HEADERS)
+    rows_to_delete = [
+        row_idx for row_idx, raw in valores_indexed
+        if _normalize_npi_valor(raw)["periodo_id"] == periodo_id
+    ]
+    for row_idx in sorted(rows_to_delete, reverse=True):
+        _run_with_timeout(valores_ws.delete_rows, row_idx)
+
+    _invalidate_cache("npi_periodos", "npi_valores")
+    return True
+
+
+def upsert_npi_valor(periodo_id: int, canal: str, receita: float, updated_by: str) -> dict[str, Any]:
+    spreadsheet = _open_spreadsheet()
+    worksheet = _ensure_worksheet(spreadsheet, "npi_valores", NPI_VALORES_HEADERS)
+    indexed = _read_records_with_index(worksheet, NPI_VALORES_HEADERS)
+
+    target_row_idx: int | None = None
+    target_item: dict[str, Any] | None = None
+    for row_idx, raw in indexed:
+        item = _normalize_npi_valor(raw)
+        if item["id"] > 0 and item["periodo_id"] == periodo_id and item["canal"] == canal:
+            target_row_idx = row_idx
+            target_item = item
+            break
+
+    now = _iso_now()
+    new_item = {
+        "id": target_item["id"] if target_item else _next_id(_load_npi_valores()),
+        "periodo_id": periodo_id,
+        "canal": canal,
+        "receita": receita,
+        "updated_by": updated_by,
+        "updated_at": now,
+    }
+
+    if target_row_idx is not None:
+        end_col = rowcol_to_a1(target_row_idx, len(NPI_VALORES_HEADERS))
+        _run_with_timeout(
+            worksheet.update,
+            f"A{target_row_idx}:{end_col}",
+            [_as_row(new_item, NPI_VALORES_HEADERS)],
+            value_input_option="USER_ENTERED",
+        )
+    else:
+        _run_with_timeout(worksheet.append_row, _as_row(new_item, NPI_VALORES_HEADERS), value_input_option="USER_ENTERED")
+
+    _invalidate_cache("npi_valores")
+    return new_item
 
 
 def get_projects() -> list[dict[str, Any]]:
