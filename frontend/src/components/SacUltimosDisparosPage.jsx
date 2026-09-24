@@ -83,10 +83,14 @@ export default function SacUltimosDisparosPage() {
               <p className="text-sm">
                 <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Sim, optou por receber</span>
               </p>
+            ) : resultado.optin_email.valor === '2' ? (
+              <p className="text-sm">
+                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">Não, não recebe e-mails</span>
+              </p>
             ) : (
               <p className="text-sm text-slate-700">
                 Valor do campo: <span className="font-mono font-semibold">{String(resultado.optin_email.valor ?? '-')}</span>
-                <span className="ml-2 text-xs text-slate-400">(só "1" está confirmado como "optou por receber" - esse valor ainda não foi mapeado)</span>
+                <span className="ml-2 text-xs text-slate-400">(só "1" e "2" estão confirmados - esse valor ainda não foi mapeado)</span>
               </p>
             )
           ) : (
