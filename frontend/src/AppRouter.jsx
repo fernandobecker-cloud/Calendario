@@ -33,6 +33,8 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 
 function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
   const visibleTabs = ALL_TABS.filter((tab) => {
+    if (currentRole === 'sac') return tab.key === 'sac-disparos'
+    if (tab.key === 'sac-disparos') return currentRole === 'admin'
     if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'resultados-npi'
     if (tab.key === 'adm' || tab.key === 'mapa' || tab.key === 'emarsys' || tab.key === 'receita-pos-disparo') return currentRole === 'admin'
     if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
@@ -199,18 +201,28 @@ export default function AppRouter() {
           onLogout={handleLogout}
         />
         <Routes>
-          <Route path="/" element={<Navigate to="/resultado-geral" replace />} />
-          <Route path="/campanhas" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <App />} />
-          <Route path="/gantt" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <GanttPage />} />
-          <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
-          <Route path="/resultados-npi" element={<ResultadosNpiPage currentRole={currentRole} />} />
-          <Route path="/sac-disparos" element={<SacUltimosDisparosPage />} />
-          <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="/emarsys" element={currentRole === 'admin' ? <EmarsysPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="/receita-pos-disparo" element={currentRole === 'admin' ? <ReceitaPosDisparoPage /> : <Navigate to="/resultado-geral" replace />} />
-          <Route path="*" element={<Navigate to="/resultado-geral" replace />} />
+          {(() => {
+            // SAC so acessa "Últimos Disparos" - qualquer outra rota volta pra la
+            // em vez de resultado-geral (mesmo padrao de restricao do "comercial",
+            // so que mais estrito: nenhuma outra pagina do portal e permitida).
+            const defaultRoute = currentRole === 'sac' ? '/sac-disparos' : '/resultado-geral'
+            return (
+              <>
+                <Route path="/" element={<Navigate to={defaultRoute} replace />} />
+                <Route path="/campanhas" element={currentRole === 'comercial' || currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <App />} />
+                <Route path="/gantt" element={currentRole === 'comercial' || currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <GanttPage />} />
+                <Route path="/resultado-geral" element={currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <ResultadoGeralPage currentRole={currentRole} />} />
+                <Route path="/resultados-npi" element={currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <ResultadosNpiPage currentRole={currentRole} />} />
+                <Route path="/sac-disparos" element={currentRole === 'sac' || currentRole === 'admin' ? <SacUltimosDisparosPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/emarsys" element={currentRole === 'admin' ? <EmarsysPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/receita-pos-disparo" element={currentRole === 'admin' ? <ReceitaPosDisparoPage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="*" element={<Navigate to={defaultRoute} replace />} />
+              </>
+            )
+          })()}
         </Routes>
       </div>
     </BrowserRouter>

@@ -62,6 +62,11 @@ AUTH_PASSWORD_2 = os.getenv("AUTH_PASSWORD_2", "").strip()
 # no mesmo padrão já usado para "auditoria" (restrito por username).
 AUTH_USERNAME_3 = os.getenv("AUTH_USERNAME_3", "").strip()
 AUTH_PASSWORD_3 = os.getenv("AUTH_PASSWORD_3", "").strip()
+# Quarto login fixo via env var, role "sac" — só enxerga a aba "Últimos
+# Disparos (SAC)" (mesmo padrão de restrição de aba por role do "comercial"
+# acima), sem acesso a mais nada do portal.
+AUTH_USERNAME_4 = os.getenv("AUTH_USERNAME_4", "").strip()
+AUTH_PASSWORD_4 = os.getenv("AUTH_PASSWORD_4", "").strip()
 AUTH_MODE = os.getenv("AUTH_MODE", "multi").strip().lower()
 
 USERNAME_PATTERN = re.compile(r"^[a-z0-9._-]+$")
@@ -100,7 +105,7 @@ class UpdatePasswordPayload(BaseModel):
 
 class AuthUser(BaseModel):
     username: str
-    role: Literal["admin", "user", "comercial"]
+    role: Literal["admin", "user", "comercial", "sac"]
 
 
 def parse_allowed_origins() -> list[str]:
@@ -302,6 +307,17 @@ def authenticate_user(username_raw: str, password: str) -> AuthUser | None:
             if expected_comercial and secrets.compare_digest(username, expected_comercial):
                 if secrets.compare_digest(password, AUTH_PASSWORD_3):
                     return AuthUser(username=expected_comercial, role="comercial")
+                return None
+
+        if AUTH_USERNAME_4 and AUTH_PASSWORD_4:
+            try:
+                expected_sac = normalize_username(AUTH_USERNAME_4)
+            except ValueError:
+                expected_sac = None
+
+            if expected_sac and secrets.compare_digest(username, expected_sac):
+                if secrets.compare_digest(password, AUTH_PASSWORD_4):
+                    return AuthUser(username=expected_sac, role="sac")
                 return None
 
         try:
