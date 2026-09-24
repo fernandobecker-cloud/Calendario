@@ -1723,6 +1723,136 @@ def automation_node_diagnostico(
     }
 
 
+# ---------------------------------------------------------------------------
+# Ultimos disparos de e-mail por CPF - tela do SAC ("o que ja mandamos pra
+# esse cliente?"). Busca por CPF, nao por e-mail: a busca de contato por
+# e-mail via API classica da Emarsys (GET /contact/query) tomou 403 de
+# WAF/Cloudflare em duas tentativas (path literal e query string), contra a
+# conta real - nao e o erro JSON de permissao da Emarsys, e uma pagina HTML
+# generica de bloqueio antes de chegar na aplicacao. CPF já tinha um
+# caminho provado (si_contacts.external_id), 100% dentro do BigQuery, sem
+# nenhuma chamada externa a Emarsys - por isso virou o identificador usado
+# aqui.
+# ---------------------------------------------------------------------------
+
+_ULTIMOS_DISPAROS_LOOKBACK_DIAS = 730
+
+
+def _build_cpf_contato_existe_sql() -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    case_sql = _cpf_match_case_sql("c.external_id")
+    return f"""
+SELECT COUNT(*) > 0 AS existe
+FROM `{project_id}.{dataset}.{contacts_table}` c
+WHERE c.external_id IS NOT NULL AND {case_sql} = @cpf
+""".strip()
+
+
+def _build_ultimos_disparos_email_sql() -> str:
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    sends_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_SENDS_TABLE)
+    campaigns_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_CAMPAIGNS_TABLE)
+    opens_table = _quote_identifier(EMARSYS_OPEN_DATA_EMAIL_OPENS_TABLE)
+    case_sql = _cpf_match_case_sql("c.external_id")
+    lookback = _ULTIMOS_DISPAROS_LOOKBACK_DIAS
+
+    return f"""
+WITH matched AS (
+  SELECT CAST(c.contact_id AS STRING) AS contact_id
+  FROM `{project_id}.{dataset}.{contacts_table}` c
+  WHERE c.external_id IS NOT NULL AND {case_sql} = @cpf
+  LIMIT 1
+),
+envios AS (
+  SELECT s.campaign_id, s.event_time
+  FROM `{project_id}.{dataset}.{sends_table}` s
+  INNER JOIN matched m ON CAST(s.contact_id AS STRING) = m.contact_id
+  WHERE DATE(s.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+),
+campanhas AS (
+  SELECT id, ANY_VALUE(name) AS name
+  FROM `{project_id}.{dataset}.{campaigns_table}`
+  WHERE DATE(partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+  GROUP BY id
+),
+aberturas AS (
+  SELECT DISTINCT o.campaign_id
+  FROM `{project_id}.{dataset}.{opens_table}` o
+  INNER JOIN matched m ON CAST(o.contact_id AS STRING) = m.contact_id
+  WHERE DATE(o.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)
+)
+SELECT
+  e.campaign_id,
+  ANY_VALUE(c.name) AS campanha,
+  MAX(e.event_time) AS event_time,
+  LOGICAL_OR(a.campaign_id IS NOT NULL) AS abriu
+FROM envios e
+LEFT JOIN campanhas c ON CAST(c.id AS STRING) = CAST(e.campaign_id AS STRING)
+LEFT JOIN aberturas a ON a.campaign_id = e.campaign_id
+GROUP BY e.campaign_id
+ORDER BY event_time DESC
+LIMIT 5
+""".strip()
+
+
+@router.get("/emarsys/ultimos-disparos-email")
+def ultimos_disparos_email(
+    cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
+) -> dict[str, Any]:
+    """Ultimos 5 e-mails enviados a um contato - identificado por CPF (ver
+    nota do modulo sobre por que nao e por e-mail ainda). Tudo dentro do
+    BigQuery: si_contacts.external_id (CPF) -> contact_id -> email_sends
+    (+ email_campaigns pro nome, + email_opens pra saber se abriu)."""
+    cpf_normalizado = _normalize_match_key(cpf)
+    if not cpf_normalizado:
+        raise HTTPException(status_code=400, detail="CPF invalido.")
+
+    cpf_param = [bigquery.ScalarQueryParameter("cpf", "STRING", cpf_normalizado)]
+    try:
+        existe_records = run_bigquery_records(
+            _build_cpf_contato_existe_sql(),
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=20,
+            params=cpf_param,
+        )
+        contato_encontrado = bool(existe_records and existe_records[0].get("existe"))
+
+        items: list[dict[str, Any]] = []
+        if contato_encontrado:
+            records = run_bigquery_records(
+                _build_ultimos_disparos_email_sql(),
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=30,
+                params=cpf_param,
+            )
+            items = [
+                {
+                    "campanha": str(r.get("campanha") or f"Campanha {r.get('campaign_id')}"),
+                    "data_envio": _normalize_open_data_value(r.get("event_time")),
+                    "abriu": bool(r.get("abriu")),
+                }
+                for r in records
+            ]
+
+        return {
+            "cpf": cpf_normalizado,
+            "contato_encontrado": contato_encontrado,
+            "items": items,
+            "lookback_dias": _ULTIMOS_DISPAROS_LOOKBACK_DIAS,
+            "source": "bigquery_email_sends_x_cpf",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar ultimos disparos: {exc}") from exc
+
+
 def _build_cpf_match_stats_sql() -> str:
     cte = _build_cpf_matched_contacts_cte()
     return f"""
