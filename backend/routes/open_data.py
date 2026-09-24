@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
 
 from backend.event_sources import run_bigquery_records
+from backend.services.emarsys_client import EmarsysClient, EmarsysError
 from backend.vendas_npi_skus import VENDAS_NPI_SKUS, modelo_do_sku
 
 # ---------------------------------------------------------------------------
@@ -1739,14 +1740,18 @@ _ULTIMOS_DISPAROS_LOOKBACK_DIAS = 730
 
 
 def _build_cpf_contato_existe_sql() -> str:
+    """Devolve o contact_id (se achou) - nao so um booleano - porque o
+    endpoint tambem usa esse ID pra buscar o opt-in de e-mail (campo 31) na
+    API da Emarsys, ver `ultimos_disparos_email`."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     case_sql = _cpf_match_case_sql("c.external_id")
     return f"""
-SELECT COUNT(*) > 0 AS existe
+SELECT CAST(c.contact_id AS STRING) AS contact_id
 FROM `{project_id}.{dataset}.{contacts_table}` c
 WHERE c.external_id IS NOT NULL AND {case_sql} = @cpf
+LIMIT 1
 """.strip()
 
 
@@ -1802,11 +1807,20 @@ LIMIT 5
 @router.get("/emarsys/ultimos-disparos-email")
 def ultimos_disparos_email(
     cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
+    campo_optin: str = Query(default="31", description="ID numerico do campo de opt-in de e-mail na Emarsys"),
 ) -> dict[str, Any]:
     """Ultimos 5 e-mails enviados a um contato - identificado por CPF (ver
     nota do modulo sobre por que nao e por e-mail ainda). Tudo dentro do
     BigQuery: si_contacts.external_id (CPF) -> contact_id -> email_sends
-    (+ email_campaigns pro nome, + email_opens pra saber se abriu)."""
+    (+ email_campaigns pro nome, + email_opens pra saber se abriu).
+
+    Tambem busca o opt-in de e-mail (campo 31 por padrao) via API da
+    Emarsys (POST /contact/getdata, usando o contact_id ja resolvido pelo
+    CPF - sem precisar de find_contact_id_by_field, que tomou 403 de WAF) -
+    util pro atendente ver se o cliente esta descadastrado quando reclama
+    que "nao recebeu um e-mail". Isso e best-effort: se a chamada falhar,
+    devolve o erro em `optin_email.erro` sem derrubar os disparos (que ja
+    funcionam 100% pelo BigQuery, sem depender dessa API)."""
     cpf_normalizado = _normalize_match_key(cpf)
     if not cpf_normalizado:
         raise HTTPException(status_code=400, detail="CPF invalido.")
@@ -1820,9 +1834,12 @@ def ultimos_disparos_email(
             timeout=20,
             params=cpf_param,
         )
-        contato_encontrado = bool(existe_records and existe_records[0].get("existe"))
+        contact_id = str(existe_records[0].get("contact_id") or "") if existe_records else ""
+        contato_encontrado = bool(contact_id)
 
         items: list[dict[str, Any]] = []
+        optin_email: dict[str, Any] = {"disponivel": False, "valor": None, "resposta_crua": None, "erro": None}
+
         if contato_encontrado:
             records = run_bigquery_records(
                 _build_ultimos_disparos_email_sql(),
@@ -1840,9 +1857,25 @@ def ultimos_disparos_email(
                 for r in records
             ]
 
+            try:
+                client = EmarsysClient()
+                dados = client.get_contact_data([contact_id], [campo_optin])
+                if dados:
+                    optin_email = {
+                        "disponivel": True,
+                        "valor": dados[0].get(str(campo_optin)) if isinstance(dados[0], dict) else None,
+                        "resposta_crua": dados[0],
+                        "erro": None,
+                    }
+            except EmarsysError as exc:
+                optin_email["erro"] = str(exc)
+            except Exception as exc:
+                optin_email["erro"] = f"Falha inesperada ao buscar opt-in: {exc}"
+
         return {
             "cpf": cpf_normalizado,
             "contato_encontrado": contato_encontrado,
+            "optin_email": optin_email,
             "items": items,
             "lookback_dias": _ULTIMOS_DISPAROS_LOOKBACK_DIAS,
             "source": "bigquery_email_sends_x_cpf",

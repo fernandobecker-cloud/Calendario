@@ -230,6 +230,27 @@ class EmarsysClient:
         data = self._request("GET", "/contact/query/", params=params)
         return data.get("data", {})
 
+    def get_contact_data(self, contact_ids: list[str], field_ids: list[int | str], key_id: str = "id") -> list[dict]:
+        """Busca valores de campo de contatos ja identificados - POST
+        /contact/getdata, corpo {"keyId", "keyValues", "fields"}. Formato
+        confirmado por multiplas fontes publicas (gems/bibliotecas de
+        terceiros que documentam esse endpoint, ex: `Emarsys::Contact.search
+        (key_id: '3', key_values: [...], fields: [1,2,3])` do gem Ruby
+        `emarsys-rb`) - mesma familia de endpoint (`/api/v3/contact`, pasta
+        "Contacts" da Postman collection OIDC) de `find_contact_id_by_field`
+        acima, mas ainda NAO TESTADO contra a conta real. `key_id="id"` (o
+        padrao aqui) busca pelo ID interno do contato - useful quando esse ID
+        ja foi resolvido por outro caminho (ex: CPF via BigQuery), evitando
+        depender de `find_contact_id_by_field`, que tomou 403 de WAF."""
+        body = {
+            "keyId": key_id,
+            "keyValues": [str(v) for v in contact_ids],
+            "fields": [int(f) if str(f).isdigit() else f for f in field_ids],
+        }
+        data = self._request("POST", "/contact/getdata", json=body)
+        result = data.get("data", [])
+        return result if isinstance(result, list) else [result]
+
     def get_segment_by_id(self, segment_id: int | str) -> dict:
         """Busca um segmento por ID direto em GET /filter/{id} - CONFIRMADO
         funcionando contra a conta real (2026-09), diferente da busca por

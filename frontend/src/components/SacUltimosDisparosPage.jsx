@@ -75,6 +75,21 @@ export default function SacUltimosDisparosPage() {
         {erro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
       </section>
 
+      {resultado && resultado.contato_encontrado && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Opt-in de e-mail</h2>
+          {resultado.optin_email?.disponivel ? (
+            <p className="text-sm text-slate-700">
+              Valor do campo (cru, formato ainda em confirmação): <span className="font-mono font-semibold">{String(resultado.optin_email.valor ?? '-')}</span>
+            </p>
+          ) : (
+            <p className="text-sm text-slate-400">
+              Não foi possível confirmar o opt-in agora{resultado.optin_email?.erro ? ` (${resultado.optin_email.erro})` : ''}.
+            </p>
+          )}
+        </section>
+      )}
+
       {resultado && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           {!resultado.contato_encontrado ? (
