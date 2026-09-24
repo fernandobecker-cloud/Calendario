@@ -210,18 +210,24 @@ class EmarsysClient:
         return data.get("data", data.get("items", []))
 
     def find_contact_id_by_field(self, field_id: int | str, value: str) -> dict:
-        """Busca o ID interno de um contato por um campo (ex: 3=email) -
-        GET /contact/query/{field}={value}. CONFIRMADO SO POR DOCUMENTACAO
-        PUBLICA (mesma Postman collection OIDC de /filter e /export/filter,
-        pasta "Contacts", request "Get Internal Contact Identifiers") -
-        ainda NAO TESTADO contra a conta real. Devolve o "data" cru do
-        envelope (formato exato da resposta ainda incerto - normalizar
-        quando confirmado; por isso quem chama deve tratar isso como
-        diagnostico, nao como parsing definitivo)."""
-        from urllib.parse import quote
-
-        safe_value = quote(str(value).strip(), safe="")
-        data = self._request("GET", f"/contact/query/{field_id}={safe_value}")
+        """Busca contato(s) por um campo (ex: 3=email) - GET /contact/query/
+        com os parametros como QUERY STRING de verdade (?3=valor&return=3),
+        nao como literal "campo=valor" dentro do path. A primeira tentativa
+        (path literal, GET /contact/query/3=valor) tomou 403 com pagina
+        HTML generica (nao o erro JSON da Emarsys) contra a conta real -
+        sinal de bloqueio por WAF/gateway antes de chegar na aplicacao,
+        provavelmente por causa do "=" cru dentro do path. Essa segunda
+        forma (tambem documentada na mesma Postman collection OIDC de
+        /filter, pasta "Contacts", request "List Contact Data") usa query
+        string normal, que deve passar pelo WAF sem problema - AINDA ASSIM
+        NAO TESTADA contra a conta real, e o formato exato da resposta
+        segue incerto (por isso devolve o 'data' cru, sem normalizar)."""
+        params = {
+            str(field_id): str(value).strip(),
+            "return": str(field_id),
+            "excludeempty": "true",
+        }
+        data = self._request("GET", "/contact/query/", params=params)
         return data.get("data", {})
 
     def get_segment_by_id(self, segment_id: int | str) -> dict:
