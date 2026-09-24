@@ -10,11 +10,13 @@ import PortalMapPage from './components/PortalMapPage'
 import EmarsysPage from './components/EmarsysPage'
 import ResultadosNpiPage from './components/ResultadosNpiPage'
 import ReceitaPosDisparoPage from './components/ReceitaPosDisparoPage'
+import SacUltimosDisparosPage from './components/SacUltimosDisparosPage'
 import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
   { to: '/resultado-geral', label: 'Resultado Geral', key: 'resultado-geral' },
   { to: '/resultados-npi', label: 'Resultados NPI', key: 'resultados-npi' },
+  { to: '/sac-disparos', label: 'Últimos Disparos (SAC)', key: 'sac-disparos' },
   { to: '/campanhas', label: 'Campanhas', key: 'campanhas' },
   { to: '/gantt', label: 'Projetos', key: 'projetos' },
   { to: '/auditoria', label: 'Auditoria', key: 'auditoria' },
@@ -202,6 +204,7 @@ export default function AppRouter() {
           <Route path="/gantt" element={currentRole === 'comercial' ? <Navigate to="/resultado-geral" replace /> : <GanttPage />} />
           <Route path="/resultado-geral" element={<ResultadoGeralPage currentRole={currentRole} />} />
           <Route path="/resultados-npi" element={<ResultadosNpiPage currentRole={currentRole} />} />
+          <Route path="/sac-disparos" element={<SacUltimosDisparosPage />} />
           <Route path="/auditoria" element={currentUsername === 'crmiplaceadm' ? <AuditoriaPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/adm" element={currentRole === 'admin' ? <AdmPage /> : <Navigate to="/resultado-geral" replace />} />
           <Route path="/mapa-portal" element={currentRole === 'admin' ? <PortalMapPage /> : <Navigate to="/resultado-geral" replace />} />
