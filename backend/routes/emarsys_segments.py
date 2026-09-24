@@ -921,6 +921,34 @@ def exportar_segmento_generico(
 
 
 # ---------------------------------------------------------------------------
+# Diagnostico: busca de contato por campo (ex: e-mail) - GET /contact/query
+# da Emarsys, confirmado so por documentacao publica (ver docstring de
+# find_contact_id_by_field em backend/services/emarsys_client.py). Devolve a
+# resposta CRUA de proposito - e o primeiro teste contra a conta real, antes
+# de decidir como normalizar o retorno pro fluxo de "ultimos disparos" que o
+# SAC vai usar.
+# ---------------------------------------------------------------------------
+
+@router.get("/contato/buscar")
+def contato_buscar(
+    request: Request,
+    valor: str = Query(min_length=2, description="Valor a buscar (ex: o e-mail do contato)"),
+    campo: str = Query(default="3", description="ID numerico do campo na Emarsys (padrao 3 = e-mail)"),
+) -> dict[str, Any]:
+    """Busca o ID interno do contato na Emarsys por um campo (padrao:
+    e-mail). Endpoint de diagnostico - devolve a resposta crua da Emarsys
+    pra confirmarmos o formato antes de montar a tela de 'ultimos disparos'
+    do SAC."""
+    require_admin(request)
+    client = _get_client()
+    try:
+        resposta_crua = client.find_contact_id_by_field(campo, valor)
+    except EmarsysError as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar contato: {exc}") from exc
+    return {"campo": campo, "valor": valor, "resposta_crua": resposta_crua}
+
+
+# ---------------------------------------------------------------------------
 # Receita atribuida para os contatos de um segmento - usado para segmentos
 # que viraram audiencia em outra ferramenta (ex: uma campanha de WhatsApp
 # disparada pelo Omnichat). Exporta so o CPF (campo 12908, confirmado pelo

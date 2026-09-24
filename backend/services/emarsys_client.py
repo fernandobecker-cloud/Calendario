@@ -209,6 +209,21 @@ class EmarsysClient:
         data = self._request("GET", EMARSYS_SEGMENT_LIST_PATH)
         return data.get("data", data.get("items", []))
 
+    def find_contact_id_by_field(self, field_id: int | str, value: str) -> dict:
+        """Busca o ID interno de um contato por um campo (ex: 3=email) -
+        GET /contact/query/{field}={value}. CONFIRMADO SO POR DOCUMENTACAO
+        PUBLICA (mesma Postman collection OIDC de /filter e /export/filter,
+        pasta "Contacts", request "Get Internal Contact Identifiers") -
+        ainda NAO TESTADO contra a conta real. Devolve o "data" cru do
+        envelope (formato exato da resposta ainda incerto - normalizar
+        quando confirmado; por isso quem chama deve tratar isso como
+        diagnostico, nao como parsing definitivo)."""
+        from urllib.parse import quote
+
+        safe_value = quote(str(value).strip(), safe="")
+        data = self._request("GET", f"/contact/query/{field_id}={safe_value}")
+        return data.get("data", {})
+
     def get_segment_by_id(self, segment_id: int | str) -> dict:
         """Busca um segmento por ID direto em GET /filter/{id} - CONFIRMADO
         funcionando contra a conta real (2026-09), diferente da busca por
