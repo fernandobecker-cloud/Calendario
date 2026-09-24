@@ -248,7 +248,14 @@ class EmarsysClient:
             "fields": [int(f) if str(f).isdigit() else f for f in field_ids],
         }
         data = self._request("POST", "/contact/getdata", json=body)
-        result = data.get("data", [])
+        # CONFIRMADO contra a conta real (2026-09): o envelope "data" desse
+        # endpoint nao e a lista de contatos direto - e um objeto
+        # {"errors": [...], "result": [...]}, com a lista de verdade em
+        # "result". Diferente do formato "data": [...] usado por outros
+        # endpoints v3 (ex: /filter) - por isso a primeira versao devolvia
+        # sempre uma lista vazia (calculada certo em cima da chave errada).
+        envelope = data.get("data", {})
+        result = envelope.get("result", []) if isinstance(envelope, dict) else envelope
         return result if isinstance(result, list) else [result]
 
     def get_segment_by_id(self, segment_id: int | str) -> dict:

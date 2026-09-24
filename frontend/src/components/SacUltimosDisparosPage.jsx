@@ -79,9 +79,16 @@ export default function SacUltimosDisparosPage() {
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Opt-in de e-mail</h2>
           {resultado.optin_email?.disponivel ? (
-            <p className="text-sm text-slate-700">
-              Valor do campo (cru, formato ainda em confirmação): <span className="font-mono font-semibold">{String(resultado.optin_email.valor ?? '-')}</span>
-            </p>
+            resultado.optin_email.valor === '1' ? (
+              <p className="text-sm">
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Sim, optou por receber</span>
+              </p>
+            ) : (
+              <p className="text-sm text-slate-700">
+                Valor do campo: <span className="font-mono font-semibold">{String(resultado.optin_email.valor ?? '-')}</span>
+                <span className="ml-2 text-xs text-slate-400">(só "1" está confirmado como "optou por receber" - esse valor ainda não foi mapeado)</span>
+              </p>
+            )
           ) : (
             <p className="text-sm text-slate-400">
               Não foi possível confirmar o opt-in agora{resultado.optin_email?.erro ? ` (${resultado.optin_email.erro})` : ''}.
