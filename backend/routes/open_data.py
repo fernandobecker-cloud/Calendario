@@ -1661,6 +1661,8 @@ def _build_npi_canal_sql() -> str:
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
 
     return f"""
 WITH bridge AS (
@@ -1684,19 +1686,50 @@ whatsapp_touches AS (
 orders AS (
   SELECT * EXCEPT(rn) FROM (
     SELECT
-      ra.contact_id, ra.order_id, ra.event_time, ra.items, ra.treatments,
+      ra.contact_id, ra.order_id, ra.event_time, ra.treatments,
       ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
     FROM `{project_id}.{dataset}.{revenue_table}` ra
     WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
   )
   WHERE rn = 1
 ),
-orders_calc AS (
+-- Ponte contact_id (Emarsys) <-> si_contact_id (SAP/si_purchases) - usada
+-- pra buscar o VALOR REAL do pedido no si_purchases em vez de somar
+-- items[].price*quantity de dentro do revenue_attribution. Confirmado por
+-- reconciliacao pontual (2026-09): pra pedidos que existem nos dois
+-- sistemas, items[].price da Emarsys fica ~R$12M ACIMA do sales_amount do
+-- si_purchases no periodo testado - muito provavelmente preco de tabela
+-- (sem desconto) em vez do valor liquido pago. si_purchases e a fonte que
+-- bate com o painel nativo de receita da Emarsys, entao vira a fonte de
+-- verdade aqui.
+contato_si_bridge AS (
+  SELECT DISTINCT
+    CAST(contact_id AS STRING) AS contact_id,
+    CAST(si_contact_id AS STRING) AS si_contact_id
+  FROM `{project_id}.{dataset}.{contacts_table}`
+  WHERE contact_id IS NOT NULL AND si_contact_id IS NOT NULL
+),
+si_orders AS (
   SELECT
-    contact_id, order_id, event_time AS purchase_time,
-    (SELECT SUM(i.price * i.quantity) FROM UNNEST(items) i) AS order_total,
-    treatments
-  FROM orders
+    CAST(order_id AS STRING) AS order_id,
+    CAST(si_contact_id AS STRING) AS si_contact_id,
+    ROUND(SUM(sales_amount), 2) AS order_total_si
+  FROM `{project_id}.{dataset}.{purchases_table}`
+  WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
+  GROUP BY order_id, si_contact_id
+),
+orders_calc AS (
+  -- Pedido sem ponte pro si_contact_id, ou sem match no si_purchases
+  -- (pedido que nao chegou a virar venda liquidada la), entra com
+  -- order_total = 0 - preferimos deixar de fora a contar um valor que nao
+  -- bate com a fonte de verdade.
+  SELECT
+    o.contact_id, o.order_id, o.event_time AS purchase_time,
+    IFNULL(si.order_total_si, 0) AS order_total,
+    o.treatments
+  FROM orders o
+  LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
+  LEFT JOIN si_orders si ON si.order_id = CAST(o.order_id AS STRING) AND si.si_contact_id = b.si_contact_id
 ),
 exploded AS (
   SELECT
