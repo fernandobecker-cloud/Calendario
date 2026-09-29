@@ -1655,9 +1655,18 @@ def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: st
 # Match de telefone confirmado em 99.5% (2026-09) - ver conversa.
 # ---------------------------------------------------------------------------
 
-def _build_npi_canal_sql() -> str:
-    bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
-    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+def _build_npi_orders_sql() -> str:
+    """So referencia tabelas do projeto/dataset da Emarsys - nunca
+    `apuracao_npi26` (projeto externo `base-vendas-496714`) na mesma query.
+    Motivo: uma versao anterior desta funcao juntava as duas coisas numa
+    query so, e o BigQuery passou a recusar com "VPC Service Controls:
+    Request is prohibited by organization's policy" (confirmado 2026-09) -
+    a politica de seguranca da organizacao parece bloquear especificamente
+    combinar tabelas de cliente (si_contacts/si_purchases) com um projeto
+    externo na mesma consulta. Por isso o calculo foi dividido em duas
+    queries independentes (esta e `_build_npi_whatsapp_touches_sql`,
+    cada uma so dentro do seu proprio projeto) - o cruzamento entre elas
+    agora acontece em Python, ver `calcular_npi_canal`."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
@@ -1665,25 +1674,7 @@ def _build_npi_canal_sql() -> str:
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
 
     return f"""
-WITH bridge AS (
-  SELECT
-    CAST(user_id AS STRING) AS contact_id,
-    CAST(`Número do celular` AS STRING) AS phone
-  FROM {bridge_table}
-  WHERE `Número do celular` IS NOT NULL
-),
-omni_filtrado AS (
-  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
-  FROM {omni_table}
-  WHERE delivered = 1
-    AND template_title IN UNNEST(@template_titles)
-),
-whatsapp_touches AS (
-  SELECT DISTINCT b.contact_id, o.dispatch_date
-  FROM omni_filtrado o
-  JOIN bridge b ON b.phone = o.phone
-),
-orders AS (
+WITH orders AS (
   SELECT * EXCEPT(rn) FROM (
     SELECT
       ra.contact_id, ra.order_id, ra.event_time, ra.treatments,
@@ -1717,71 +1708,46 @@ si_orders AS (
   FROM `{project_id}.{dataset}.{purchases_table}`
   WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
   GROUP BY order_id, si_contact_id
-),
-orders_calc AS (
-  -- Pedido sem ponte pro si_contact_id, ou sem match no si_purchases
-  -- (pedido que nao chegou a virar venda liquidada la), entra com
-  -- order_total = 0 - preferimos deixar de fora a contar um valor que nao
-  -- bate com a fonte de verdade.
-  SELECT
-    o.contact_id, o.order_id, o.event_time AS purchase_time,
-    IFNULL(si.order_total_si, 0) AS order_total,
-    o.treatments
-  FROM orders o
-  LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
-  LEFT JOIN si_orders si ON si.order_id = CAST(o.order_id AS STRING) AND si.si_contact_id = b.si_contact_id
-),
-exploded AS (
-  SELECT
-    o.order_id,
-    t.attributed_amount,
-    CASE
-      WHEN EXISTS (
-        SELECT 1 FROM whatsapp_touches wt
-        WHERE wt.contact_id = CAST(o.contact_id AS STRING)
-          AND wt.dispatch_date <= DATE(o.purchase_time)
-          AND DATE_DIFF(DATE(o.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
-          AND wt.dispatch_date <= DATE(t.event_time)
-      ) THEN 'whatsapp_omni'
-      WHEN UPPER(t.channel) = 'WHATSAPP' THEN 'whatsapp_nativo'
-      WHEN UPPER(t.channel) = 'EMAIL' THEN 'email'
-      WHEN UPPER(t.channel) = 'SMS' THEN 'sms'
-      ELSE LOWER(t.channel)
-    END AS canal_final
-  FROM orders_calc o, UNNEST(o.treatments) t
-),
-per_order_total_attrib AS (
-  SELECT
-    o.order_id, o.purchase_time, o.contact_id, o.order_total,
-    IFNULL(SUM(t.attributed_amount), 0) AS total_attributed
-  FROM orders_calc o
-  LEFT JOIN UNNEST(o.treatments) t
-  GROUP BY o.order_id, o.purchase_time, o.contact_id, o.order_total
-),
-unattributed AS (
-  SELECT
-    p.order_id,
-    p.order_total - p.total_attributed AS attributed_amount,
-    CASE
-      WHEN EXISTS (
-        SELECT 1 FROM whatsapp_touches wt
-        WHERE wt.contact_id = CAST(p.contact_id AS STRING)
-          AND wt.dispatch_date <= DATE(p.purchase_time)
-          AND DATE_DIFF(DATE(p.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
-      ) THEN 'whatsapp_omni'
-      ELSE 'sem_atribuicao'
-    END AS canal_final
-  FROM per_order_total_attrib p
-  WHERE p.order_total - p.total_attributed > 0.005
-),
-combined AS (
-  SELECT canal_final, attributed_amount FROM exploded
-  UNION ALL
-  SELECT canal_final, attributed_amount FROM unattributed
 )
-SELECT canal_final AS canal, ROUND(SUM(attributed_amount), 2) AS receita
-FROM combined
-GROUP BY canal
+-- Pedido sem ponte pro si_contact_id, ou sem match no si_purchases (pedido
+-- que nao chegou a virar venda liquidada la), sai com order_total = 0 -
+-- preferimos deixar de fora a contar um valor que nao bate com a fonte de
+-- verdade.
+SELECT
+  CAST(o.contact_id AS STRING) AS contact_id,
+  o.order_id,
+  o.event_time AS purchase_time,
+  IFNULL(si.order_total_si, 0) AS order_total,
+  o.treatments
+FROM orders o
+LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
+LEFT JOIN si_orders si ON si.order_id = CAST(o.order_id AS STRING) AND si.si_contact_id = b.si_contact_id
+""".strip()
+
+
+def _build_npi_whatsapp_touches_sql() -> str:
+    """So referencia tabelas do projeto `base-vendas-496714` - nunca as
+    tabelas da Emarsys na mesma query (ver docstring de
+    `_build_npi_orders_sql` sobre VPC Service Controls)."""
+    bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
+    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    return f"""
+WITH bridge AS (
+  SELECT
+    CAST(user_id AS STRING) AS contact_id,
+    CAST(`Número do celular` AS STRING) AS phone
+  FROM {bridge_table}
+  WHERE `Número do celular` IS NOT NULL
+),
+omni_filtrado AS (
+  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
+  FROM {omni_table}
+  WHERE delivered = 1
+    AND template_title IN UNNEST(@template_titles)
+)
+SELECT DISTINCT b.contact_id, o.dispatch_date
+FROM omni_filtrado o
+JOIN bridge b ON b.phone = o.phone
 """.strip()
 
 
@@ -1791,34 +1757,101 @@ def calcular_npi_canal(
     template_titles: list[str],
     janela_dias: int = 7,
 ) -> dict[str, float]:
-    """Roda a query de receita por canal (NPI) pro periodo informado e
-    devolve {canal: receita} cru (inclui qualquer canal que aparecer, nao
-    so os 5 conhecidos - quem chama decide o que fazer com canais extras,
-    ver `/api/open-data/npi/periodos/{id}/calcular`)."""
+    """Calcula receita por canal (NPI) pro periodo informado. Roda DUAS
+    consultas independentes - uma so no projeto da Emarsys (pedidos +
+    valor real do si_purchases), outra so no projeto base-vendas-496714
+    (toques de WhatsApp do Omnichat) - e cruza as duas em Python, porque
+    uma unica query combinando os dois projetos (junto com si_contacts/
+    si_purchases) e bloqueada por VPC Service Controls (ver docstring de
+    `_build_npi_orders_sql`). Devolve {canal: receita} cru (inclui qualquer
+    canal que aparecer, nao so os 5 conhecidos - quem chama decide o que
+    fazer com canais extras, ver `/api/open-data/npi/periodos/{id}/calcular`)."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     if not template_titles:
         raise HTTPException(status_code=400, detail="Informe pelo menos um template_title.")
 
-    params = [
-        bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
-        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
-        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
-        bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
-    ]
-    # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1): o dataset
-    # apuracao_npi26 foi criado em EU, mesma location de emarsys_herval - um
-    # job do BigQuery so pode referenciar datasets de UMA location, e essa
-    # query junta os dois (confirmado pelo erro real: "Dataset ... was not
-    # found in location southamerica-east1").
-    records = run_bigquery_records(
-        _build_npi_canal_sql(),
-        BASE_VENDAS_BQ_PROJECT,
+    orders_records = run_bigquery_records(
+        _build_npi_orders_sql(),
+        EMARSYS_OPEN_DATA_PROJECT_ID,
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=90,
-        params=params,
+        params=[
+            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        ],
     )
-    return {str(r.get("canal") or ""): float(r.get("receita") or 0) for r in records}
+    touches_records = run_bigquery_records(
+        _build_npi_whatsapp_touches_sql(),
+        BASE_VENDAS_BQ_PROJECT,
+        # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1): o
+        # dataset apuracao_npi26 foi criado em EU, mesma location de
+        # emarsys_herval (confirmado pelo erro real de location incorreta
+        # numa tentativa anterior).
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
+        timeout=60,
+        params=[bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles)],
+    )
+
+    touches_by_contact: dict[str, list[date]] = {}
+    for r in touches_records:
+        contact_id = str(r.get("contact_id") or "")
+        dispatch_date = r.get("dispatch_date")
+        if not contact_id or dispatch_date is None:
+            continue
+        touches_by_contact.setdefault(contact_id, []).append(dispatch_date)
+
+    def tocou_dentro_da_janela(contact_id: str, referencia: date, limite: date | None = None) -> bool:
+        for dispatch_date in touches_by_contact.get(contact_id, []):
+            dias = (referencia - dispatch_date).days
+            if not (0 <= dias <= janela_dias):
+                continue
+            if limite is not None and dispatch_date > limite:
+                continue
+            return True
+        return False
+
+    canal_totais: dict[str, float] = {}
+
+    def soma(canal: str, valor: float) -> None:
+        canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
+
+    for order in orders_records:
+        contact_id = str(order.get("contact_id") or "")
+        purchase_time = order.get("purchase_time")
+        purchase_date = purchase_time.date() if hasattr(purchase_time, "date") else purchase_time
+        order_total = float(order.get("order_total") or 0)
+        treatments = order.get("treatments") or []
+
+        total_attributed = 0.0
+        for t in treatments:
+            attributed_amount = float(t.get("attributed_amount") or 0)
+            if attributed_amount <= 0:
+                continue
+            total_attributed += attributed_amount
+            event_time = t.get("event_time")
+            event_date = event_time.date() if hasattr(event_time, "date") else event_time
+            channel = str(t.get("channel") or "").upper()
+            if purchase_date is not None and tocou_dentro_da_janela(contact_id, purchase_date, limite=event_date):
+                canal = "whatsapp_omni"
+            elif channel == "WHATSAPP":
+                canal = "whatsapp_nativo"
+            elif channel == "EMAIL":
+                canal = "email"
+            elif channel == "SMS":
+                canal = "sms"
+            else:
+                canal = channel.lower() if channel else "outros"
+            soma(canal, attributed_amount)
+
+        gap = round(order_total - total_attributed, 2)
+        if gap > 0.005 and purchase_date is not None:
+            if tocou_dentro_da_janela(contact_id, purchase_date):
+                soma("whatsapp_omni", gap)
+            else:
+                soma("sem_atribuicao", gap)
+
+    return {canal: round(valor, 2) for canal, valor in canal_totais.items()}
 
 
 def reconciliar_revenue_attribution_x_si_purchases(start_date: str, end_date: str) -> dict[str, Any]:
