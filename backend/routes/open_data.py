@@ -1819,7 +1819,16 @@ si_orders AS (
   WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
   GROUP BY order_id
 )
+linhas_por_pedido AS (
+  SELECT order_id, COUNT(*) AS linhas, COUNT(DISTINCT contact_id) AS contact_ids_distintos
+  FROM ra_orders
+  GROUP BY order_id
+)
 SELECT
+  (SELECT COUNT(*) FROM ra_orders) AS linhas_em_ra_orders,
+  (SELECT COUNT(DISTINCT order_id) FROM ra_orders) AS pedidos_unicos_em_ra_orders,
+  (SELECT COUNT(*) FROM linhas_por_pedido WHERE linhas > 1) AS pedidos_com_mais_de_1_linha,
+  (SELECT COALESCE(SUM(linhas - 1), 0) FROM linhas_por_pedido WHERE linhas > 1) AS linhas_extras_por_fanout,
   COUNT(DISTINCT ra.order_id) AS pedidos_em_revenue_attribution,
   COUNT(DISTINCT si.order_id) AS pedidos_com_match_em_si_purchases,
   COUNT(DISTINCT CASE WHEN si.order_id IS NULL THEN ra.order_id END) AS pedidos_so_em_revenue_attribution,
