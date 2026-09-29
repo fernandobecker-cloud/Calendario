@@ -1789,17 +1789,23 @@ def calcular_npi_canal(
 
 
 def reconciliar_revenue_attribution_x_si_purchases(start_date: str, end_date: str) -> dict[str, Any]:
-    """Diagnostico pontual: compara, pedido a pedido, `revenue_attribution`
-    (a base que /periodos/{id}/calcular usa) contra `si_purchases` (a base
-    do "Total iPlace" do Resultado Geral), pro mesmo periodo - pra descobrir
-    se o gap entre os dois totais vem de pedidos que so existem num dos
-    dois lados, ou de pedidos em comum com valor calculado diferente.
-    Ambas as tabelas estao no mesmo projeto/dataset da Emarsys, sem precisar
-    de BASE_VENDAS_BQ_PROJECT aqui."""
+    """Diagnostico pontual: compara `revenue_attribution` (a base que
+    /periodos/{id}/calcular usa) contra `si_purchases` (a base do "Total
+    iPlace" do Resultado Geral), pro mesmo periodo.
+
+    IMPORTANTE: `order_id` NAO e globalmente unico - cada uma das 98 lojas
+    tem sua propria sequencia, entao o mesmo numero de order_id pode ser um
+    pedido completamente diferente em lojas diferentes (confirmado pelo
+    usuario). Por isso o cruzamento usa tambem `si_contact_id` (a ponte
+    entre o `contact_id` da Emarsys e o `si_purchases`, via `si_contacts`)
+    junto com `order_id` - so por order_id sozinho da fan-out artificial
+    (linhas de lojas diferentes se misturando) e gera diferenca sem
+    sentido, como uma tentativa anterior deste mesmo diagnostico mostrou."""
     project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
     dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
 
     sql = f"""
 WITH ra_orders AS (
@@ -1813,30 +1819,38 @@ WITH ra_orders AS (
   )
   WHERE rn = 1
 ),
+bridge AS (
+  SELECT DISTINCT
+    CAST(contact_id AS STRING) AS contact_id,
+    CAST(si_contact_id AS STRING) AS si_contact_id
+  FROM `{project_id}.{dataset}.{contacts_table}`
+  WHERE contact_id IS NOT NULL AND si_contact_id IS NOT NULL
+),
+ra_com_si_contact AS (
+  SELECT
+    ra.order_id, ra.order_total_ra,
+    b.si_contact_id
+  FROM ra_orders ra
+  LEFT JOIN bridge b ON b.contact_id = CAST(ra.contact_id AS STRING)
+),
 si_orders AS (
-  SELECT CAST(order_id AS STRING) AS order_id, ROUND(SUM(sales_amount), 2) AS order_total_si
+  SELECT
+    CAST(order_id AS STRING) AS order_id,
+    CAST(si_contact_id AS STRING) AS si_contact_id,
+    ROUND(SUM(sales_amount), 2) AS order_total_si
   FROM `{project_id}.{dataset}.{purchases_table}`
   WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
-  GROUP BY order_id
-),
-linhas_por_pedido AS (
-  SELECT order_id, COUNT(*) AS linhas, COUNT(DISTINCT contact_id) AS contact_ids_distintos
-  FROM ra_orders
-  GROUP BY order_id
+  GROUP BY order_id, si_contact_id
 )
 SELECT
-  (SELECT COUNT(*) FROM ra_orders) AS linhas_em_ra_orders,
-  (SELECT COUNT(DISTINCT order_id) FROM ra_orders) AS pedidos_unicos_em_ra_orders,
-  (SELECT COUNT(*) FROM linhas_por_pedido WHERE linhas > 1) AS pedidos_com_mais_de_1_linha,
-  (SELECT COALESCE(SUM(linhas - 1), 0) FROM linhas_por_pedido WHERE linhas > 1) AS linhas_extras_por_fanout,
-  COUNT(DISTINCT ra.order_id) AS pedidos_em_revenue_attribution,
-  COUNT(DISTINCT si.order_id) AS pedidos_com_match_em_si_purchases,
-  COUNT(DISTINCT CASE WHEN si.order_id IS NULL THEN ra.order_id END) AS pedidos_so_em_revenue_attribution,
+  COUNT(*) AS pedidos_em_revenue_attribution,
+  COUNTIF(ra.si_contact_id IS NULL) AS pedidos_sem_ponte_si_contact_id,
+  COUNT(si.order_id) AS pedidos_com_match_em_si_purchases,
   ROUND(SUM(ra.order_total_ra), 2) AS total_revenue_attribution,
   ROUND(SUM(CASE WHEN si.order_id IS NULL THEN ra.order_total_ra ELSE 0 END), 2) AS receita_so_em_revenue_attribution,
   ROUND(SUM(CASE WHEN si.order_id IS NOT NULL THEN ra.order_total_ra - si.order_total_si ELSE 0 END), 2) AS diferenca_valor_pedidos_em_comum
-FROM ra_orders ra
-LEFT JOIN si_orders si ON si.order_id = CAST(ra.order_id AS STRING)
+FROM ra_com_si_contact ra
+LEFT JOIN si_orders si ON si.order_id = ra.order_id AND si.si_contact_id = ra.si_contact_id
 """.strip()
 
     params = [
