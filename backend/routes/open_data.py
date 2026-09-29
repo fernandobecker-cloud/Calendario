@@ -1642,6 +1642,148 @@ def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: st
 
 
 # ---------------------------------------------------------------------------
+# Receita por canal (NPI) cruzando dados carregados manualmente pelo usuario
+# no BigQuery: uma ponte contact_id<->telefone (`dados-emarsys`) e os
+# disparos entregues pelo Omnichat (`dados_omni`, ambos no projeto
+# BASE_VENDAS_BQ_PROJECT). Reclassifica o canal de cada treatment da
+# revenue_attribution pra "whatsapp_omni" quando existiu um toque do Omni
+# dentro da janela antes da compra (e antes do proprio evento do
+# treatment) - o WhatsApp via Omnichat foi o canal PRINCIPAL da campanha,
+# entao tem prioridade sobre outros toques (decisao confirmada com o
+# usuario). Cobre tambem a parte que a Emarsys deixa "sem atribuicao"
+# (pedido - soma dos treatments), creditando ao Omni quando houve toque.
+# Match de telefone confirmado em 99.5% (2026-09) - ver conversa.
+# ---------------------------------------------------------------------------
+
+def _build_npi_canal_sql() -> str:
+    bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
+    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+
+    return f"""
+WITH bridge AS (
+  SELECT
+    CAST(user_id AS STRING) AS contact_id,
+    CAST(`Número do celular` AS STRING) AS phone
+  FROM {bridge_table}
+  WHERE `Número do celular` IS NOT NULL
+),
+omni_filtrado AS (
+  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
+  FROM {omni_table}
+  WHERE delivered = 1
+    AND template_title IN UNNEST(@template_titles)
+),
+whatsapp_touches AS (
+  SELECT DISTINCT b.contact_id, o.dispatch_date
+  FROM omni_filtrado o
+  JOIN bridge b ON b.phone = o.phone
+),
+orders AS (
+  SELECT * EXCEPT(rn) FROM (
+    SELECT
+      ra.contact_id, ra.order_id, ra.event_time, ra.items, ra.treatments,
+      ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
+    FROM `{project_id}.{dataset}.{revenue_table}` ra
+    WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
+  )
+  WHERE rn = 1
+),
+orders_calc AS (
+  SELECT
+    contact_id, order_id, event_time AS purchase_time,
+    (SELECT SUM(i.price * i.quantity) FROM UNNEST(items) i) AS order_total,
+    treatments
+  FROM orders
+),
+exploded AS (
+  SELECT
+    o.order_id,
+    t.attributed_amount,
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM whatsapp_touches wt
+        WHERE wt.contact_id = CAST(o.contact_id AS STRING)
+          AND wt.dispatch_date <= DATE(o.purchase_time)
+          AND DATE_DIFF(DATE(o.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
+          AND wt.dispatch_date <= DATE(t.event_time)
+      ) THEN 'whatsapp_omni'
+      WHEN UPPER(t.channel) = 'WHATSAPP' THEN 'whatsapp_nativo'
+      WHEN UPPER(t.channel) = 'EMAIL' THEN 'email'
+      WHEN UPPER(t.channel) = 'SMS' THEN 'sms'
+      ELSE LOWER(t.channel)
+    END AS canal_final
+  FROM orders_calc o, UNNEST(o.treatments) t
+),
+per_order_total_attrib AS (
+  SELECT
+    o.order_id, o.purchase_time, o.contact_id, o.order_total,
+    IFNULL(SUM(t.attributed_amount), 0) AS total_attributed
+  FROM orders_calc o
+  LEFT JOIN UNNEST(o.treatments) t
+  GROUP BY o.order_id, o.purchase_time, o.contact_id, o.order_total
+),
+unattributed AS (
+  SELECT
+    p.order_id,
+    p.order_total - p.total_attributed AS attributed_amount,
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM whatsapp_touches wt
+        WHERE wt.contact_id = CAST(p.contact_id AS STRING)
+          AND wt.dispatch_date <= DATE(p.purchase_time)
+          AND DATE_DIFF(DATE(p.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
+      ) THEN 'whatsapp_omni'
+      ELSE 'sem_atribuicao'
+    END AS canal_final
+  FROM per_order_total_attrib p
+  WHERE p.order_total - p.total_attributed > 0.005
+),
+combined AS (
+  SELECT canal_final, attributed_amount FROM exploded
+  UNION ALL
+  SELECT canal_final, attributed_amount FROM unattributed
+)
+SELECT canal_final AS canal, ROUND(SUM(attributed_amount), 2) AS receita
+FROM combined
+GROUP BY canal
+""".strip()
+
+
+def calcular_npi_canal(
+    start_date: str,
+    end_date: str,
+    template_titles: list[str],
+    janela_dias: int = 7,
+) -> dict[str, float]:
+    """Roda a query de receita por canal (NPI) pro periodo informado e
+    devolve {canal: receita} cru (inclui qualquer canal que aparecer, nao
+    so os 5 conhecidos - quem chama decide o que fazer com canais extras,
+    ver `/api/open-data/npi/periodos/{id}/calcular`)."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    if not template_titles:
+        raise HTTPException(status_code=400, detail="Informe pelo menos um template_title.")
+
+    params = [
+        bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
+    ]
+    records = run_bigquery_records(
+        _build_npi_canal_sql(),
+        BASE_VENDAS_BQ_PROJECT,
+        location=BASE_VENDAS_BQ_LOCATION or None,
+        timeout=90,
+        params=params,
+    )
+    return {str(r.get("canal") or ""): float(r.get("receita") or 0) for r in records}
+
+
+# ---------------------------------------------------------------------------
 # Diagnostico de `automation_node_executions` - descobre, por node de uma
 # automacao (Automation Center classico, `ac_program_id`), quantas execucoes
 # existem e QUANDO, sem precisar saber de antemao o schema do campo

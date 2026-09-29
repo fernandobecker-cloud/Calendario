@@ -134,11 +134,112 @@ function NovoPeriodoForm({ onCriado, onCancelar }) {
   )
 }
 
+function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
+  const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? '')
+  const [templates, setTemplates] = useState('')
+  const [janelaDias, setJanelaDias] = useState(7)
+  const [calculando, setCalculando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState(null)
+
+  const handleSubmit = useCallback(async (event) => {
+    event.preventDefault()
+    const templateTitles = templates.split('\n').map((t) => t.trim()).filter(Boolean)
+    if (!periodoId || templateTitles.length === 0) {
+      setErro('Selecione o período e informe pelo menos um template_title (um por linha).')
+      return
+    }
+    setCalculando(true)
+    setErro('')
+    setResultado(null)
+    try {
+      const res = await fetch(`/api/open-data/npi/periodos/${periodoId}/calcular`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_titles: templateTitles, janela_dias: Number(janelaDias) || 7 }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setResultado(payload)
+      onCalculado()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao calcular.')
+    } finally {
+      setCalculando(false)
+    }
+  }, [periodoId, templates, janelaDias, onCalculado])
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+      <p className="text-xs text-slate-500">
+        Calcula os 5 canais automaticamente via BigQuery (ponte contact_id↔telefone + disparos do Omnichat) e
+        <strong> sobrescreve</strong> as células desse período - dá pra editar manualmente depois se precisar ajustar algo.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm text-slate-600">
+          Período
+          <select
+            value={periodoId}
+            onChange={(e) => setPeriodoId(e.target.value)}
+            className="min-w-[180px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          >
+            {periodos.map((p) => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-slate-600">
+          Janela (dias após o toque)
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={janelaDias}
+            onChange={(e) => setJanelaDias(e.target.value)}
+            className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </label>
+      </div>
+      <label className="flex flex-col gap-1 text-sm text-slate-600">
+        Templates do Omnichat (um por linha)
+        <textarea
+          value={templates}
+          onChange={(e) => setTemplates(e.target.value)}
+          rows={5}
+          placeholder={'202609_pre-venda_18pro_v3\n202609_venda_18pro_v4\n202609_pre-venda_18pro'}
+          className="min-w-[320px] rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900"
+        />
+      </label>
+      <div className="flex gap-3">
+        <button type="submit" disabled={calculando} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+          {calculando ? 'Calculando...' : 'Calcular e salvar'}
+        </button>
+        <button type="button" onClick={onCancelar} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+          Fechar
+        </button>
+      </div>
+      {erro && <p className="text-xs text-rose-600">{erro}</p>}
+      {resultado && (
+        <div className="text-xs text-slate-600">
+          <p className="text-emerald-700">Salvo com sucesso.</p>
+          {Object.keys(resultado.outros_canais_nao_salvos || {}).length > 0 && (
+            <p className="mt-1 text-amber-700">
+              Atenção: apareceram canais fora dos 5 conhecidos, não salvos na tabela:{' '}
+              {Object.entries(resultado.outros_canais_nao_salvos).map(([c, v]) => `${c} (${formatCurrency(v)})`).join(', ')}
+            </p>
+          )}
+        </div>
+      )}
+    </form>
+  )
+}
+
 export default function ResultadosNpiPage({ currentRole }) {
   const [dados, setDados] = useState(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
   const [mostrarNovoPeriodo, setMostrarNovoPeriodo] = useState(false)
+  const [mostrarCalcular, setMostrarCalcular] = useState(false)
 
   const isAdmin = currentRole === 'admin'
 
@@ -219,13 +320,25 @@ export default function ResultadosNpiPage({ currentRole }) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita por canal e período</h2>
-          {isAdmin && !mostrarNovoPeriodo && (
-            <button
-              onClick={() => setMostrarNovoPeriodo(true)}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              + Adicionar período
-            </button>
+          {isAdmin && (
+            <div className="flex gap-2">
+              {!mostrarNovoPeriodo && (
+                <button
+                  onClick={() => setMostrarNovoPeriodo(true)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  + Adicionar período
+                </button>
+              )}
+              {!mostrarCalcular && periodos.length > 0 && (
+                <button
+                  onClick={() => setMostrarCalcular(true)}
+                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                >
+                  ⟳ Calcular automaticamente
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -233,6 +346,14 @@ export default function ResultadosNpiPage({ currentRole }) {
           <NovoPeriodoForm
             onCriado={() => { setMostrarNovoPeriodo(false); carregar() }}
             onCancelar={() => setMostrarNovoPeriodo(false)}
+          />
+        )}
+
+        {mostrarCalcular && (
+          <CalcularAutomaticoForm
+            periodos={periodos}
+            onCalculado={carregar}
+            onCancelar={() => setMostrarCalcular(false)}
           />
         )}
 

@@ -1,12 +1,14 @@
-"""Resultados NPI - tabela manual (canal x periodo) da campanha NPI.
+"""Resultados NPI - tabela (canal x periodo) da campanha NPI.
 
-Tudo editado a mao pelo time de CRM (role=admin) - sem fonte automatica do
-BigQuery. Motivo: uma tentativa anterior de puxar so o WhatsApp (Omni) do
-BigQuery/Emarsys e deixar so essa linha manual nao funcionou na pratica (a
-Emarsys nao enxerga o Omnichat, e amarrar o lancamento manual a um periodo
-exato de data ficava fragil sempre que o periodo mudava) - por isso a
-tabela inteira (todos os canais) virou manual, com periodos fixos
-cadastrados pelo admin em vez de um seletor de datas livre.
+Historico: primeira versao era 100% manual (role=admin digitava cada
+celula) porque a Emarsys nao enxerga o Omnichat e nao dava pra calcular o
+WhatsApp (Omni) automaticamente. Isso mudou: o usuario carregou no BigQuery
+uma ponte contact_id<->telefone e os disparos entregues pelo Omnichat (ver
+`calcular_npi_canal` em backend/routes/open_data.py), permitindo calcular
+os 5 canais automaticamente por periodo. A edicao manual continua existindo
+(POST/PUT/DELETE periodos, PUT valores) como fallback/ajuste pontual - o
+calculo automatico (POST /periodos/{id}/calcular) so REESCREVE as celulas
+calculadas, o admin pode editar depois se quiser ajustar algo.
 
 Persistido no Google Sheets (backend/sheets_db.py, planilha "crm_database",
 abas "npi_periodos" e "npi_valores") - o disco do Render nao e persistente
@@ -21,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend import sheets_db
+from backend.routes.open_data import calcular_npi_canal
 
 router = APIRouter(prefix="/api/open-data/npi", tags=["npi"])
 
@@ -136,3 +139,53 @@ def salvar_valor(request: Request, payload: ValorPayload) -> dict[str, Any]:
         )
     except sheets_db.SheetsDBError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class CalcularPayload(BaseModel):
+    template_titles: list[str]
+    janela_dias: int = 7
+
+
+@router.post("/periodos/{periodo_id}/calcular")
+def calcular_periodo(periodo_id: int, request: Request, payload: CalcularPayload) -> dict[str, Any]:
+    """Calcula os 5 canais automaticamente pro periodo (via BigQuery, ver
+    `calcular_npi_canal`) e SALVA (sobrescreve) as celulas correspondentes -
+    o admin pode ajustar manualmente depois se precisar. `template_titles`
+    e a lista de templates do Omnichat que contam como o disparo dessa
+    campanha (o mesmo filtro que entra no WHERE template_title IN (...) da
+    query original) - varia por campanha/repique, por isso e passado a cada
+    calculo, nao fixo no backend."""
+    _require_admin(request)
+    auth_user = request.state.auth_user
+
+    periodo = next((p for p in sheets_db.get_npi_periodos() if p["id"] == periodo_id), None)
+    if not periodo:
+        raise HTTPException(status_code=404, detail="Periodo nao encontrado.")
+    if not payload.template_titles:
+        raise HTTPException(status_code=400, detail="Informe pelo menos um template_title.")
+
+    receitas_por_canal = calcular_npi_canal(
+        periodo["start_date"], periodo["end_date"], payload.template_titles, payload.janela_dias,
+    )
+
+    salvos: dict[str, float] = {}
+    outros_canais: dict[str, float] = {}
+    updated_by = getattr(auth_user, "username", "") or "admin"
+    for canal, receita in receitas_por_canal.items():
+        if canal in CANAL_KEYS:
+            item = sheets_db.upsert_npi_valor(periodo_id, canal, round(receita, 2), updated_by=updated_by)
+            salvos[canal] = item["receita"]
+        else:
+            outros_canais[canal] = receita
+    # Canais dos 5 conhecidos que nao apareceram no resultado (sem receita
+    # nesse periodo) - zera explicitamente, pra nao deixar celula com valor
+    # antigo de um calculo anterior.
+    for canal_key in CANAL_KEYS - salvos.keys():
+        item = sheets_db.upsert_npi_valor(periodo_id, canal_key, 0.0, updated_by=updated_by)
+        salvos[canal_key] = item["receita"]
+
+    return {
+        "periodo_id": periodo_id,
+        "valores_salvos": salvos,
+        "outros_canais_nao_salvos": outros_canais,
+    }
