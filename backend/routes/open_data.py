@@ -2194,19 +2194,22 @@ LIMIT 5
 def ultimos_disparos_email(
     cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
     campo_optin: str = Query(default="31", description="ID numerico do campo de opt-in de e-mail na Emarsys"),
+    campo_email: str = Query(default="3", description="ID numerico do campo de endereco de e-mail na Emarsys"),
 ) -> dict[str, Any]:
     """Ultimos 5 e-mails enviados a um contato - identificado por CPF (ver
     nota do modulo sobre por que nao e por e-mail ainda). Tudo dentro do
     BigQuery: si_contacts.external_id (CPF) -> contact_id -> email_sends
     (+ email_campaigns pro nome, + email_opens pra saber se abriu).
 
-    Tambem busca o opt-in de e-mail (campo 31 por padrao) via API da
-    Emarsys (POST /contact/getdata, usando o contact_id ja resolvido pelo
-    CPF - sem precisar de find_contact_id_by_field, que tomou 403 de WAF) -
-    util pro atendente ver se o cliente esta descadastrado quando reclama
-    que "nao recebeu um e-mail". Isso e best-effort: se a chamada falhar,
-    devolve o erro em `optin_email.erro` sem derrubar os disparos (que ja
-    funcionam 100% pelo BigQuery, sem depender dessa API)."""
+    Tambem busca opt-in (campo 31) e endereco de e-mail cadastrado (campo 3
+    - ID padrao do Emarsys pra "E-mail", AINDA NAO CONFIRMADO contra essa
+    conta especifica) via API da Emarsys (POST /contact/getdata, usando o
+    contact_id ja resolvido pelo CPF) - util pro atendente ver se o cliente
+    esta descadastrado ou com e-mail errado quando reclama que "nao
+    recebeu um e-mail". Isso e best-effort: se a chamada falhar ou o campo
+    nao existir nessa conta, devolve o erro/vazio em `email_cadastrado` sem
+    derrubar os disparos (que ja funcionam 100% pelo BigQuery, sem
+    depender dessa API)."""
     cpf_normalizado = _normalize_match_key(cpf)
     if not cpf_normalizado:
         raise HTTPException(status_code=400, detail="CPF invalido.")
@@ -2225,6 +2228,7 @@ def ultimos_disparos_email(
 
         items: list[dict[str, Any]] = []
         optin_email: dict[str, Any] = {"disponivel": False, "valor": None, "resposta_crua": None, "erro": None}
+        email_cadastrado: dict[str, Any] = {"disponivel": False, "valor": None, "erro": None}
 
         if contato_encontrado:
             records = run_bigquery_records(
@@ -2245,23 +2249,32 @@ def ultimos_disparos_email(
 
             try:
                 client = EmarsysClient()
-                dados = client.get_contact_data([contact_id], [campo_optin])
-                if dados:
+                dados = client.get_contact_data([contact_id], [campo_optin, campo_email])
+                if dados and isinstance(dados[0], dict):
                     optin_email = {
                         "disponivel": True,
-                        "valor": dados[0].get(str(campo_optin)) if isinstance(dados[0], dict) else None,
+                        "valor": dados[0].get(str(campo_optin)),
                         "resposta_crua": dados[0],
+                        "erro": None,
+                    }
+                    valor_email = dados[0].get(str(campo_email))
+                    email_cadastrado = {
+                        "disponivel": bool(valor_email),
+                        "valor": valor_email or None,
                         "erro": None,
                     }
             except EmarsysError as exc:
                 optin_email["erro"] = str(exc)
+                email_cadastrado["erro"] = str(exc)
             except Exception as exc:
                 optin_email["erro"] = f"Falha inesperada ao buscar opt-in: {exc}"
+                email_cadastrado["erro"] = f"Falha inesperada ao buscar e-mail: {exc}"
 
         return {
             "cpf": cpf_normalizado,
             "contato_encontrado": contato_encontrado,
             "optin_email": optin_email,
+            "email_cadastrado": email_cadastrado,
             "items": items,
             "lookback_dias": _ULTIMOS_DISPAROS_LOOKBACK_DIAS,
             "source": "bigquery_email_sends_x_cpf",

@@ -150,13 +150,18 @@ function calcularPassos({ garantia, erroGarantia, resultado, erro }) {
       {
         numero: 3,
         titulo: 'E-mail de garantia estendida foi enviado e aberto?',
-        texto: 'Não encontramos esse e-mail entre os últimos enviados a esse cliente. Confirme com ele se o e-mail cadastrado está correto e avise o CRM para verificar o que aconteceu.',
+        texto: resultado?.email_cadastrado?.disponivel
+          ? `Não encontramos esse e-mail entre os últimos enviados a esse cliente. Confirme com ele se o e-mail cadastrado (${resultado.email_cadastrado.valor}) está correto e avise o CRM para verificar o que aconteceu.`
+          : 'Não encontramos esse e-mail entre os últimos enviados a esse cliente. Confirme com ele se o e-mail cadastrado está correto e avise o CRM para verificar o que aconteceu.',
         status: 'bloqueio',
       },
     ]
   }
 
   const abriu = emailsGarantia[0].abriu
+  const dataEnvio = formatarData(emailsGarantia[0].data_envio)
+  const emailAtual = resultado?.email_cadastrado?.disponivel ? resultado.email_cadastrado.valor : null
+  const trechoEmail = emailAtual ? ` E-mail cadastrado atualmente: ${emailAtual}.` : ''
   return [
     passo1,
     passo2,
@@ -164,8 +169,8 @@ function calcularPassos({ garantia, erroGarantia, resultado, erro }) {
       numero: 3,
       titulo: 'E-mail de garantia estendida foi enviado e aberto?',
       texto: abriu
-        ? 'Sim, o e-mail foi enviado e o cliente já abriu. Nenhuma ação pendente aqui.'
-        : 'O e-mail foi enviado, mas o cliente ainda não abriu. Peça para ele olhar a caixa de entrada e a pasta de spam/lixo eletrônico.',
+        ? `Sim, o e-mail foi enviado em ${dataEnvio} e o cliente já abriu. Nenhuma ação pendente aqui.${trechoEmail}`
+        : `O e-mail foi enviado em ${dataEnvio}, mas o cliente ainda não abriu. Peça para ele olhar a caixa de entrada e a pasta de spam/lixo eletrônico.${trechoEmail}`,
       status: abriu ? 'ok' : 'atencao',
     },
   ]
