@@ -1788,6 +1788,58 @@ def calcular_npi_canal(
     return {str(r.get("canal") or ""): float(r.get("receita") or 0) for r in records}
 
 
+def reconciliar_revenue_attribution_x_si_purchases(start_date: str, end_date: str) -> dict[str, Any]:
+    """Diagnostico pontual: compara, pedido a pedido, `revenue_attribution`
+    (a base que /periodos/{id}/calcular usa) contra `si_purchases` (a base
+    do "Total iPlace" do Resultado Geral), pro mesmo periodo - pra descobrir
+    se o gap entre os dois totais vem de pedidos que so existem num dos
+    dois lados, ou de pedidos em comum com valor calculado diferente.
+    Ambas as tabelas estao no mesmo projeto/dataset da Emarsys, sem precisar
+    de BASE_VENDAS_BQ_PROJECT aqui."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
+    purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+
+    sql = f"""
+WITH ra_orders AS (
+  SELECT * EXCEPT(rn) FROM (
+    SELECT
+      ra.contact_id, ra.order_id,
+      (SELECT SUM(i.price * i.quantity) FROM UNNEST(ra.items) i) AS order_total_ra,
+      ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
+    FROM `{project_id}.{dataset}.{revenue_table}` ra
+    WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
+  )
+  WHERE rn = 1
+),
+si_orders AS (
+  SELECT CAST(order_id AS STRING) AS order_id, ROUND(SUM(sales_amount), 2) AS order_total_si
+  FROM `{project_id}.{dataset}.{purchases_table}`
+  WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
+  GROUP BY order_id
+)
+SELECT
+  COUNT(DISTINCT ra.order_id) AS pedidos_em_revenue_attribution,
+  COUNT(DISTINCT si.order_id) AS pedidos_com_match_em_si_purchases,
+  COUNT(DISTINCT CASE WHEN si.order_id IS NULL THEN ra.order_id END) AS pedidos_so_em_revenue_attribution,
+  ROUND(SUM(ra.order_total_ra), 2) AS total_revenue_attribution,
+  ROUND(SUM(CASE WHEN si.order_id IS NULL THEN ra.order_total_ra ELSE 0 END), 2) AS receita_so_em_revenue_attribution,
+  ROUND(SUM(CASE WHEN si.order_id IS NOT NULL THEN ra.order_total_ra - si.order_total_si ELSE 0 END), 2) AS diferenca_valor_pedidos_em_comum
+FROM ra_orders ra
+LEFT JOIN si_orders si ON si.order_id = CAST(ra.order_id AS STRING)
+""".strip()
+
+    params = [
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+    ]
+    records = run_bigquery_records(
+        sql, EMARSYS_OPEN_DATA_PROJECT_ID, location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=90, params=params,
+    )
+    return records[0] if records else {}
+
+
 def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
     """Lista os `template_title` distintos em `dados_omni` (com volume e
     janela de datas de cada um) - a tabela tem disparos de VARIAS campanhas

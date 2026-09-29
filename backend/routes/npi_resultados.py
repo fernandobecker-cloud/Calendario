@@ -19,11 +19,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from backend import sheets_db
-from backend.routes.open_data import calcular_npi_canal, listar_npi_templates_disponiveis
+from backend.routes.open_data import (
+    calcular_npi_canal,
+    listar_npi_templates_disponiveis,
+    reconciliar_revenue_attribution_x_si_purchases,
+)
 
 router = APIRouter(prefix="/api/open-data/npi", tags=["npi"])
 
@@ -44,6 +48,20 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Nao autenticado")
     if getattr(auth_user, "role", None) != "admin":
         raise HTTPException(status_code=403, detail="Apenas administradores podem executar esta acao")
+
+
+@router.get("/reconciliacao-si-purchases")
+def reconciliacao_si_purchases(
+    request: Request,
+    start: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> dict[str, Any]:
+    """Diagnostico pontual (nao faz parte do fluxo normal da tela) - compara
+    revenue_attribution x si_purchases pro periodo, pra descobrir a origem
+    do gap entre "Total geral" (Resultados NPI) e "Total iPlace" (Resultado
+    Geral). Admin only, so por ser um dado financeiro sensivel."""
+    _require_admin(request)
+    return reconciliar_revenue_attribution_x_si_purchases(start, end)
 
 
 @router.get("/templates-disponiveis")
