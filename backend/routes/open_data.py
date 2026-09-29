@@ -1772,7 +1772,16 @@ def _build_npi_whatsapp_touches_sql() -> str:
     `tocou_dentro_da_janela`). Sem esse filtro a query pegava o HISTORICO
     INTEIRO de disparos daquele template (repiques de meses/anos), o que
     OOMou o Render (>512MB) na hora de materializar `touches_records` em
-    Python - o volume nao tinha relacao com o tamanho do periodo calculado."""
+    Python - o volume nao tinha relacao com o tamanho do periodo calculado.
+
+    TAMBEM filtra a ponte (`bridge`) por @contact_ids: so interessam toques
+    de contatos que TEM pedido no periodo (`orders_records`, ja buscado
+    antes pelo chamador) - toque de quem nao comprou nada nunca e olhado
+    em `tocou_dentro_da_janela` mesmo assim. Sem esse filtro o volume
+    depende do tamanho da BASE DE CLIENTES tocada pela campanha no
+    periodo (que pode ser muito maior que o numero de pedidos) - foi o que
+    ainda OOMou mesmo apos o filtro de data, num periodo com campanha de
+    grande volume."""
     bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
     omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
     return f"""
@@ -1782,6 +1791,7 @@ WITH bridge AS (
     CAST(`Número do celular` AS STRING) AS phone
   FROM {bridge_table}
   WHERE `Número do celular` IS NOT NULL
+    AND CAST(user_id AS STRING) IN UNNEST(@contact_ids)
 ),
 omni_filtrado AS (
   SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
@@ -1827,22 +1837,29 @@ def calcular_npi_canal(
             bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
         ],
     )
-    touches_records = run_bigquery_records(
-        _build_npi_whatsapp_touches_sql(),
-        BASE_VENDAS_BQ_PROJECT,
-        # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1): o
-        # dataset apuracao_npi26 foi criado em EU, mesma location de
-        # emarsys_herval (confirmado pelo erro real de location incorreta
-        # numa tentativa anterior).
-        location=EMARSYS_OPEN_DATA_LOCATION or None,
-        timeout=60,
-        params=[
-            bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
-            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
-            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
-            bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
-        ],
-    )
+    # So interessam toques de contatos que tem pedido no periodo - reduz o
+    # volume da query de toques de "toda a base tocada pela campanha" pra
+    # "so quem comprou" (ver docstring de `_build_npi_whatsapp_touches_sql`).
+    contact_ids = sorted({str(row.get("contact_id") or "") for row in orders_records} - {""})
+    touches_records: list[dict[str, Any]] = []
+    if contact_ids:
+        touches_records = run_bigquery_records(
+            _build_npi_whatsapp_touches_sql(),
+            BASE_VENDAS_BQ_PROJECT,
+            # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1): o
+            # dataset apuracao_npi26 foi criado em EU, mesma location de
+            # emarsys_herval (confirmado pelo erro real de location incorreta
+            # numa tentativa anterior).
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=60,
+            params=[
+                bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
+                bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+                bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+                bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
+                bigquery.ArrayQueryParameter("contact_ids", "STRING", contact_ids),
+            ],
+        )
 
     touches_by_contact: dict[str, list[date]] = {}
     for r in touches_records:
