@@ -24,17 +24,17 @@ function formatarValorGarantia(valor) {
 // Rotulos amigaveis pros campos conhecidos da tabela garantia_estendida
 // (carregada por fora, pode ganhar colunas novas sem avisar - por isso o
 // componente mostra qualquer campo extra tambem, so sem rotulo bonito).
+// Serial/IMEI/Origem existem na tabela mas o SAC pediu pra nao mostrar -
+// sao dados tecnicos irrelevantes pro atendimento.
 const LABELS_GARANTIA = {
   ge_contrato: 'Contrato',
   ge_data_venda: 'Data da venda',
   ge_data_validade: 'Validade',
   ge_Nome: 'Nome',
   ge_produto: 'Produto',
-  ge_serial: 'Serial',
-  GE_IMEI: 'IMEI',
-  Origem: 'Origem',
   CPF: 'CPF',
 }
+const CAMPOS_GARANTIA_OCULTOS = new Set(['ge_serial', 'GE_IMEI', 'Origem'])
 
 function CampoGarantia({ campo, valor }) {
   return (
@@ -53,76 +53,122 @@ function normalizarTexto(valor) {
 }
 
 // Classes completas (nao interpoladas) pra sobreviver ao scan estatico do
-// Tailwind em build de producao.
-const CORES_PASSO = {
-  amber: 'border-amber-200 bg-amber-50 text-amber-800',
-  rose: 'border-rose-200 bg-rose-50 text-rose-800',
-  sky: 'border-sky-200 bg-sky-50 text-sky-800',
-  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-  slate: 'border-slate-200 bg-slate-50 text-slate-700',
+// Tailwind em build de producao. Cada status do passo tem cor + selo fixos.
+const ESTILO_STATUS_PASSO = {
+  ok: {
+    caixa: 'border-emerald-200 bg-emerald-50',
+    selo: 'bg-emerald-500 text-white',
+    marca: '✓',
+    titulo: 'text-emerald-800',
+    texto: 'text-emerald-700',
+  },
+  atencao: {
+    caixa: 'border-sky-200 bg-sky-50',
+    selo: 'bg-sky-500 text-white',
+    marca: '!',
+    titulo: 'text-sky-800',
+    texto: 'text-sky-700',
+  },
+  bloqueio: {
+    caixa: 'border-amber-300 bg-amber-50 ring-2 ring-amber-300',
+    selo: 'bg-amber-500 text-white',
+    marca: '!',
+    titulo: 'text-amber-900',
+    texto: 'text-amber-800',
+  },
+  erro: {
+    caixa: 'border-slate-200 bg-slate-50',
+    selo: 'bg-slate-400 text-white',
+    marca: '?',
+    titulo: 'text-slate-700',
+    texto: 'text-slate-600',
+  },
+  pendente: {
+    caixa: 'border-slate-100 bg-slate-50 opacity-60',
+    selo: 'bg-slate-300 text-white',
+    marca: '–',
+    titulo: 'text-slate-500',
+    texto: 'text-slate-400',
+  },
 }
 
-// Roteiro passado pelo SAC (3 passos): 1) esta na base do comercial? 2) opt-in
-// de e-mail ok? 3) e-mail foi enviado e aberto? Calculado a partir dos
-// mesmos dados que a tela ja busca, pra o atendente nao precisar interpretar
-// os dados brutos - so segue a orientacao.
-function calcularProximoPasso({ garantia, erroGarantia, resultado, erro }) {
-  if (erroGarantia) {
-    return {
-      cor: 'slate',
-      titulo: 'Não foi possível verificar',
-      texto: 'Não foi possível consultar a base do comercial agora. Tente buscar de novo em instantes.',
-    }
-  }
-  if (!garantia) return null
+// Roteiro passado pelo SAC: 3 passos, cada um so avaliado se o anterior
+// nao bloqueou o atendimento. Devolve os 3 sempre (mesmo os "pendente",
+// ainda nao avaliados) pra o atendente ver o roteiro inteiro, nao so o
+// resultado final - pedido explicito pra ser didatico.
+function calcularPassos({ garantia, erroGarantia, resultado, erro }) {
+  const PENDENTE_1 = { numero: 1, titulo: 'Está na base do comercial?', texto: 'Ainda não verificado.', status: 'pendente' }
+  const PENDENTE_2 = { numero: 2, titulo: 'Opt-in de e-mail', texto: 'Não avaliado - resolva o passo 1 primeiro.', status: 'pendente' }
+  const PENDENTE_3 = { numero: 3, titulo: 'E-mail de garantia estendida foi enviado e aberto?', texto: 'Não avaliado - resolva os passos anteriores primeiro.', status: 'pendente' }
 
-  if (!garantia.encontrado) {
-    return {
-      cor: 'amber',
-      titulo: 'Passo 1 — ainda não está na base do comercial',
-      texto: 'Esse CPF ainda não está na base do comercial. Peça para o cliente aguardar — a garantia estendida está sendo emitida.',
-    }
+  if (!garantia && !erroGarantia) return [PENDENTE_1, PENDENTE_2, PENDENTE_3]
+
+  if (erroGarantia) {
+    return [
+      { numero: 1, titulo: 'Está na base do comercial?', texto: 'Não foi possível verificar agora. Tente buscar de novo.', status: 'erro' },
+      { ...PENDENTE_2, texto: 'Não avaliado - não foi possível verificar o passo 1.' },
+      { ...PENDENTE_3, texto: 'Não avaliado - não foi possível verificar o passo 1.' },
+    ]
   }
+
+  const encontrado = garantia.encontrado
+  const passo1 = {
+    numero: 1,
+    titulo: 'Está na base do comercial?',
+    texto: encontrado
+      ? 'Sim, o cliente está na base de garantia estendida.'
+      : 'Não. Peça para o cliente aguardar — a garantia estendida está sendo emitida.',
+    status: encontrado ? 'ok' : 'bloqueio',
+  }
+  if (!encontrado) return [passo1, PENDENTE_2, PENDENTE_3]
 
   if (erro) {
-    return {
-      cor: 'slate',
-      titulo: 'Cliente está na base do comercial',
-      texto: 'Não foi possível consultar opt-in e e-mails enviados agora. Verifique manualmente antes de responder ao cliente.',
-    }
+    return [
+      passo1,
+      { numero: 2, titulo: 'Opt-in de e-mail', texto: 'Não foi possível verificar agora. Confira manualmente antes de responder ao cliente.', status: 'erro' },
+      { ...PENDENTE_3, texto: 'Não avaliado - não foi possível verificar o passo 2.' },
+    ]
   }
 
   const optin = resultado?.optin_email
-  if (optin?.disponivel && optin.valor === '2') {
-    return {
-      cor: 'rose',
-      titulo: 'Passo 2 — cliente está com opt-out de e-mail',
-      texto: 'O cliente optou por não receber e-mails. Peça para ele mudar a preferência no site e avise o CRM para refazer o disparo assim que ele atualizar.',
-    }
+  const optOut = optin?.disponivel && optin.valor === '2'
+  const passo2 = {
+    numero: 2,
+    titulo: 'Opt-in de e-mail',
+    texto: optOut
+      ? 'Cliente está com opt-out. Peça para ele mudar a preferência no site e avise o CRM para refazer o disparo assim que ele atualizar.'
+      : 'Cliente pode receber e-mail (não está em opt-out).',
+    status: optOut ? 'bloqueio' : 'ok',
   }
+  if (optOut) return [passo1, passo2, PENDENTE_3]
 
   const emailsGarantia = (resultado?.items || []).filter((item) => normalizarTexto(item.campanha).includes('garantia'))
   if (emailsGarantia.length === 0) {
-    return {
-      cor: 'amber',
-      titulo: 'Passo 3 — e-mail de garantia estendida não encontrado',
-      texto: 'Não encontramos disparo do e-mail de garantia estendida entre os últimos e-mails enviados a esse cliente. Confirme com o cliente se o e-mail cadastrado está correto e avise o CRM para verificar o que aconteceu.',
-    }
+    return [
+      passo1,
+      passo2,
+      {
+        numero: 3,
+        titulo: 'E-mail de garantia estendida foi enviado e aberto?',
+        texto: 'Não encontramos esse e-mail entre os últimos enviados a esse cliente. Confirme com ele se o e-mail cadastrado está correto e avise o CRM para verificar o que aconteceu.',
+        status: 'bloqueio',
+      },
+    ]
   }
 
-  if (emailsGarantia[0].abriu) {
-    return {
-      cor: 'emerald',
-      titulo: 'Tudo certo',
-      texto: 'O e-mail de garantia estendida foi enviado e o cliente já abriu.',
-    }
-  }
-
-  return {
-    cor: 'sky',
-    titulo: 'Passo 3 — e-mail enviado, mas não aberto',
-    texto: 'O e-mail de garantia estendida foi enviado, mas o cliente ainda não abriu. Peça para ele olhar a caixa de entrada e a pasta de spam/lixo eletrônico.',
-  }
+  const abriu = emailsGarantia[0].abriu
+  return [
+    passo1,
+    passo2,
+    {
+      numero: 3,
+      titulo: 'E-mail de garantia estendida foi enviado e aberto?',
+      texto: abriu
+        ? 'Sim, o e-mail foi enviado e o cliente já abriu. Nenhuma ação pendente aqui.'
+        : 'O e-mail foi enviado, mas o cliente ainda não abriu. Peça para ele olhar a caixa de entrada e a pasta de spam/lixo eletrônico.',
+      status: abriu ? 'ok' : 'atencao',
+    },
+  ]
 }
 
 export default function SacUltimosDisparosPage() {
@@ -134,9 +180,11 @@ export default function SacUltimosDisparosPage() {
   const [erroGarantia, setErroGarantia] = useState('')
   const [buscaFeita, setBuscaFeita] = useState(false)
 
-  const proximoPasso = useMemo(
-    () => (buscaFeita && !loading ? calcularProximoPasso({ garantia, erroGarantia, resultado, erro }) : null),
-    [buscaFeita, loading, garantia, erroGarantia, resultado, erro],
+  const mostrarResultados = buscaFeita && !loading
+
+  const passos = useMemo(
+    () => (mostrarResultados ? calcularPassos({ garantia, erroGarantia, resultado, erro }) : []),
+    [mostrarResultados, garantia, erroGarantia, resultado, erro],
   )
 
   const handleBuscar = useCallback(async (event) => {
@@ -205,14 +253,29 @@ export default function SacUltimosDisparosPage() {
         {erro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
       </section>
 
-      {proximoPasso && (
-        <section className={`mb-6 rounded-2xl border p-5 shadow-soft md:p-6 ${CORES_PASSO[proximoPasso.cor]}`}>
-          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide">{proximoPasso.titulo}</h2>
-          <p className="text-sm">{proximoPasso.texto}</p>
+      {mostrarResultados && passos.length > 0 && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Roteiro de atendimento</h2>
+          <ol className="flex flex-col gap-3">
+            {passos.map((passo) => {
+              const estilo = ESTILO_STATUS_PASSO[passo.status]
+              return (
+                <li key={passo.numero} className={`flex gap-3 rounded-xl border p-4 ${estilo.caixa}`}>
+                  <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${estilo.selo}`}>
+                    {estilo.marca}
+                  </span>
+                  <div>
+                    <p className={`text-sm font-semibold ${estilo.titulo}`}>Passo {passo.numero} — {passo.titulo}</p>
+                    <p className={`text-sm ${estilo.texto}`}>{passo.texto}</p>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
         </section>
       )}
 
-      {(garantia || erroGarantia) && (
+      {mostrarResultados && (garantia || erroGarantia) && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Garantia estendida</h2>
           {erroGarantia ? (
@@ -223,9 +286,11 @@ export default function SacUltimosDisparosPage() {
             <div className="flex flex-col gap-4">
               {garantia.items.map((item, i) => (
                 <dl key={item.ge_contrato ?? i} className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
-                  {Object.entries(item).map(([campo, valor]) => (
-                    <CampoGarantia key={campo} campo={campo} valor={valor} />
-                  ))}
+                  {Object.entries(item)
+                    .filter(([campo]) => !CAMPOS_GARANTIA_OCULTOS.has(campo))
+                    .map(([campo, valor]) => (
+                      <CampoGarantia key={campo} campo={campo} valor={valor} />
+                    ))}
                 </dl>
               ))}
             </div>
@@ -233,7 +298,7 @@ export default function SacUltimosDisparosPage() {
         </section>
       )}
 
-      {resultado && resultado.contato_encontrado && (
+      {mostrarResultados && resultado && resultado.contato_encontrado && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Opt-in de e-mail</h2>
           {resultado.optin_email?.disponivel ? (
@@ -259,7 +324,7 @@ export default function SacUltimosDisparosPage() {
         </section>
       )}
 
-      {resultado && (
+      {mostrarResultados && resultado && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
           {!resultado.contato_encontrado ? (
             <p className="text-sm text-amber-700">
