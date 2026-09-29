@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend import sheets_db
-from backend.routes.open_data import calcular_npi_canal
+from backend.routes.open_data import calcular_npi_canal, listar_npi_templates_disponiveis
 
 router = APIRouter(prefix="/api/open-data/npi", tags=["npi"])
 
@@ -44,6 +44,15 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Nao autenticado")
     if getattr(auth_user, "role", None) != "admin":
         raise HTTPException(status_code=403, detail="Apenas administradores podem executar esta acao")
+
+
+@router.get("/templates-disponiveis")
+def templates_disponiveis() -> dict[str, Any]:
+    """Templates distintos existentes em dados_omni (com volume e datas) -
+    usado pelo frontend pra montar a lista de checkboxes do "Calcular
+    automaticamente", em vez do admin ter que digitar/colar o nome de
+    cabeça."""
+    return {"items": listar_npi_templates_disponiveis()}
 
 
 @router.get("/resultados")

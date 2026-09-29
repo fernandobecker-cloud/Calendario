@@ -1783,6 +1783,41 @@ def calcular_npi_canal(
     return {str(r.get("canal") or ""): float(r.get("receita") or 0) for r in records}
 
 
+def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
+    """Lista os `template_title` distintos em `dados_omni` (com volume e
+    janela de datas de cada um) - a tabela tem disparos de VARIAS campanhas
+    do Omnichat misturados, entao o admin ainda precisa escolher quais sao
+    os dessa campanha NPI (ver `calcular_npi_canal`); isso so poupa ter que
+    digitar/colar o nome de cabeca, exibindo o que realmente existe na
+    tabela pra marcar via checkbox no frontend."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+
+    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    sql = f"""
+SELECT
+  template_title,
+  COUNT(*) AS total_entregues,
+  MIN(DATE(campaign_message_created_at)) AS primeiro_envio,
+  MAX(DATE(campaign_message_created_at)) AS ultimo_envio
+FROM {omni_table}
+WHERE delivered = 1 AND template_title IS NOT NULL AND TRIM(template_title) != ''
+GROUP BY template_title
+ORDER BY ultimo_envio DESC
+""".strip()
+
+    records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=BASE_VENDAS_BQ_LOCATION or None, timeout=30)
+    return [
+        {
+            "template_title": str(r.get("template_title") or ""),
+            "total_entregues": int(r.get("total_entregues") or 0),
+            "primeiro_envio": _normalize_open_data_value(r.get("primeiro_envio")),
+            "ultimo_envio": _normalize_open_data_value(r.get("ultimo_envio")),
+        }
+        for r in records
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Diagnostico de `automation_node_executions` - descobre, por node de uma
 # automacao (Automation Center classico, `ac_program_id`), quantas execucoes

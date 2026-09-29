@@ -136,17 +136,48 @@ function NovoPeriodoForm({ onCriado, onCancelar }) {
 
 function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
   const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? '')
-  const [templates, setTemplates] = useState('')
+  const [templatesDisponiveis, setTemplatesDisponiveis] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [templatesErro, setTemplatesErro] = useState('')
+  const [selecionados, setSelecionados] = useState(() => new Set())
   const [janelaDias, setJanelaDias] = useState(7)
   const [calculando, setCalculando] = useState(false)
   const [erro, setErro] = useState('')
   const [resultado, setResultado] = useState(null)
 
+  useEffect(() => {
+    let cancelado = false
+    setTemplatesLoading(true)
+    setTemplatesErro('')
+    fetch('/api/open-data/npi/templates-disponiveis')
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+        if (!cancelado) setTemplatesDisponiveis(payload?.items || [])
+      })
+      .catch((err) => {
+        if (!cancelado) setTemplatesErro(err instanceof Error ? err.message : 'Erro ao carregar templates.')
+      })
+      .finally(() => {
+        if (!cancelado) setTemplatesLoading(false)
+      })
+    return () => { cancelado = true }
+  }, [])
+
+  const toggleTemplate = useCallback((titulo) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(titulo)) next.delete(titulo)
+      else next.add(titulo)
+      return next
+    })
+  }, [])
+
   const handleSubmit = useCallback(async (event) => {
     event.preventDefault()
-    const templateTitles = templates.split('\n').map((t) => t.trim()).filter(Boolean)
+    const templateTitles = Array.from(selecionados)
     if (!periodoId || templateTitles.length === 0) {
-      setErro('Selecione o período e informe pelo menos um template_title (um por linha).')
+      setErro('Selecione o período e marque pelo menos um template.')
       return
     }
     setCalculando(true)
@@ -167,7 +198,7 @@ function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
     } finally {
       setCalculando(false)
     }
-  }, [periodoId, templates, janelaDias, onCalculado])
+  }, [periodoId, selecionados, janelaDias, onCalculado])
 
   return (
     <form onSubmit={handleSubmit} className="mb-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
@@ -200,16 +231,42 @@ function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
           />
         </label>
       </div>
-      <label className="flex flex-col gap-1 text-sm text-slate-600">
-        Templates do Omnichat (um por linha)
-        <textarea
-          value={templates}
-          onChange={(e) => setTemplates(e.target.value)}
-          rows={5}
-          placeholder={'202609_pre-venda_18pro_v3\n202609_venda_18pro_v4\n202609_pre-venda_18pro'}
-          className="min-w-[320px] rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900"
-        />
-      </label>
+      <div className="flex flex-col gap-1 text-sm text-slate-600">
+        Templates do Omnichat que pertencem a essa campanha ({selecionados.size} selecionado{selecionados.size === 1 ? '' : 's'})
+        {templatesLoading ? (
+          <p className="text-xs text-slate-400">Carregando templates...</p>
+        ) : templatesErro ? (
+          <p className="text-xs text-rose-600">{templatesErro}</p>
+        ) : templatesDisponiveis.length === 0 ? (
+          <p className="text-xs text-slate-400">Nenhum template encontrado em dados_omni.</p>
+        ) : (
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-300 bg-white">
+            <table className="min-w-full text-xs">
+              <tbody>
+                {templatesDisponiveis.map((t, i) => (
+                  <tr
+                    key={t.template_title}
+                    onClick={() => toggleTemplate(t.template_title)}
+                    className={`cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'} hover:bg-indigo-50`}
+                  >
+                    <td className="w-8 px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selecionados.has(t.template_title)}
+                        onChange={() => toggleTemplate(t.template_title)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-slate-700">{t.template_title}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.total_entregues.toLocaleString('pt-BR')} entregues</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.primeiro_envio} a {t.ultimo_envio}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
       <div className="flex gap-3">
         <button type="submit" disabled={calculando} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
           {calculando ? 'Calculando...' : 'Calcular e salvar'}
