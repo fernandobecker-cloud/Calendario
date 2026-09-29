@@ -1682,10 +1682,22 @@ whatsapp_touches AS (
   JOIN bridge b ON b.phone = o.phone
 ),
 orders AS (
+  -- Um mesmo pedido pode ter mais de uma "fotografia" em revenue_attribution
+  -- (mesmo event_time, treatments recalculados em partitiontime diferentes,
+  -- conforme a Emarsys reprocessa a atribuicao nos dias seguintes). Sem um
+  -- desempate deterministico, ROW_NUMBER() ORDER BY event_time sozinho pode
+  -- escolher uma fotografia diferente dependendo de quais linhas ficam
+  -- visiveis no range de data da consulta - isso causava "mes inteiro" !=
+  -- "soma das metades" quando o periodo era fatiado de jeitos diferentes.
+  -- Agora desempata sempre pela fotografia mais recente (partitiontime
+  -- maior), resultado estavel nao importa como o periodo seja fatiado.
   SELECT * EXCEPT(rn) FROM (
     SELECT
       ra.contact_id, ra.order_id, ra.event_time, ra.items, ra.treatments,
-      ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
+      ROW_NUMBER() OVER (
+        PARTITION BY ra.order_id, ra.contact_id
+        ORDER BY ra.event_time ASC, ra.partitiontime DESC
+      ) AS rn
     FROM `{project_id}.{dataset}.{revenue_table}` ra
     WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
   )
