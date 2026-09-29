@@ -363,6 +363,13 @@ export default function ResultadosNpiPage({ currentRole }) {
   const totalCanal = (canal) => periodos.reduce((s, p) => s + valorCelula(p.id, canal), 0)
   const totalGeral = periodos.reduce((s, p) => s + totalPeriodo(p.id), 0)
 
+  // Receita atribuída = todos os canais MENOS "Sem atribuição" (o gap que a
+  // Emarsys nao credita a ninguem) - mostra quanto realmente tem canal
+  // identificado, separado do total bruto (que inclui o "sem atribuição").
+  const canaisAtribuidos = canais.filter((c) => c.key !== 'sem_atribuicao')
+  const totalAtribuidoPeriodo = (periodoId) => canaisAtribuidos.reduce((s, c) => s + valorCelula(periodoId, c.key), 0)
+  const totalAtribuidoGeral = periodos.reduce((s, p) => s + totalAtribuidoPeriodo(p.id), 0)
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
       <section className="mb-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-500 p-6 text-white shadow-soft md:p-8">
@@ -463,6 +470,17 @@ export default function ResultadosNpiPage({ currentRole }) {
                     </td>
                   </tr>
                 ))}
+                <tr className="border-t border-slate-200 bg-emerald-50/60 font-semibold">
+                  <td className="whitespace-nowrap px-4 py-2 text-sm text-emerald-800">Total de receita atribuída</td>
+                  {periodos.map((p) => (
+                    <td key={p.id} className="whitespace-nowrap px-4 py-2 text-right text-sm text-emerald-800">
+                      {formatCurrency(totalAtribuidoPeriodo(p.id))}
+                    </td>
+                  ))}
+                  <td className="whitespace-nowrap px-4 py-2 text-right text-sm text-emerald-800">
+                    {formatCurrency(totalAtribuidoGeral)}
+                  </td>
+                </tr>
                 <tr className="border-t-2 border-slate-300 bg-slate-100 font-semibold">
                   <td className="whitespace-nowrap px-4 py-2 text-sm text-slate-900">Total geral</td>
                   {periodos.map((p) => (
