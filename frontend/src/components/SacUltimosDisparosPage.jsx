@@ -15,11 +15,43 @@ function formatarData(iso) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function formatarValorGarantia(valor) {
+  if (valor === null || valor === undefined || valor === '') return '-'
+  if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valor)) return formatarData(valor)
+  return String(valor)
+}
+
+// Rotulos amigaveis pros campos conhecidos da tabela garantia_estendida
+// (carregada por fora, pode ganhar colunas novas sem avisar - por isso o
+// componente mostra qualquer campo extra tambem, so sem rotulo bonito).
+const LABELS_GARANTIA = {
+  ge_contrato: 'Contrato',
+  ge_data_venda: 'Data da venda',
+  ge_data_validade: 'Validade',
+  ge_Nome: 'Nome',
+  ge_produto: 'Produto',
+  ge_serial: 'Serial',
+  GE_IMEI: 'IMEI',
+  Origem: 'Origem',
+  CPF: 'CPF',
+}
+
+function CampoGarantia({ campo, valor }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-xs uppercase tracking-wide text-slate-400">{LABELS_GARANTIA[campo] || campo}</dt>
+      <dd className="text-sm text-slate-800">{formatarValorGarantia(valor)}</dd>
+    </div>
+  )
+}
+
 export default function SacUltimosDisparosPage() {
   const [cpf, setCpf] = useState('')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [resultado, setResultado] = useState(null)
+  const [garantia, setGarantia] = useState(null)
+  const [erroGarantia, setErroGarantia] = useState('')
 
   const handleBuscar = useCallback(async (event) => {
     event.preventDefault()
@@ -31,16 +63,27 @@ export default function SacUltimosDisparosPage() {
     setLoading(true)
     setErro('')
     setResultado(null)
-    try {
-      const res = await fetch(`/api/open-data/emarsys/ultimos-disparos-email?cpf=${encodeURIComponent(cpfLimpo)}`)
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
-      setResultado(payload)
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao buscar disparos.')
-    } finally {
-      setLoading(false)
-    }
+    setGarantia(null)
+    setErroGarantia('')
+
+    const buscaEmail = fetch(`/api/open-data/emarsys/ultimos-disparos-email?cpf=${encodeURIComponent(cpfLimpo)}`)
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+        setResultado(payload)
+      })
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao buscar disparos.'))
+
+    const buscaGarantia = fetch(`/api/open-data/comercial/garantia-estendida?cpf=${encodeURIComponent(cpfLimpo)}`)
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+        setGarantia(payload)
+      })
+      .catch((err) => setErroGarantia(err instanceof Error ? err.message : 'Erro ao buscar garantia estendida.'))
+
+    await Promise.all([buscaEmail, buscaGarantia])
+    setLoading(false)
   }, [cpf])
 
   return (
@@ -74,6 +117,27 @@ export default function SacUltimosDisparosPage() {
         </form>
         {erro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
       </section>
+
+      {garantia && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Garantia estendida</h2>
+          {erroGarantia ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erroGarantia}</p>
+          ) : !garantia.encontrado ? (
+            <p className="text-sm text-slate-500">Nenhum contrato de garantia estendida encontrado para esse CPF.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {garantia.items.map((item, i) => (
+                <dl key={item.ge_contrato ?? i} className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
+                  {Object.entries(item).map(([campo, valor]) => (
+                    <CampoGarantia key={campo} campo={campo} valor={valor} />
+                  ))}
+                </dl>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {resultado && resultado.contato_encontrado && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">

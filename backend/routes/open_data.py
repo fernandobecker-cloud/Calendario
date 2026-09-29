@@ -2272,6 +2272,65 @@ def ultimos_disparos_email(
         raise HTTPException(status_code=502, detail=f"Falha ao buscar ultimos disparos: {exc}") from exc
 
 
+# ---------------------------------------------------------------------------
+# Garantia estendida por CPF - mesma tela do SAC ("Últimos Disparos"). Tabela
+# carregada manualmente pelo usuário no BigQuery (projeto base-vendas-496714,
+# nao Emarsys) com os clientes que o comercial passou pra gente disparar a
+# oferta de garantia estendida. Consulta independente da de e-mail (projetos
+# diferentes - Emarsys x base-vendas -, nunca combinadas na mesma query, ver
+# nota de VPC Service Controls em `_build_npi_orders_sql`), so exibida junto
+# na mesma tela.
+# ---------------------------------------------------------------------------
+
+def _build_garantia_estendida_sql() -> str:
+    """SELECT * (nao lista colunas) porque a tabela foi carregada por fora
+    (nao e um schema nosso) e pode ganhar/perder colunas sem avisar - o
+    frontend renderiza o que vier, chave por chave, em vez de depender de
+    nomes de campo fixos."""
+    table = f"`{BASE_VENDAS_BQ_PROJECT}.garantia_estendida.garantia_estendida`"
+    case_sql = _cpf_match_case_sql("CPF")
+    return f"""
+SELECT *
+FROM {table}
+WHERE CPF IS NOT NULL AND {case_sql} = @cpf
+ORDER BY ge_data_venda DESC
+""".strip()
+
+
+@router.get("/comercial/garantia-estendida")
+def garantia_estendida_por_cpf(
+    cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
+) -> dict[str, Any]:
+    """Contratos de garantia estendida de um cliente, por CPF - lista que o
+    comercial carregou manualmente no BigQuery (fora da Emarsys) pra
+    controlar quem deveria receber a oferta."""
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    cpf_normalizado = _normalize_match_key(cpf)
+    if not cpf_normalizado:
+        raise HTTPException(status_code=400, detail="CPF invalido.")
+
+    try:
+        records = run_bigquery_records(
+            _build_garantia_estendida_sql(),
+            BASE_VENDAS_BQ_PROJECT,
+            location=BASE_VENDAS_BQ_LOCATION or None,
+            timeout=20,
+            params=[bigquery.ScalarQueryParameter("cpf", "STRING", cpf_normalizado)],
+        )
+        items = _records_to_response_items(records)
+        return {
+            "cpf": cpf_normalizado,
+            "encontrado": len(items) > 0,
+            "items": items,
+            "source": "bigquery_garantia_estendida",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar garantia estendida: {exc}") from exc
+
+
 def _build_cpf_match_stats_sql() -> str:
     cte = _build_cpf_matched_contacts_cte()
     return f"""
