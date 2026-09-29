@@ -1708,20 +1708,57 @@ si_orders AS (
   FROM `{project_id}.{dataset}.{purchases_table}`
   WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
   GROUP BY order_id, si_contact_id
-)
+),
 -- Pedido sem ponte pro si_contact_id, ou sem match no si_purchases (pedido
 -- que nao chegou a virar venda liquidada la), sai com order_total = 0 -
 -- preferimos deixar de fora a contar um valor que nao bate com a fonte de
 -- verdade.
-SELECT
-  CAST(o.contact_id AS STRING) AS contact_id,
-  o.order_id,
-  o.event_time AS purchase_time,
-  IFNULL(si.order_total_si, 0) AS order_total,
-  o.treatments
-FROM orders o
-LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
-LEFT JOIN si_orders si ON si.order_id = CAST(o.order_id AS STRING) AND si.si_contact_id = b.si_contact_id
+orders_calc AS (
+  SELECT
+    CAST(o.contact_id AS STRING) AS contact_id,
+    o.order_id,
+    DATE(o.event_time) AS purchase_date,
+    IFNULL(si.order_total_si, 0) AS order_total,
+    o.treatments
+  FROM orders o
+  LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
+  LEFT JOIN si_orders si ON si.order_id = CAST(o.order_id AS STRING) AND si.si_contact_id = b.si_contact_id
+),
+-- Explode treatments[] e calcula o gap ("sem atribuicao") AQUI DENTRO do
+-- BigQuery (rapido, distribuido) em vez de mandar o array aninhado inteiro
+-- pro Python remontar - isso vinha causando timeout/502 no Render com
+-- volumes grandes (dezenas de milhares de pedidos). O resultado e uma
+-- linha achatada por treatment/gap, so com os campos que o Python precisa
+-- pra decidir o canal (contact_id, data, canal candidato, valor).
+exploded AS (
+  SELECT
+    o.contact_id,
+    o.purchase_date,
+    'treatment' AS tipo,
+    UPPER(t.channel) AS channel,
+    DATE(t.event_time) AS event_date,
+    ROUND(t.attributed_amount, 2) AS amount
+  FROM orders_calc o, UNNEST(o.treatments) t
+  WHERE t.attributed_amount > 0
+),
+gaps AS (
+  SELECT
+    o.contact_id,
+    o.purchase_date,
+    'gap' AS tipo,
+    CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS DATE) AS event_date,
+    ROUND(o.order_total - IFNULL((
+      SELECT SUM(t.attributed_amount) FROM UNNEST(o.treatments) t WHERE t.attributed_amount > 0
+    ), 0), 2) AS amount
+  FROM orders_calc o
+  WHERE o.order_total - IFNULL((
+    SELECT SUM(t.attributed_amount) FROM UNNEST(o.treatments) t WHERE t.attributed_amount > 0
+  ), 0) > 0.005
+)
+SELECT * FROM exploded
+UNION ALL
+SELECT * FROM gaps
 """.strip()
 
 
@@ -1816,23 +1853,24 @@ def calcular_npi_canal(
     def soma(canal: str, valor: float) -> None:
         canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
 
-    for order in orders_records:
-        contact_id = str(order.get("contact_id") or "")
-        purchase_time = order.get("purchase_time")
-        purchase_date = purchase_time.date() if hasattr(purchase_time, "date") else purchase_time
-        order_total = float(order.get("order_total") or 0)
-        treatments = order.get("treatments") or []
+    # `orders_records` ja vem achatado (uma linha por treatment/gap, feito
+    # dentro do BigQuery em _build_npi_orders_sql) - o Python so decide o
+    # canal por linha, sem precisar remontar/agrupar nada.
+    for row in orders_records:
+        amount = float(row.get("amount") or 0)
+        if amount <= 0:
+            continue
+        contact_id = str(row.get("contact_id") or "")
+        purchase_date = row.get("purchase_date")
+        if purchase_date is None:
+            continue
 
-        total_attributed = 0.0
-        for t in treatments:
-            attributed_amount = float(t.get("attributed_amount") or 0)
-            if attributed_amount <= 0:
-                continue
-            total_attributed += attributed_amount
-            event_time = t.get("event_time")
-            event_date = event_time.date() if hasattr(event_time, "date") else event_time
-            channel = str(t.get("channel") or "").upper()
-            if purchase_date is not None and tocou_dentro_da_janela(contact_id, purchase_date, limite=event_date):
+        if row.get("tipo") == "gap":
+            canal = "whatsapp_omni" if tocou_dentro_da_janela(contact_id, purchase_date) else "sem_atribuicao"
+        else:
+            event_date = row.get("event_date")
+            channel = str(row.get("channel") or "")
+            if tocou_dentro_da_janela(contact_id, purchase_date, limite=event_date):
                 canal = "whatsapp_omni"
             elif channel == "WHATSAPP":
                 canal = "whatsapp_nativo"
@@ -1842,14 +1880,7 @@ def calcular_npi_canal(
                 canal = "sms"
             else:
                 canal = channel.lower() if channel else "outros"
-            soma(canal, attributed_amount)
-
-        gap = round(order_total - total_attributed, 2)
-        if gap > 0.005 and purchase_date is not None:
-            if tocou_dentro_da_janela(contact_id, purchase_date):
-                soma("whatsapp_omni", gap)
-            else:
-                soma("sem_atribuicao", gap)
+        soma(canal, amount)
 
     return {canal: round(valor, 2) for canal, valor in canal_totais.items()}
 
