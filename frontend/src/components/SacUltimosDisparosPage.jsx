@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 function extrairDetalheErro(payload) {
   const detail = payload?.detail
@@ -45,6 +45,86 @@ function CampoGarantia({ campo, valor }) {
   )
 }
 
+function normalizarTexto(valor) {
+  return (valor || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+}
+
+// Classes completas (nao interpoladas) pra sobreviver ao scan estatico do
+// Tailwind em build de producao.
+const CORES_PASSO = {
+  amber: 'border-amber-200 bg-amber-50 text-amber-800',
+  rose: 'border-rose-200 bg-rose-50 text-rose-800',
+  sky: 'border-sky-200 bg-sky-50 text-sky-800',
+  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  slate: 'border-slate-200 bg-slate-50 text-slate-700',
+}
+
+// Roteiro passado pelo SAC (3 passos): 1) esta na base do comercial? 2) opt-in
+// de e-mail ok? 3) e-mail foi enviado e aberto? Calculado a partir dos
+// mesmos dados que a tela ja busca, pra o atendente nao precisar interpretar
+// os dados brutos - so segue a orientacao.
+function calcularProximoPasso({ garantia, erroGarantia, resultado, erro }) {
+  if (erroGarantia) {
+    return {
+      cor: 'slate',
+      titulo: 'Não foi possível verificar',
+      texto: 'Não foi possível consultar a base do comercial agora. Tente buscar de novo em instantes.',
+    }
+  }
+  if (!garantia) return null
+
+  if (!garantia.encontrado) {
+    return {
+      cor: 'amber',
+      titulo: 'Passo 1 — ainda não está na base do comercial',
+      texto: 'Esse CPF ainda não está na base do comercial. Peça para o cliente aguardar — a garantia estendida está sendo emitida.',
+    }
+  }
+
+  if (erro) {
+    return {
+      cor: 'slate',
+      titulo: 'Cliente está na base do comercial',
+      texto: 'Não foi possível consultar opt-in e e-mails enviados agora. Verifique manualmente antes de responder ao cliente.',
+    }
+  }
+
+  const optin = resultado?.optin_email
+  if (optin?.disponivel && optin.valor === '2') {
+    return {
+      cor: 'rose',
+      titulo: 'Passo 2 — cliente está com opt-out de e-mail',
+      texto: 'O cliente optou por não receber e-mails. Peça para ele mudar a preferência no site e avise o CRM para refazer o disparo assim que ele atualizar.',
+    }
+  }
+
+  const emailsGarantia = (resultado?.items || []).filter((item) => normalizarTexto(item.campanha).includes('garantia'))
+  if (emailsGarantia.length === 0) {
+    return {
+      cor: 'amber',
+      titulo: 'Passo 3 — e-mail de garantia estendida não encontrado',
+      texto: 'Não encontramos disparo do e-mail de garantia estendida entre os últimos e-mails enviados a esse cliente. Confirme com o cliente se o e-mail cadastrado está correto e avise o CRM para verificar o que aconteceu.',
+    }
+  }
+
+  if (emailsGarantia[0].abriu) {
+    return {
+      cor: 'emerald',
+      titulo: 'Tudo certo',
+      texto: 'O e-mail de garantia estendida foi enviado e o cliente já abriu.',
+    }
+  }
+
+  return {
+    cor: 'sky',
+    titulo: 'Passo 3 — e-mail enviado, mas não aberto',
+    texto: 'O e-mail de garantia estendida foi enviado, mas o cliente ainda não abriu. Peça para ele olhar a caixa de entrada e a pasta de spam/lixo eletrônico.',
+  }
+}
+
 export default function SacUltimosDisparosPage() {
   const [cpf, setCpf] = useState('')
   const [loading, setLoading] = useState(false)
@@ -52,6 +132,12 @@ export default function SacUltimosDisparosPage() {
   const [resultado, setResultado] = useState(null)
   const [garantia, setGarantia] = useState(null)
   const [erroGarantia, setErroGarantia] = useState('')
+  const [buscaFeita, setBuscaFeita] = useState(false)
+
+  const proximoPasso = useMemo(
+    () => (buscaFeita && !loading ? calcularProximoPasso({ garantia, erroGarantia, resultado, erro }) : null),
+    [buscaFeita, loading, garantia, erroGarantia, resultado, erro],
+  )
 
   const handleBuscar = useCallback(async (event) => {
     event.preventDefault()
@@ -60,6 +146,7 @@ export default function SacUltimosDisparosPage() {
       setErro('Informe um CPF válido.')
       return
     }
+    setBuscaFeita(true)
     setLoading(true)
     setErro('')
     setResultado(null)
@@ -117,6 +204,13 @@ export default function SacUltimosDisparosPage() {
         </form>
         {erro && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
       </section>
+
+      {proximoPasso && (
+        <section className={`mb-6 rounded-2xl border p-5 shadow-soft md:p-6 ${CORES_PASSO[proximoPasso.cor]}`}>
+          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide">{proximoPasso.titulo}</h2>
+          <p className="text-sm">{proximoPasso.texto}</p>
+        </section>
+      )}
 
       {(garantia || erroGarantia) && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
