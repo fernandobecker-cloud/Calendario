@@ -1818,7 +1818,7 @@ si_orders AS (
   FROM `{project_id}.{dataset}.{purchases_table}`
   WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
   GROUP BY order_id
-)
+),
 linhas_por_pedido AS (
   SELECT order_id, COUNT(*) AS linhas, COUNT(DISTINCT contact_id) AS contact_ids_distintos
   FROM ra_orders
