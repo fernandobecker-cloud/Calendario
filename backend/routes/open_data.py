@@ -1773,10 +1773,15 @@ def calcular_npi_canal(
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
         bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
     ]
+    # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1): o dataset
+    # apuracao_npi26 foi criado em EU, mesma location de emarsys_herval - um
+    # job do BigQuery so pode referenciar datasets de UMA location, e essa
+    # query junta os dois (confirmado pelo erro real: "Dataset ... was not
+    # found in location southamerica-east1").
     records = run_bigquery_records(
         _build_npi_canal_sql(),
         BASE_VENDAS_BQ_PROJECT,
-        location=BASE_VENDAS_BQ_LOCATION or None,
+        location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=90,
         params=params,
     )
@@ -1806,7 +1811,8 @@ GROUP BY template_title
 ORDER BY ultimo_envio DESC
 """.strip()
 
-    records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=BASE_VENDAS_BQ_LOCATION or None, timeout=30)
+    # Location EU - ver comentario equivalente em calcular_npi_canal.
+    records = run_bigquery_records(sql, BASE_VENDAS_BQ_PROJECT, location=EMARSYS_OPEN_DATA_LOCATION or None, timeout=30)
     return [
         {
             "template_title": str(r.get("template_title") or ""),
