@@ -1671,7 +1671,7 @@ WITH bridge AS (
   WHERE `Número do celular` IS NOT NULL
 ),
 omni_filtrado AS (
-  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
+  SELECT phone, DATE(campaign_message_created_at, '{EMARSYS_TZ}') AS dispatch_date
   FROM {omni_table}
   WHERE delivered = 1
     AND template_title IN UNNEST(@template_titles)
@@ -1687,7 +1687,7 @@ orders AS (
       ra.contact_id, ra.order_id, ra.event_time, ra.items, ra.treatments,
       ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
     FROM `{project_id}.{dataset}.{revenue_table}` ra
-    WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
+    WHERE DATE(ra.event_time, '{EMARSYS_TZ}') BETWEEN @start_date AND @end_date
   )
   WHERE rn = 1
 ),
@@ -1706,9 +1706,9 @@ exploded AS (
       WHEN EXISTS (
         SELECT 1 FROM whatsapp_touches wt
         WHERE wt.contact_id = CAST(o.contact_id AS STRING)
-          AND wt.dispatch_date <= DATE(o.purchase_time)
-          AND DATE_DIFF(DATE(o.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
-          AND wt.dispatch_date <= DATE(t.event_time)
+          AND wt.dispatch_date <= DATE(o.purchase_time, '{EMARSYS_TZ}')
+          AND DATE_DIFF(DATE(o.purchase_time, '{EMARSYS_TZ}'), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
+          AND wt.dispatch_date <= DATE(t.event_time, '{EMARSYS_TZ}')
       ) THEN 'whatsapp_omni'
       WHEN UPPER(t.channel) = 'WHATSAPP' THEN 'whatsapp_nativo'
       WHEN UPPER(t.channel) = 'EMAIL' THEN 'email'
@@ -1733,8 +1733,8 @@ unattributed AS (
       WHEN EXISTS (
         SELECT 1 FROM whatsapp_touches wt
         WHERE wt.contact_id = CAST(p.contact_id AS STRING)
-          AND wt.dispatch_date <= DATE(p.purchase_time)
-          AND DATE_DIFF(DATE(p.purchase_time), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
+          AND wt.dispatch_date <= DATE(p.purchase_time, '{EMARSYS_TZ}')
+          AND DATE_DIFF(DATE(p.purchase_time, '{EMARSYS_TZ}'), wt.dispatch_date, DAY) BETWEEN 0 AND @janela_dias
       ) THEN 'whatsapp_omni'
       ELSE 'sem_atribuicao'
     END AS canal_final
@@ -1803,8 +1803,8 @@ def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
 SELECT
   template_title,
   COUNT(*) AS total_entregues,
-  MIN(DATE(campaign_message_created_at)) AS primeiro_envio,
-  MAX(DATE(campaign_message_created_at)) AS ultimo_envio
+  MIN(DATE(campaign_message_created_at, '{EMARSYS_TZ}')) AS primeiro_envio,
+  MAX(DATE(campaign_message_created_at, '{EMARSYS_TZ}')) AS ultimo_envio
 FROM {omni_table}
 WHERE delivered = 1 AND template_title IS NOT NULL AND TRIM(template_title) != ''
 GROUP BY template_title
