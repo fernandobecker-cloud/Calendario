@@ -2314,7 +2314,11 @@ def garantia_estendida_por_cpf(
         records = run_bigquery_records(
             _build_garantia_estendida_sql(),
             BASE_VENDAS_BQ_PROJECT,
-            location=BASE_VENDAS_BQ_LOCATION or None,
+            # Location EU (nao BASE_VENDAS_BQ_LOCATION/southamerica-east1) -
+            # mesmo caso do dataset apuracao_npi26 (ver _build_npi_orders_sql):
+            # confirmado pelo erro real "Dataset ... was not found in
+            # location southamerica-east1".
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
             timeout=20,
             params=[bigquery.ScalarQueryParameter("cpf", "STRING", cpf_normalizado)],
         )
