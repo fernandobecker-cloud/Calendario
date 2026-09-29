@@ -1765,7 +1765,14 @@ SELECT * FROM gaps
 def _build_npi_whatsapp_touches_sql() -> str:
     """So referencia tabelas do projeto `base-vendas-496714` - nunca as
     tabelas da Emarsys na mesma query (ver docstring de
-    `_build_npi_orders_sql` sobre VPC Service Controls)."""
+    `_build_npi_orders_sql` sobre VPC Service Controls).
+
+    Filtra `dados_omni` pela janela [@start_date - @janela_dias, @end_date] -
+    unico intervalo que pode "tocar" algum pedido do periodo (ver
+    `tocou_dentro_da_janela`). Sem esse filtro a query pegava o HISTORICO
+    INTEIRO de disparos daquele template (repiques de meses/anos), o que
+    OOMou o Render (>512MB) na hora de materializar `touches_records` em
+    Python - o volume nao tinha relacao com o tamanho do periodo calculado."""
     bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
     omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
     return f"""
@@ -1781,6 +1788,8 @@ omni_filtrado AS (
   FROM {omni_table}
   WHERE delivered = 1
     AND template_title IN UNNEST(@template_titles)
+    AND DATE(campaign_message_created_at)
+      BETWEEN DATE_SUB(@start_date, INTERVAL @janela_dias DAY) AND @end_date
 )
 SELECT DISTINCT b.contact_id, o.dispatch_date
 FROM omni_filtrado o
@@ -1827,7 +1836,12 @@ def calcular_npi_canal(
         # numa tentativa anterior).
         location=EMARSYS_OPEN_DATA_LOCATION or None,
         timeout=60,
-        params=[bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles)],
+        params=[
+            bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
+            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+            bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
+        ],
     )
 
     touches_by_contact: dict[str, list[date]] = {}
