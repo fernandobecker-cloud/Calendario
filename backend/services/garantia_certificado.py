@@ -46,7 +46,6 @@ _CINZA = colors.HexColor("#86868b")
 _CINZA_TEXTO = colors.HexColor("#424245")
 _CINZA_CLARO = colors.HexColor("#f6f6f6")
 _VERDE_MARCA = colors.HexColor("#c8d400")
-_VERMELHO = colors.HexColor("#d13c3c")
 _FAIXA_CDC = colors.HexColor("#d2d2d7")
 _FAIXA_APPLE = colors.HexColor("#a1a1a6")
 _FAIXA_IPLACE = _AZUL
@@ -74,8 +73,8 @@ def _formatar_data(valor: Any) -> str:
 
 def _campo(rotulo: str, valor: str, estilo: ParagraphStyle) -> Paragraph:
     texto = (
-        f'<font size="8" color="#86868b"><b>{rotulo}</b></font><br/>'
-        f'<font size="12" color="#1d1d1f"><b>{valor}</b></font>'
+        f'<font size="7.5" color="#86868b"><b>{rotulo}</b></font><br/>'
+        f'<font size="10.5" color="#1d1d1f"><b>{valor}</b></font>'
     )
     return Paragraph(texto, estilo)
 
@@ -114,7 +113,7 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     base = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, textColor=_CINZA_TEXTO, leading=14)
     marca = ParagraphStyle("marca", fontName="Helvetica-Bold", fontSize=14, textColor=_ESCURO, alignment=TA_CENTER)
     tag = ParagraphStyle("tag", fontName="Helvetica-Bold", fontSize=10, textColor=_CINZA, alignment=TA_CENTER, spaceBefore=6, spaceAfter=2)
-    headline = ParagraphStyle("headline", fontName="Helvetica-Bold", fontSize=22, textColor=_ESCURO, alignment=TA_CENTER, spaceAfter=10)
+    headline = ParagraphStyle("headline", fontName="Helvetica-Bold", fontSize=22, textColor=_ESCURO, alignment=TA_CENTER, spaceAfter=18)
     campo_estilo = ParagraphStyle("campo", parent=base, spaceAfter=4)
     secao_titulo = ParagraphStyle("secao_titulo", fontName="Helvetica-Bold", fontSize=11, textColor=_ESCURO, spaceAfter=4, spaceBefore=8)
     legal = ParagraphStyle("legal", fontName="Helvetica", fontSize=7.5, textColor=_CINZA, alignment=TA_CENTER, leading=10, spaceBefore=8)
@@ -127,20 +126,20 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     imei = str(item.get("GE_IMEI") or "-")
     contrato = str(item.get("ge_contrato") or "-")
     data_compra = _formatar_data(item.get("ge_data_venda"))
-    validade_date = _como_date(item.get("ge_data_validade"))
     validade_str = _formatar_data(item.get("ge_data_validade"))
-    ativa = validade_date is None or validade_date >= date.today()
 
     elementos: list[Any] = []
 
     elementos.append(HRFlowable(width="100%", thickness=3, color=_VERDE_MARCA, spaceAfter=16))
     logo = _logo_flowable()
     if logo is not None:
+        # "Apple Premium Reseller" ja aparece dentro do proprio logo (selo
+        # "Premium Partner") - repetir em texto embaixo era redundante.
         elementos.append(logo)
-        elementos.append(Spacer(1, 3))
+        elementos.append(Spacer(1, 6))
     else:
         elementos.append(Paragraph("iPlace", marca))
-    elementos.append(Paragraph("Apple Premium Reseller", ParagraphStyle("sub", fontName="Helvetica", fontSize=9, textColor=_CINZA, alignment=TA_CENTER, spaceAfter=4)))
+        elementos.append(Paragraph("Apple Premium Reseller", ParagraphStyle("sub", fontName="Helvetica", fontSize=9, textColor=_CINZA, alignment=TA_CENTER, spaceAfter=4)))
 
     elementos.append(Paragraph("CERTIFICADO DE GARANTIA ESTENDIDA", tag))
     elementos.append(Paragraph("+12 meses de cobertura", headline))
@@ -162,20 +161,7 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
         ("RIGHTPADDING", (0, 0), (-1, -1), 14),
     ]))
     elementos.append(tabela)
-    elementos.append(Spacer(1, 6))
-
-    cor_status = colors.HexColor("#0a8a3f") if ativa else _VERMELHO
-    texto_status = "Garantia ativa" if ativa else "Garantia expirada"
-    selo_status = Table([[Paragraph(f'<font color="#ffffff"><b>{texto_status}</b></font>', ParagraphStyle("selo", fontName="Helvetica-Bold", fontSize=9, alignment=TA_CENTER))]], colWidths=[45 * mm])
-    selo_status.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), cor_status),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-    ]))
-    envolucro_status = Table([[selo_status]], colWidths=[160 * mm])
-    envolucro_status.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER")]))
-    elementos.append(envolucro_status)
+    elementos.append(Spacer(1, 10))
 
     elementos.append(Paragraph("Sua garantia soma 24 meses de cobertura", secao_titulo))
     barra = Table([[""] * 3], colWidths=[20 * mm, 60 * mm, 80 * mm], rowHeights=[6])
