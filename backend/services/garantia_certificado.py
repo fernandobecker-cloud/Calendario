@@ -16,19 +16,29 @@ from datetime import date, datetime
 from io import BytesIO
 from typing import Any
 
+import requests
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
+    Image,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
+
+# Mesma imagem usada no cabecalho do e-mail original (campaign_source.html,
+# span "status_icon"). Busca best-effort: se a rede falhar ou o host cair,
+# cai pro nome "iPlace" em texto (ver `_cabecalho_logo`) em vez de derrubar
+# a geracao do PDF inteira por causa so do logo.
+_LOGO_URL = "https://link.iplace.com.br/custloads/1091660394/md_250561.png"
+_LOGO_LARGURA_MM = 30
 
 _AZUL = colors.HexColor("#0071e3")
 _ESCURO = colors.HexColor("#1d1d1f")
@@ -70,6 +80,24 @@ def _campo(rotulo: str, valor: str, estilo: ParagraphStyle) -> Paragraph:
     return Paragraph(texto, estilo)
 
 
+def _logo_flowable() -> Image | None:
+    """Baixa o logo da iPlace pra embutir no PDF. Best-effort: qualquer
+    falha de rede/host devolve None, e quem chama cai pro texto "iPlace"."""
+    try:
+        resposta = requests.get(_LOGO_URL, timeout=5)
+        resposta.raise_for_status()
+        conteudo = resposta.content
+        leitor = ImageReader(BytesIO(conteudo))
+        largura_px, altura_px = leitor.getSize()
+        largura = _LOGO_LARGURA_MM * mm
+        altura = largura * altura_px / largura_px
+        imagem = Image(BytesIO(conteudo), width=largura, height=altura)
+        imagem.hAlign = "CENTER"
+        return imagem
+    except Exception:
+        return None
+
+
 def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     """Recebe um registro da tabela garantia_estendida (mesmos campos que
     GET /comercial/garantia-estendida devolve) e gera o PDF em bytes."""
@@ -77,8 +105,8 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
+        topMargin=9 * mm,
+        bottomMargin=9 * mm,
         leftMargin=24 * mm,
         rightMargin=24 * mm,
     )
@@ -106,7 +134,12 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     elementos: list[Any] = []
 
     elementos.append(HRFlowable(width="100%", thickness=3, color=_VERDE_MARCA, spaceAfter=16))
-    elementos.append(Paragraph("iPlace", marca))
+    logo = _logo_flowable()
+    if logo is not None:
+        elementos.append(logo)
+        elementos.append(Spacer(1, 3))
+    else:
+        elementos.append(Paragraph("iPlace", marca))
     elementos.append(Paragraph("Apple Premium Reseller", ParagraphStyle("sub", fontName="Helvetica", fontSize=9, textColor=_CINZA, alignment=TA_CENTER, spaceAfter=4)))
 
     elementos.append(Paragraph("CERTIFICADO DE GARANTIA ESTENDIDA", tag))
@@ -132,7 +165,7 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     elementos.append(Spacer(1, 6))
 
     cor_status = colors.HexColor("#0a8a3f") if ativa else _VERMELHO
-    texto_status = "✓ Garantia ativa" if ativa else "Garantia expirada"
+    texto_status = "Garantia ativa" if ativa else "Garantia expirada"
     selo_status = Table([[Paragraph(f'<font color="#ffffff"><b>{texto_status}</b></font>', ParagraphStyle("selo", fontName="Helvetica-Bold", fontSize=9, alignment=TA_CENTER))]], colWidths=[45 * mm])
     selo_status.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), cor_status),
@@ -162,23 +195,29 @@ def gerar_certificado_pdf(item: dict[str, Any]) -> bytes:
     )
     elementos.append(Paragraph(legenda, ParagraphStyle("legenda", parent=base, alignment=TA_CENTER)))
 
+    # Bullet "•" (WinAnsi/cp1252, seguro na fonte Helvetica padrao) em vez
+    # de "check"/"x" Unicode (U+2713/U+2717) - esses ficam fora da
+    # codificacao WinAnsi que a fonte padrao do reportlab usa, e apareciam
+    # como caractere quebrado/ausente no PDF final (o "desconfigurado"
+    # reportado) mesmo o texto exibindo certo em ferramentas que so leem a
+    # camada de texto sem renderizar o glyph.
     elementos.append(Paragraph("Diferenciais da Garantia Estendida", secao_titulo))
     elementos.append(Paragraph(
-        "✓ Proteção contra defeitos funcionais de origem mecânica, elétrica ou eletrônica<br/>"
-        "✓ Atendimento na Assistência Técnica iPlace ou em rede credenciada<br/>"
-        "✓ Sem carência nem franquia<br/>"
-        "✓ Peças originais Apple e mão de obra especializada",
+        "• Proteção contra defeitos funcionais de origem mecânica, elétrica ou eletrônica<br/>"
+        "• Atendimento na Assistência Técnica iPlace ou em rede credenciada<br/>"
+        "• Sem carência nem franquia<br/>"
+        "• Peças originais Apple e mão de obra especializada",
         base,
     ))
 
     elementos.append(Paragraph("Não contempla", secao_titulo))
     elementos.append(Paragraph(
-        "✗ Danos acidentais (telas quebradas, quedas, líquidos ou esmagamentos)<br/>"
-        "✗ Desgaste natural de consumíveis, como baterias (salvo defeito de material)<br/>"
-        "✗ Riscos, amassados ou danos estéticos que não afetem o funcionamento<br/>"
-        "✗ Danos por componentes de terceiros ou softwares não oficiais<br/>"
-        "✗ Modificações ou serviços por assistências não autorizadas<br/>"
-        "✗ Roubo ou furto do aparelho",
+        "• Danos acidentais (telas quebradas, quedas, líquidos ou esmagamentos)<br/>"
+        "• Desgaste natural de consumíveis, como baterias (salvo defeito de material)<br/>"
+        "• Riscos, amassados ou danos estéticos que não afetem o funcionamento<br/>"
+        "• Danos por componentes de terceiros ou softwares não oficiais<br/>"
+        "• Modificações ou serviços por assistências não autorizadas<br/>"
+        "• Roubo ou furto do aparelho",
         base,
     ))
 
