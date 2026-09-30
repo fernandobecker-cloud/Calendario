@@ -178,6 +178,7 @@ function calcularPassos({ garantia, erroGarantia, resultado, erro }) {
 
 export default function SacUltimosDisparosPage() {
   const [cpf, setCpf] = useState('')
+  const [cpfBuscado, setCpfBuscado] = useState('')
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [resultado, setResultado] = useState(null)
@@ -200,6 +201,7 @@ export default function SacUltimosDisparosPage() {
       return
     }
     setBuscaFeita(true)
+    setCpfBuscado(cpfLimpo)
     setLoading(true)
     setErro('')
     setResultado(null)
@@ -290,13 +292,24 @@ export default function SacUltimosDisparosPage() {
           ) : (
             <div className="flex flex-col gap-4">
               {garantia.items.map((item, i) => (
-                <dl key={item.ge_contrato ?? i} className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
-                  {Object.entries(item)
-                    .filter(([campo]) => !CAMPOS_GARANTIA_OCULTOS.has(campo))
-                    .map(([campo, valor]) => (
-                      <CampoGarantia key={campo} campo={campo} valor={valor} />
-                    ))}
-                </dl>
+                <div key={item.ge_contrato ?? i} className="rounded-xl bg-slate-50 p-4">
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
+                    {Object.entries(item)
+                      .filter(([campo]) => !CAMPOS_GARANTIA_OCULTOS.has(campo))
+                      .map(([campo, valor]) => (
+                        <CampoGarantia key={campo} campo={campo} valor={valor} />
+                      ))}
+                  </dl>
+                  <a
+                    href={`/api/open-data/comercial/garantia-estendida/certificado-pdf?cpf=${encodeURIComponent(cpfBuscado)}&contrato=${encodeURIComponent(item.ge_contrato ?? '')}`}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                  >
+                    Baixar certificado (PDF)
+                  </a>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Use quando o e-mail original não chegou ao cliente — baixe e envie por WhatsApp ou e-mail próprio.
+                  </p>
+                </div>
               ))}
             </div>
           )}

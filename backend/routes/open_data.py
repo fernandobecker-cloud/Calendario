@@ -2348,6 +2348,60 @@ def garantia_estendida_por_cpf(
         raise HTTPException(status_code=502, detail=f"Falha ao buscar garantia estendida: {exc}") from exc
 
 
+@router.get("/comercial/garantia-estendida/certificado-pdf")
+def garantia_estendida_certificado_pdf(
+    cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
+    contrato: str | None = Query(default=None, description="Numero do contrato (ge_contrato) - se o CPF tiver mais de um, escolhe qual gerar. Sem isso, usa o mais recente."),
+) -> Any:
+    """PDF do certificado de garantia estendida pra o SAC baixar e mandar
+    pro cliente manualmente (WhatsApp, e-mail proprio etc) quando o e-mail
+    original (disparo automatico da Emarsys) nao chegou. Recriado com
+    reportlab a partir do mesmo registro que /comercial/garantia-estendida
+    devolve - ver `backend/services/garantia_certificado.py` pro motivo de
+    nao converter o HTML do e-mail direto (dependencia de sistema que o
+    Render gratuito, sem Docker, nao garante)."""
+    from fastapi.responses import Response
+
+    from backend.services.garantia_certificado import gerar_certificado_pdf
+
+    if not BASE_VENDAS_BQ_PROJECT:
+        raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
+    cpf_normalizado = _normalize_match_key(cpf)
+    if not cpf_normalizado:
+        raise HTTPException(status_code=400, detail="CPF invalido.")
+
+    try:
+        records = run_bigquery_records(
+            _build_garantia_estendida_sql(),
+            BASE_VENDAS_BQ_PROJECT,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=20,
+            params=[bigquery.ScalarQueryParameter("cpf", "STRING", cpf_normalizado)],
+        )
+        if not records:
+            raise HTTPException(status_code=404, detail="Nenhum contrato de garantia estendida encontrado para esse CPF.")
+
+        item = records[0]
+        if contrato:
+            encontrado = next((r for r in records if str(r.get("ge_contrato")) == str(contrato)), None)
+            if not encontrado:
+                raise HTTPException(status_code=404, detail=f"Contrato {contrato} nao encontrado para esse CPF.")
+            item = encontrado
+
+        pdf_bytes = gerar_certificado_pdf(_records_to_response_items([item])[0])
+        numero_contrato = item.get("ge_contrato") or cpf_normalizado
+        filename = f"certificado_garantia_estendida_{numero_contrato}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao gerar certificado: {exc}") from exc
+
+
 def _build_cpf_match_stats_sql() -> str:
     cte = _build_cpf_matched_contacts_cte()
     return f"""
