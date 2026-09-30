@@ -185,6 +185,9 @@ export default function SacUltimosDisparosPage() {
   const [garantia, setGarantia] = useState(null)
   const [erroGarantia, setErroGarantia] = useState('')
   const [buscaFeita, setBuscaFeita] = useState(false)
+  const [baixandoContrato, setBaixandoContrato] = useState(null)
+  const [erroCertificado, setErroCertificado] = useState('')
+  const [contratoComErro, setContratoComErro] = useState(null)
 
   const mostrarResultados = buscaFeita && !loading
 
@@ -227,6 +230,38 @@ export default function SacUltimosDisparosPage() {
     await Promise.all([buscaEmail, buscaGarantia])
     setLoading(false)
   }, [cpf])
+
+  // Busca o PDF via fetch (em vez de um <a href> de navegacao direta) e
+  // abre como blob numa aba nova. Um <a href> puro pra essa URL causava
+  // dois problemas reportados: (1) o navegador pedia usuario/senha de
+  // novo em vez de reaproveitar a sessao ja autenticada da pagina (as
+  // outras chamadas da tela, todas via fetch, nunca pedem), e (2) a
+  // navegacao direta tirava o SAC da tela principal, deixando uma aba em
+  // branco. Via fetch, a sessao HTTP Basic Auth ja autenticada e
+  // reaproveitada normalmente (mesma origem) e a SPA nunca perde o lugar.
+  const handleBaixarCertificado = useCallback(async (contrato) => {
+    setErroCertificado('')
+    setContratoComErro(null)
+    setBaixandoContrato(contrato)
+    try {
+      const res = await fetch(
+        `/api/open-data/comercial/garantia-estendida/certificado-pdf?cpf=${encodeURIComponent(cpfBuscado)}&contrato=${encodeURIComponent(contrato ?? '')}`,
+      )
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      setErroCertificado(err instanceof Error ? err.message : 'Erro ao gerar certificado.')
+      setContratoComErro(contrato)
+    } finally {
+      setBaixandoContrato(null)
+    }
+  }, [cpfBuscado])
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 md:px-6 lg:px-8">
@@ -300,15 +335,22 @@ export default function SacUltimosDisparosPage() {
                         <CampoGarantia key={campo} campo={campo} valor={valor} />
                       ))}
                   </dl>
-                  <a
-                    href={`/api/open-data/comercial/garantia-estendida/certificado-pdf?cpf=${encodeURIComponent(cpfBuscado)}&contrato=${encodeURIComponent(item.ge_contrato ?? '')}`}
-                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                  <button
+                    type="button"
+                    onClick={() => handleBaixarCertificado(item.ge_contrato)}
+                    disabled={baixandoContrato === item.ge_contrato}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
                   >
-                    Baixar certificado (PDF)
-                  </a>
+                    {baixandoContrato === item.ge_contrato ? 'Gerando...' : 'Baixar certificado (PDF)'}
+                  </button>
                   <p className="mt-2 text-xs text-slate-400">
                     Use quando o e-mail original não chegou ao cliente — baixe e envie por WhatsApp ou e-mail próprio.
                   </p>
+                  {erroCertificado && contratoComErro === item.ge_contrato && (
+                    <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700">
+                      {erroCertificado}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
