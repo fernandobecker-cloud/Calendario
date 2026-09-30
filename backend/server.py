@@ -416,10 +416,23 @@ if not is_single_auth_mode() and not has_dual_env_auth():
     init_user_store()
     ensure_bootstrap_admin()
 
+class _ImmutableStaticFiles(StaticFiles):
+    """Nome do arquivo muda a cada build (hash do Vite, ex:
+    index-BR8uX5Uj.js) - dá pra cachear por muito tempo sem risco de servir
+    conteúdo desatualizado (um novo build gera um nome novo). Complementa o
+    Cache-Control: no-cache do index.html em `_serve_index_html`: o HTML
+    nunca fica em cache (sempre revalida), os assets hasheados ficam."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 # Assets gerados pelo Vite (build React)
 app.mount(
     "/assets",
-    StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets"), check_dir=False),
+    _ImmutableStaticFiles(directory=str(FRONTEND_DIST_DIR / "assets"), check_dir=False),
     name="assets",
 )
 
@@ -539,6 +552,20 @@ def fetch_and_parse_csv() -> list[dict[str, Any]]:
     return fetch_and_parse_csv_from_dataframe(dataframe)
 
 
+def _serve_index_html(index_file: Path) -> FileResponse:
+    """index.html referencia os arquivos hasheados do build (ex:
+    index-BR8uX5Uj.js) - se o navegador guardar essa pagina em cache sem
+    revalidar, ele fica preso na versao antiga do JS mesmo depois de um
+    deploy novo (bug real: usuario fechou/abriu o navegador, logou, e o
+    botao de uma feature nova so apareceu depois de dar refresh manual -
+    FileResponse nao seta Cache-Control, e o navegador usa heuristica
+    propria pra decidir se reaproveita a copia antiga sem perguntar pro
+    servidor). Cache-Control: no-cache forca revalidacao (If-None-Match/
+    If-Modified-Since) a cada carregamento - ainda pode devolver 304 (sem
+    reenviar o HTML), so nunca serve uma copia desatualizada sem checar."""
+    return FileResponse(str(index_file), headers={"Cache-Control": "no-cache"})
+
+
 def serve_frontend_file(path: str) -> FileResponse:
     """Serve um arquivo do build React; fallback para index.html (SPA)."""
     index_file = FRONTEND_DIST_DIR / "index.html"
@@ -556,12 +583,15 @@ def serve_frontend_file(path: str) -> FileResponse:
 
     # Bloqueia path traversal para fora da pasta dist
     if FRONTEND_DIST_DIR.resolve() not in target.parents and target != FRONTEND_DIST_DIR.resolve():
-        return FileResponse(str(index_file))
+        return _serve_index_html(index_file)
+
+    if target == index_file.resolve():
+        return _serve_index_html(index_file)
 
     if target.is_file():
         return FileResponse(str(target))
 
-    return FileResponse(str(index_file))
+    return _serve_index_html(index_file)
 
 
 @app.get("/api/me")

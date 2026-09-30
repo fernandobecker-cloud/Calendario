@@ -231,10 +231,10 @@ export default function SacUltimosDisparosPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 md:px-6 lg:px-8">
       <section className="mb-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-500 p-6 text-white shadow-soft md:p-8">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Últimos Disparos (SAC)</h1>
+        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Garantia Estendida</h1>
         <p className="mt-2 text-sm text-indigo-100 md:text-base">
-          Busca pelo CPF do cliente e mostra os últimos 5 e-mails de CRM enviados a ele, com data e se foi aberto.
-          Cobre apenas e-mail — outros canais (SMS, WhatsApp) não aparecem aqui.
+          Busca pelo CPF do cliente e mostra o roteiro de atendimento, os dados da garantia estendida (com opção de
+          baixar o certificado em PDF) e os últimos 5 e-mails de CRM enviados a ele.
         </p>
       </section>
 
