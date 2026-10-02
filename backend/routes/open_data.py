@@ -6615,7 +6615,11 @@ GROUP BY r.order_id
 
 
 def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
-    """Retorna filial+vlr por (Numero_Pedido, Cod_Filial) para desambiguação por valor."""
+    """Retorna filial+vlr+unidade_negocio por (Numero_Pedido, Cod_Filial,
+    Unidade_de_Negocio) para desambiguação por valor. `Unidade_de_Negocio`
+    (VAREJO/ECOMM) deixa claro quando um pedido "Outros" (filial fora do
+    mapa de lojas fisicas, ver FILIAL_REGIONAL_MAP) e e-commerce de
+    verdade, em vez de so inferir pelo codigo da filial."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     project = _quote_identifier(BASE_VENDAS_BQ_PROJECT)
@@ -6627,19 +6631,26 @@ def _build_vendas_filial_by_orders_sql(order_ids: set[str]) -> str:
 SELECT
   Numero_Pedido AS order_id,
   CAST(SAFE_CAST(REGEXP_REPLACE(COALESCE(Cod_Filial, ''), r'[^0-9]', '') AS INT64) AS STRING) AS codigo_filial,
+  COALESCE(NULLIF(TRIM(Unidade_de_Negocio), ''), 'Não informado') AS unidade_negocio,
   ROUND(SUM(COALESCE(SAFE_CAST(REGEXP_REPLACE(COALESCE(TRIM(Vlr_Pedidos_Captados), ''), r'[^0-9.]', '') AS FLOAT64), 0)), 2) AS vlr_captados
 FROM `{project}.{dataset}.{table}`
 WHERE Numero_Pedido IN UNNEST([{ids_values}])
   AND Numero_Pedido IS NOT NULL
   AND TRIM(Numero_Pedido) != ''
-GROUP BY Numero_Pedido, Cod_Filial
+GROUP BY Numero_Pedido, Cod_Filial, Unidade_de_Negocio
 """.strip()
 
 
 def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
-    """Cruza order_ids com vendas_iplace; desambigua filial por order_id+valor quando há duplicatas."""
+    """Cruza order_ids com vendas_iplace; desambigua filial por order_id+valor quando há duplicatas.
+
+    Tambem devolve `unidade_negocio` (VAREJO/ECOMM, coluna `Unidade_de_Negocio`
+    de vendas_iplace): "Outros" regional pode ser e-commerce de verdade
+    (filial/CD fora do mapa de lojas fisicas, FILIAL_REGIONAL_MAP) ou pedido
+    sem match nenhum em vendas_iplace - os dois caiam no mesmo balde antes,
+    sem jeito de diferenciar um do outro so pelo nome "Outros"."""
     if not order_amounts:
-        return {"regionais": [], "total_cruzado": 0, "total_orders": 0}
+        return {"regionais": [], "unidade_negocio": [], "total_cruzado": 0, "total_orders": 0}
 
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
@@ -6659,8 +6670,16 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
             continue
         candidates[oid].append({
             "filial": str(r.get("codigo_filial") or "(sem filial)").strip() or "(sem filial)",
+            "unidade_negocio": str(r.get("unidade_negocio") or "Não informado").strip() or "Não informado",
             "vlr_captados": float(r.get("vlr_captados") or 0),
         })
+
+    unidade_negocio_totais: dict[str, dict[str, Any]] = {}
+
+    def soma_unidade(nome: str, receita: float) -> None:
+        item = unidade_negocio_totais.setdefault(nome, {"unidade_negocio": nome, "linhas": 0, "receita": 0.0})
+        item["linhas"] += 1
+        item["receita"] += receita
 
     # Escolhe melhor filial: única candidata ou a de valor mais próximo ao do Emarsys
     matched = 0
@@ -6669,7 +6688,9 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
         receita = order_amounts.get(order_id, 0.0)
         best = cands[0] if len(cands) == 1 else min(cands, key=lambda c: abs(c["vlr_captados"] - receita))
         filial = best["filial"]
+        unidade_negocio = best["unidade_negocio"]
         matched += 1
+        soma_unidade(unidade_negocio, receita)
 
         store_info = FILIAL_REGIONAL_MAP.get(filial)
         regional = store_info["regional"] if store_info else "Outros"
@@ -6684,6 +6705,7 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
             "codigo_filial": filial,
             "centro_sap": centro_sap,
             "nome": nome_loja,
+            "unidade_negocio": unidade_negocio,
             "linhas": 1,
             "receita": round(receita, 2),
         })
@@ -6696,6 +6718,7 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
         outros = regional_data.setdefault("Outros", {"regional": "Outros", "linhas": 0, "receita": 0.0, "lojas": []})
         outros["linhas"] += 1
         outros["receita"] += receita
+        soma_unidade("Sem match em vendas_iplace", receita)
 
     for rdata in regional_data.values():
         rdata["lojas"].sort(key=lambda x: -x["receita"])
@@ -6703,6 +6726,10 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
 
     return {
         "regionais": sorted(regional_data.values(), key=lambda x: -x["receita"]),
+        "unidade_negocio": sorted(
+            [{**u, "receita": round(u["receita"], 2)} for u in unidade_negocio_totais.values()],
+            key=lambda x: -x["receita"],
+        ),
         "total_cruzado": matched,
         "total_orders": len(order_amounts),
     }

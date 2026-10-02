@@ -330,12 +330,36 @@ function RegionalBreakdown({ data }) {
   }
   const maxRegReceita = regionais[0]?.receita || 1
 
+  const unidadesNegocio = data?.unidade_negocio ?? []
+  const maxUnidadeReceita = Math.max(...unidadesNegocio.map((u) => u.receita || 0), 1)
+
   return (
     <div>
       <p className="mb-3 text-xs text-slate-400">
         {data.total_cruzado.toLocaleString('pt-BR')} de {data.total_orders.toLocaleString('pt-BR')} pedidos com receita
         atribuída cruzados com vendas_iplace - o restante aparece em "Outros".
       </p>
+
+      {unidadesNegocio.length > 0 && (
+        <div className="mb-4">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Por unidade de negócio</h3>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {unidadesNegocio.map((u) => (
+              <div key={u.unidade_negocio} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600">{u.unidade_negocio}</span>
+                  <span className="text-sm font-bold text-slate-900">{formatCurrency(u.receita)}</span>
+                </div>
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-full rounded-full bg-sky-500" style={{ width: `${(u.receita / maxUnidadeReceita) * 100}%` }} />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">{u.linhas.toLocaleString('pt-BR')} pedidos</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         {regionais.map((reg) => (
           <div key={reg.regional} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -367,7 +391,14 @@ function RegionalBreakdown({ data }) {
                       <span className="w-16 shrink-0 font-semibold text-slate-600">
                         LJ{String(f.codigo_filial).padStart(3, '0')}
                       </span>
-                      <span className="flex-1 truncate text-slate-500">{f.nome}</span>
+                      <span className="flex-1 truncate text-slate-500">
+                        {f.nome}
+                        {f.unidade_negocio && (
+                          <span className="ml-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {f.unidade_negocio}
+                          </span>
+                        )}
+                      </span>
                       <div className="w-24 flex-shrink-0">
                         <div className="h-1 overflow-hidden rounded-full bg-slate-200">
                           <div className="h-full rounded-full bg-indigo-300" style={{ width: `${((f.receita || 0) / maxLojaReceita) * 100}%` }} />
