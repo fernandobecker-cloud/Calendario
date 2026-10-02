@@ -6684,6 +6684,12 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
     # Escolhe melhor filial: única candidata ou a de valor mais próximo ao do Emarsys
     matched = 0
     regional_data: dict[str, dict[str, Any]] = {}
+    # Lojas agrupadas por filial (nao por pedido) - uma filial com muitos
+    # pedidos deve virar UMA linha somada, nao uma linha por pedido (bug
+    # relatado: lojas grandes apareciam quebradas em dezenas de linhas de
+    # 1 pedido cada, em vez de somadas).
+    lojas_por_regional: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+
     for order_id, cands in candidates.items():
         receita = order_amounts.get(order_id, 0.0)
         best = cands[0] if len(cands) == 1 else min(cands, key=lambda c: abs(c["vlr_captados"] - receita))
@@ -6698,30 +6704,38 @@ def _cross_orders_regional(order_amounts: dict[str, float]) -> dict[str, Any]:
         centro_sap = store_info["centro_sap"] if store_info else f"LJ{str(filial).zfill(3)}"
 
         if regional not in regional_data:
-            regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0, "lojas": []}
+            regional_data[regional] = {"regional": regional, "linhas": 0, "receita": 0.0}
         regional_data[regional]["linhas"] += 1
         regional_data[regional]["receita"] += receita
-        regional_data[regional]["lojas"].append({
-            "codigo_filial": filial,
-            "centro_sap": centro_sap,
-            "nome": nome_loja,
-            "unidade_negocio": unidade_negocio,
-            "linhas": 1,
-            "receita": round(receita, 2),
-        })
+
+        lojas = lojas_por_regional[regional]
+        if filial not in lojas:
+            lojas[filial] = {
+                "codigo_filial": filial,
+                "centro_sap": centro_sap,
+                "nome": nome_loja,
+                "unidade_negocio": unidade_negocio,
+                "linhas": 0,
+                "receita": 0.0,
+            }
+        lojas[filial]["linhas"] += 1
+        lojas[filial]["receita"] += receita
 
     # Pedidos sem match em vendas_iplace: soma em "Outros" para fechar o total
     matched_order_ids = set(candidates.keys())
     for order_id, receita in order_amounts.items():
         if order_id in matched_order_ids:
             continue
-        outros = regional_data.setdefault("Outros", {"regional": "Outros", "linhas": 0, "receita": 0.0, "lojas": []})
+        outros = regional_data.setdefault("Outros", {"regional": "Outros", "linhas": 0, "receita": 0.0})
         outros["linhas"] += 1
         outros["receita"] += receita
         soma_unidade("Sem match em vendas_iplace", receita)
 
-    for rdata in regional_data.values():
-        rdata["lojas"].sort(key=lambda x: -x["receita"])
+    for regional, rdata in regional_data.items():
+        lojas_list = sorted(lojas_por_regional.get(regional, {}).values(), key=lambda x: -x["receita"])
+        for loja in lojas_list:
+            loja["receita"] = round(loja["receita"], 2)
+        rdata["lojas"] = lojas_list
         rdata["receita"] = round(rdata["receita"], 2)
 
     return {
