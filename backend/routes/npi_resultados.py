@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from backend import sheets_db
 from backend.routes.open_data import (
+    _cross_orders_regional,
     calcular_npi_canal,
     listar_npi_templates_disponiveis,
     reconciliar_revenue_attribution_x_si_purchases,
@@ -191,9 +192,10 @@ def calcular_periodo(periodo_id: int, request: Request, payload: CalcularPayload
     if not payload.template_titles:
         raise HTTPException(status_code=400, detail="Informe pelo menos um template_title.")
 
-    receitas_por_canal = calcular_npi_canal(
+    resultado_calculo = calcular_npi_canal(
         periodo["start_date"], periodo["end_date"], payload.template_titles, payload.janela_dias,
     )
+    receitas_por_canal = resultado_calculo["canal_totais"]
 
     salvos: dict[str, float] = {}
     outros_canais: dict[str, float] = {}
@@ -215,4 +217,30 @@ def calcular_periodo(periodo_id: int, request: Request, payload: CalcularPayload
         "periodo_id": periodo_id,
         "valores_salvos": salvos,
         "outros_canais_nao_salvos": outros_canais,
+    }
+
+
+@router.post("/periodos/{periodo_id}/regional")
+def regional_periodo(periodo_id: int, payload: CalcularPayload) -> dict[str, Any]:
+    """Abertura da receita atribuida (NPI) por regional/loja - mesmo
+    cruzamento order_id -> vendas_iplace ja usado em /sms-apuracao-regional
+    e /email-apuracao-regional (`_cross_orders_regional`). So leitura (nao
+    salva nada), por isso sem checagem de admin - mesmo nivel de acesso de
+    GET /resultados. `order_amounts` vem de `calcular_npi_canal` (so
+    pedidos com canal != sem_atribuicao, ja que "abertura por loja" so faz
+    sentido pra receita de fato atribuida a algum disparo)."""
+    periodo = next((p for p in sheets_db.get_npi_periodos() if p["id"] == periodo_id), None)
+    if not periodo:
+        raise HTTPException(status_code=404, detail="Periodo nao encontrado.")
+    if not payload.template_titles:
+        raise HTTPException(status_code=400, detail="Informe pelo menos um template_title.")
+
+    resultado_calculo = calcular_npi_canal(
+        periodo["start_date"], periodo["end_date"], payload.template_titles, payload.janela_dias,
+    )
+    regional = _cross_orders_regional(resultado_calculo["order_amounts"])
+
+    return {
+        "periodo_id": periodo_id,
+        **regional,
     }

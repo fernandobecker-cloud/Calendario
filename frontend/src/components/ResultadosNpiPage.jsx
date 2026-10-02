@@ -134,16 +134,14 @@ function NovoPeriodoForm({ onCriado, onCancelar }) {
   )
 }
 
-function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
-  const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? '')
+// Fetch + checkbox list dos templates do Omnichat - usado tanto pelo
+// "Calcular automaticamente" quanto por "Ver abertura por regional/loja"
+// (os dois precisam saber quais templates contam como disparo dessa
+// campanha pra classificar o canal, ver calcular_npi_canal).
+function TemplateSelector({ selecionados, onToggle }) {
   const [templatesDisponiveis, setTemplatesDisponiveis] = useState([])
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [templatesErro, setTemplatesErro] = useState('')
-  const [selecionados, setSelecionados] = useState(() => new Set())
-  const [janelaDias, setJanelaDias] = useState(7)
-  const [calculando, setCalculando] = useState(false)
-  const [erro, setErro] = useState('')
-  const [resultado, setResultado] = useState(null)
 
   useEffect(() => {
     let cancelado = false
@@ -163,6 +161,54 @@ function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
       })
     return () => { cancelado = true }
   }, [])
+
+  return (
+    <div className="flex flex-col gap-1 text-sm text-slate-600">
+      Templates do Omnichat que pertencem a essa campanha ({selecionados.size} selecionado{selecionados.size === 1 ? '' : 's'})
+      {templatesLoading ? (
+        <p className="text-xs text-slate-400">Carregando templates...</p>
+      ) : templatesErro ? (
+        <p className="text-xs text-rose-600">{templatesErro}</p>
+      ) : templatesDisponiveis.length === 0 ? (
+        <p className="text-xs text-slate-400">Nenhum template encontrado em dados_omni.</p>
+      ) : (
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-300 bg-white">
+          <table className="min-w-full text-xs">
+            <tbody>
+              {templatesDisponiveis.map((t, i) => (
+                <tr
+                  key={t.template_title}
+                  onClick={() => onToggle(t.template_title)}
+                  className={`cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'} hover:bg-indigo-50`}
+                >
+                  <td className="w-8 px-2 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selecionados.has(t.template_title)}
+                      onChange={() => onToggle(t.template_title)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5 font-mono text-slate-700">{t.template_title}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.total_entregues.toLocaleString('pt-BR')} entregues</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.primeiro_envio} a {t.ultimo_envio}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
+  const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? '')
+  const [selecionados, setSelecionados] = useState(() => new Set())
+  const [janelaDias, setJanelaDias] = useState(7)
+  const [calculando, setCalculando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState(null)
 
   const toggleTemplate = useCallback((titulo) => {
     setSelecionados((prev) => {
@@ -231,42 +277,7 @@ function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
           />
         </label>
       </div>
-      <div className="flex flex-col gap-1 text-sm text-slate-600">
-        Templates do Omnichat que pertencem a essa campanha ({selecionados.size} selecionado{selecionados.size === 1 ? '' : 's'})
-        {templatesLoading ? (
-          <p className="text-xs text-slate-400">Carregando templates...</p>
-        ) : templatesErro ? (
-          <p className="text-xs text-rose-600">{templatesErro}</p>
-        ) : templatesDisponiveis.length === 0 ? (
-          <p className="text-xs text-slate-400">Nenhum template encontrado em dados_omni.</p>
-        ) : (
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-300 bg-white">
-            <table className="min-w-full text-xs">
-              <tbody>
-                {templatesDisponiveis.map((t, i) => (
-                  <tr
-                    key={t.template_title}
-                    onClick={() => toggleTemplate(t.template_title)}
-                    className={`cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'} hover:bg-indigo-50`}
-                  >
-                    <td className="w-8 px-2 py-1.5">
-                      <input
-                        type="checkbox"
-                        checked={selecionados.has(t.template_title)}
-                        onChange={() => toggleTemplate(t.template_title)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5 font-mono text-slate-700">{t.template_title}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.total_entregues.toLocaleString('pt-BR')} entregues</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{t.primeiro_envio} a {t.ultimo_envio}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <TemplateSelector selecionados={selecionados} onToggle={toggleTemplate} />
       <div className="flex gap-3">
         <button type="submit" disabled={calculando} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
           {calculando ? 'Calculando...' : 'Calcular e salvar'}
@@ -291,12 +302,192 @@ function CalcularAutomaticoForm({ periodos, onCalculado, onCancelar }) {
   )
 }
 
+const ChevronIcon = ({ open }) => (
+  <svg className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+    viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+  </svg>
+)
+
+// Abertura por regional/loja - mesmo cruzamento order_id x vendas_iplace e
+// o mesmo layout colapsável já usados em "Canal da Receita Atribuída"
+// (Resultado Geral), via /api/open-data/npi/periodos/{id}/regional.
+function RegionalBreakdown({ data }) {
+  const [expandedRegionals, setExpandedRegionals] = useState(new Set())
+
+  const toggleRegional = useCallback((r) => {
+    setExpandedRegionals((prev) => {
+      const next = new Set(prev)
+      if (next.has(r)) next.delete(r)
+      else next.add(r)
+      return next
+    })
+  }, [])
+
+  const regionais = data?.regionais ?? []
+  if (regionais.length === 0) {
+    return <p className="text-sm text-slate-500">Nenhum pedido cruzado com vendas_iplace nesse período.</p>
+  }
+  const maxRegReceita = regionais[0]?.receita || 1
+
+  return (
+    <div>
+      <p className="mb-3 text-xs text-slate-400">
+        {data.total_cruzado.toLocaleString('pt-BR')} de {data.total_orders.toLocaleString('pt-BR')} pedidos com receita
+        atribuída cruzados com vendas_iplace - o restante aparece em "Outros".
+      </p>
+      <div className="space-y-2">
+        {regionais.map((reg) => (
+          <div key={reg.regional} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() => toggleRegional(reg.regional)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-700">{reg.regional}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs text-slate-400">{reg.linhas.toLocaleString('pt-BR')} pedidos</span>
+                    <span className="text-sm font-bold text-slate-900">{formatCurrency(reg.receita)}</span>
+                    <ChevronIcon open={expandedRegionals.has(reg.regional)} />
+                  </div>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-indigo-400" style={{ width: `${(reg.receita / maxRegReceita) * 100}%` }} />
+                </div>
+              </div>
+            </button>
+            {expandedRegionals.has(reg.regional) && reg.lojas.length > 0 && (
+              <div className="divide-y divide-slate-50 border-t border-slate-100 bg-slate-50">
+                {reg.lojas.map((f) => {
+                  const maxLojaReceita = reg.lojas[0]?.receita || 1
+                  return (
+                    <div key={f.codigo_filial} className="flex items-center gap-3 px-6 py-2 text-xs">
+                      <span className="w-16 shrink-0 font-semibold text-slate-600">
+                        LJ{String(f.codigo_filial).padStart(3, '0')}
+                      </span>
+                      <span className="flex-1 truncate text-slate-500">{f.nome}</span>
+                      <div className="w-24 flex-shrink-0">
+                        <div className="h-1 overflow-hidden rounded-full bg-slate-200">
+                          <div className="h-full rounded-full bg-indigo-300" style={{ width: `${((f.receita || 0) / maxLojaReceita) * 100}%` }} />
+                        </div>
+                      </div>
+                      <span className="w-10 text-right text-slate-400">{f.linhas}p</span>
+                      <span className="w-28 text-right font-semibold text-slate-700">{formatCurrency(f.receita)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function VerRegionalForm({ periodos, onFechar }) {
+  const [periodoId, setPeriodoId] = useState(periodos[0]?.id ?? '')
+  const [selecionados, setSelecionados] = useState(() => new Set())
+  const [janelaDias, setJanelaDias] = useState(7)
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState(null)
+
+  const toggleTemplate = useCallback((titulo) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(titulo)) next.delete(titulo)
+      else next.add(titulo)
+      return next
+    })
+  }, [])
+
+  const handleSubmit = useCallback(async (event) => {
+    event.preventDefault()
+    const templateTitles = Array.from(selecionados)
+    if (!periodoId || templateTitles.length === 0) {
+      setErro('Selecione o período e marque pelo menos um template.')
+      return
+    }
+    setCarregando(true)
+    setErro('')
+    setResultado(null)
+    try {
+      const res = await fetch(`/api/open-data/npi/periodos/${periodoId}/regional`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_titles: templateTitles, janela_dias: Number(janelaDias) || 7 }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setResultado(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar abertura regional.')
+    } finally {
+      setCarregando(false)
+    }
+  }, [periodoId, selecionados, janelaDias])
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50/50 p-4">
+      <p className="text-xs text-slate-500">
+        Abertura da receita atribuída (todos os canais, exceto "Sem atribuição") por regional e por loja - mesmo
+        cruzamento por número de pedido (vendas_iplace) usado no Resultado Geral. Use os mesmos templates do cálculo
+        desse período, pra bater com os valores já salvos.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm text-slate-600">
+          Período
+          <select
+            value={periodoId}
+            onChange={(e) => setPeriodoId(e.target.value)}
+            className="min-w-[180px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          >
+            {periodos.map((p) => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-slate-600">
+          Janela (dias após o toque)
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={janelaDias}
+            onChange={(e) => setJanelaDias(e.target.value)}
+            className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+        </label>
+      </div>
+      <TemplateSelector selecionados={selecionados} onToggle={toggleTemplate} />
+      <div className="flex gap-3">
+        <button type="submit" disabled={carregando} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+          {carregando ? 'Calculando...' : 'Ver abertura'}
+        </button>
+        <button type="button" onClick={onFechar} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+          Fechar
+        </button>
+      </div>
+      {erro && <p className="text-xs text-rose-600">{erro}</p>}
+      {resultado && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <RegionalBreakdown data={resultado} />
+        </div>
+      )}
+    </form>
+  )
+}
+
 export default function ResultadosNpiPage({ currentRole }) {
   const [dados, setDados] = useState(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
   const [mostrarNovoPeriodo, setMostrarNovoPeriodo] = useState(false)
   const [mostrarCalcular, setMostrarCalcular] = useState(false)
+  const [mostrarRegional, setMostrarRegional] = useState(false)
 
   const isAdmin = currentRole === 'admin'
 
@@ -384,26 +575,32 @@ export default function ResultadosNpiPage({ currentRole }) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Receita por canal e período</h2>
-          {isAdmin && (
-            <div className="flex gap-2">
-              {!mostrarNovoPeriodo && (
-                <button
-                  onClick={() => setMostrarNovoPeriodo(true)}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                >
-                  + Adicionar período
-                </button>
-              )}
-              {!mostrarCalcular && periodos.length > 0 && (
-                <button
-                  onClick={() => setMostrarCalcular(true)}
-                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
-                >
-                  ⟳ Calcular automaticamente
-                </button>
-              )}
-            </div>
-          )}
+          <div className="flex gap-2">
+            {isAdmin && !mostrarNovoPeriodo && (
+              <button
+                onClick={() => setMostrarNovoPeriodo(true)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                + Adicionar período
+              </button>
+            )}
+            {isAdmin && !mostrarCalcular && periodos.length > 0 && (
+              <button
+                onClick={() => setMostrarCalcular(true)}
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+              >
+                ⟳ Calcular automaticamente
+              </button>
+            )}
+            {!mostrarRegional && periodos.length > 0 && (
+              <button
+                onClick={() => setMostrarRegional(true)}
+                className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+              >
+                📊 Ver abertura por regional/loja
+              </button>
+            )}
+          </div>
         </div>
 
         {mostrarNovoPeriodo && (
@@ -418,6 +615,13 @@ export default function ResultadosNpiPage({ currentRole }) {
             periodos={periodos}
             onCalculado={carregar}
             onCancelar={() => setMostrarCalcular(false)}
+          />
+        )}
+
+        {mostrarRegional && (
+          <VerRegionalForm
+            periodos={periodos}
+            onFechar={() => setMostrarRegional(false)}
           />
         )}
 

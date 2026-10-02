@@ -1733,6 +1733,7 @@ orders_calc AS (
 exploded AS (
   SELECT
     o.contact_id,
+    o.order_id,
     o.purchase_date,
     'treatment' AS tipo,
     UPPER(t.channel) AS channel,
@@ -1744,6 +1745,7 @@ exploded AS (
 gaps AS (
   SELECT
     o.contact_id,
+    o.order_id,
     o.purchase_date,
     'gap' AS tipo,
     CAST(NULL AS STRING) AS channel,
@@ -1812,16 +1814,22 @@ def calcular_npi_canal(
     end_date: str,
     template_titles: list[str],
     janela_dias: int = 7,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Calcula receita por canal (NPI) pro periodo informado. Roda DUAS
     consultas independentes - uma so no projeto da Emarsys (pedidos +
     valor real do si_purchases), outra so no projeto base-vendas-496714
     (toques de WhatsApp do Omnichat) - e cruza as duas em Python, porque
     uma unica query combinando os dois projetos (junto com si_contacts/
     si_purchases) e bloqueada por VPC Service Controls (ver docstring de
-    `_build_npi_orders_sql`). Devolve {canal: receita} cru (inclui qualquer
-    canal que aparecer, nao so os 5 conhecidos - quem chama decide o que
-    fazer com canais extras, ver `/api/open-data/npi/periodos/{id}/calcular`)."""
+    `_build_npi_orders_sql`). Devolve:
+    - `canal_totais`: {canal: receita} cru (inclui qualquer canal que
+      aparecer, nao so os 5 conhecidos - quem chama decide o que fazer com
+      canais extras, ver `/api/open-data/npi/periodos/{id}/calcular`).
+    - `order_amounts`: {order_id: receita_atribuida} - so pedidos com canal
+      != "sem_atribuicao", pronto pra alimentar `_cross_orders_regional`
+      (mesmo cruzamento order_id -> vendas_iplace ja usado em
+      /sms-apuracao-regional e /email-apuracao-regional) e montar a
+      abertura por regional/loja."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     if not template_titles:
@@ -1880,9 +1888,12 @@ def calcular_npi_canal(
         return False
 
     canal_totais: dict[str, float] = {}
+    order_amounts: dict[str, float] = {}
 
-    def soma(canal: str, valor: float) -> None:
+    def soma(canal: str, valor: float, order_id: str) -> None:
         canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
+        if canal != "sem_atribuicao" and order_id:
+            order_amounts[order_id] = order_amounts.get(order_id, 0.0) + valor
 
     # `orders_records` ja vem achatado (uma linha por treatment/gap, feito
     # dentro do BigQuery em _build_npi_orders_sql) - o Python so decide o
@@ -1895,6 +1906,7 @@ def calcular_npi_canal(
         purchase_date = row.get("purchase_date")
         if purchase_date is None:
             continue
+        order_id = str(row.get("order_id") or "")
 
         if row.get("tipo") == "gap":
             canal = "whatsapp_omni" if tocou_dentro_da_janela(contact_id, purchase_date) else "sem_atribuicao"
@@ -1911,9 +1923,12 @@ def calcular_npi_canal(
                 canal = "sms"
             else:
                 canal = channel.lower() if channel else "outros"
-        soma(canal, amount)
+        soma(canal, amount, order_id)
 
-    return {canal: round(valor, 2) for canal, valor in canal_totais.items()}
+    return {
+        "canal_totais": {canal: round(valor, 2) for canal, valor in canal_totais.items()},
+        "order_amounts": {oid: round(valor, 2) for oid, valor in order_amounts.items()},
+    }
 
 
 def reconciliar_revenue_attribution_x_si_purchases(start_date: str, end_date: str) -> dict[str, Any]:
