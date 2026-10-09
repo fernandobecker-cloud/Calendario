@@ -453,6 +453,11 @@ def upsert_npi_valor(periodo_id: int, canal: str, receita: float, updated_by: st
     return new_item
 
 
+def upsert_npi_valores(periodo_id: int, receitas: dict[str, float], updated_by: str) -> list[dict[str, Any]]:
+    """Mesma interface de bq_db.upsert_npi_valores (la e um MERGE so)."""
+    return [upsert_npi_valor(periodo_id, canal, receita, updated_by) for canal, receita in receitas.items()]
+
+
 def get_projects() -> list[dict[str, Any]]:
     return _load_projects()
 
