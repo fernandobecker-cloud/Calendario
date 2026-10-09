@@ -210,7 +210,7 @@ export default function AppRouter() {
               <>
                 <Route path="/" element={<Navigate to={defaultRoute} replace />} />
                 <Route path="/campanhas" element={currentRole === 'comercial' || currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <App />} />
-                <Route path="/gantt" element={currentRole === 'comercial' || currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <GanttPage />} />
+                <Route path="/gantt" element={currentRole === 'comercial' || currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <GanttPage currentRole={currentRole} />} />
                 <Route path="/resultado-geral" element={currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <ResultadoGeralPage currentRole={currentRole} />} />
                 <Route path="/resultados-npi" element={currentRole === 'sac' ? <Navigate to={defaultRoute} replace /> : <ResultadosNpiPage currentRole={currentRole} />} />
                 <Route path="/sac-disparos" element={currentRole === 'sac' || currentRole === 'admin' ? <SacUltimosDisparosPage /> : <Navigate to={defaultRoute} replace />} />

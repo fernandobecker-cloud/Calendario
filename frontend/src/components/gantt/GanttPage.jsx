@@ -3,6 +3,7 @@ import ActionHeader from './ActionHeader'
 import EditProjectModal from './EditProjectModal'
 import EditTaskModal from './EditTaskModal'
 import GanttChart from './GanttChart'
+import MigrarProjectsBigQuery from './MigrarProjectsBigQuery'
 import ProjectModal from './ProjectModal'
 import TaskModal from './TaskModal'
 
@@ -24,7 +25,7 @@ async function fetchJson(url, options = undefined) {
   return payload
 }
 
-export default function GanttPage() {
+export default function GanttPage({ currentRole }) {
   const [projects, setProjects] = useState([])
   const [tasksByProject, setTasksByProject] = useState({})
   const [expandedProjectIds, setExpandedProjectIds] = useState([])
@@ -288,6 +289,8 @@ export default function GanttPage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-6 lg:px-8">
       <ActionHeader totalProjects={projects.length} totalTasks={totalTasks} onRefresh={loadData} onNewProject={openCreateProject} />
+
+      <MigrarProjectsBigQuery isAdmin={currentRole === 'admin'} />
 
       {error && <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">{error}</section>}
 

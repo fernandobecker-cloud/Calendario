@@ -1,10 +1,18 @@
-"""Projects and tasks CRUD endpoints backed by Google Sheets."""
+"""Projects and tasks CRUD endpoints.
+
+Persistencia escolhida por PROJECTS_STORAGE: "sheets" (default - planilha
+"crm_database", abas "projects"/"tasks", backend/sheets_db.py) ou
+"bigquery" (dataset portal_crm, backend/bq_db.py). Migracao: POST
+/projects-storage/migrar-para-bigquery (admin), depois
+PROJECTS_STORAGE=bigquery no Render; voltar pra "sheets" e o rollback.
+"""
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from dateutil import parser as date_parser
 
 from backend.schemas import (
@@ -16,22 +24,14 @@ from backend.schemas import (
     TaskProgressUpdate,
     TaskUpdate,
 )
-from backend.sheets_db import (
-    SheetsDBError,
-    SheetsDBTimeoutError,
-    create_project,
-    create_task,
-    delete_project,
-    delete_task,
-    get_project,
-    get_projects,
-    get_task,
-    get_tasks,
-    update_project,
-    update_task,
-)
+from backend import bq_db, sheets_db
+from backend.sheets_db import SheetsDBTimeoutError
 
 router = APIRouter(prefix="/api", tags=["projects"])
+
+PROJECTS_STORAGE = os.getenv("PROJECTS_STORAGE", "sheets").strip().lower()
+projects_db = bq_db if PROJECTS_STORAGE == "bigquery" else sheets_db
+_DB_ERRORS = (sheets_db.SheetsDBError, bq_db.BQDBError)
 
 
 def _handle_sheets_error(exc: Exception) -> None:
@@ -124,8 +124,8 @@ def _serialize_task(task: dict) -> dict:
 
 def _to_project_or_404(project_id: int) -> dict:
     try:
-        project = get_project(project_id)
-    except SheetsDBError as exc:
+        project = projects_db.get_project(project_id)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not project:
@@ -135,8 +135,8 @@ def _to_project_or_404(project_id: int) -> dict:
 
 def _to_task_or_404(task_id: int) -> dict:
     try:
-        task = get_task(task_id)
-    except SheetsDBError as exc:
+        task = projects_db.get_task(task_id)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not task:
@@ -175,8 +175,8 @@ def _enforce_dependency_done_rule(task: dict, next_status: str | None) -> None:
 @router.get("/projects", response_model=list[ProjectOut])
 def list_projects() -> list[dict]:
     try:
-        projects = get_projects()
-    except SheetsDBError as exc:
+        projects = projects_db.get_projects()
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     return sorted(projects, key=lambda item: item.get("created_at", ""), reverse=True)
@@ -187,8 +187,8 @@ def create_project_endpoint(payload: ProjectCreate) -> dict:
     _validate_date_range(payload.start_date, payload.end_date)
 
     try:
-        return create_project(payload.model_dump())
-    except SheetsDBError as exc:
+        return projects_db.create_project(payload.model_dump())
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
 
@@ -207,8 +207,8 @@ def update_project_endpoint(project_id: int, payload: ProjectUpdate) -> dict:
     _validate_date_range(start_date, end_date)
 
     try:
-        updated = update_project(project_id, update_data)
-    except SheetsDBError as exc:
+        updated = projects_db.update_project(project_id, update_data)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not updated:
@@ -221,8 +221,8 @@ def delete_project_endpoint(project_id: int) -> dict[str, str]:
     _to_project_or_404(project_id)
 
     try:
-        deleted = delete_project(project_id)
-    except SheetsDBError as exc:
+        deleted = projects_db.delete_project(project_id)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not deleted:
@@ -234,8 +234,8 @@ def delete_project_endpoint(project_id: int) -> dict[str, str]:
 def list_project_tasks(project_id: int) -> list[dict]:
     _to_project_or_404(project_id)
     try:
-        tasks = get_tasks(project_id)
-    except SheetsDBError as exc:
+        tasks = projects_db.get_tasks(project_id)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     tasks_sorted = sorted(tasks, key=lambda item: item.get("created_at", ""))
@@ -255,8 +255,8 @@ def create_task_endpoint(project_id: int, payload: TaskCreate) -> dict:
     _enforce_dependency_done_rule(task_data, task_data.get("status"))
 
     try:
-        created = create_task(project_id, task_data)
-    except SheetsDBError as exc:
+        created = projects_db.create_task(project_id, task_data)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     return _serialize_task(created)
@@ -286,8 +286,8 @@ def update_task_endpoint(task_id: int, payload: TaskUpdate) -> dict:
         update_data["progress"] = 100
 
     try:
-        updated = update_task(task_id, update_data)
-    except SheetsDBError as exc:
+        updated = projects_db.update_task(task_id, update_data)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not updated:
@@ -300,8 +300,8 @@ def delete_task_endpoint(task_id: int) -> dict[str, str]:
     _to_task_or_404(task_id)
 
     try:
-        deleted = delete_task(task_id)
-    except SheetsDBError as exc:
+        deleted = projects_db.delete_task(task_id)
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not deleted:
@@ -317,10 +317,50 @@ def update_task_progress(task_id: int, payload: TaskProgressUpdate) -> dict:
     next_progress = 100 if current.get("status") == "done" else payload.progress
 
     try:
-        updated = update_task(task_id, {"progress": next_progress})
-    except SheetsDBError as exc:
+        updated = projects_db.update_task(task_id, {"progress": next_progress})
+    except _DB_ERRORS as exc:
         _handle_sheets_error(exc)
 
     if not updated:
         raise HTTPException(status_code=404, detail="Tarefa nao encontrada")
     return _serialize_task(updated)
+
+
+@router.get("/projects-storage")
+def projects_storage() -> dict[str, str]:
+    return {"storage": PROJECTS_STORAGE}
+
+
+@router.post("/projects-storage/migrar-para-bigquery")
+def migrar_projects_para_bigquery(request: Request) -> dict:
+    """Copia projects/tasks da planilha pro BigQuery (substitui o que ja
+    estiver nas tabelas, preservando ids) e confere lendo de volta: mesma
+    quantidade e mesmos campos em cada registro. Bloqueado depois da troca
+    pra "bigquery", pra nao sobrescrever o que ja foi lancado la."""
+    auth_user = getattr(request.state, "auth_user", None)
+    if getattr(auth_user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem executar esta acao")
+    if PROJECTS_STORAGE == "bigquery":
+        raise HTTPException(
+            status_code=409,
+            detail="PROJECTS_STORAGE ja e 'bigquery' - migrar de novo sobrescreveria os dados atuais.",
+        )
+    try:
+        projects = sheets_db.get_projects()
+        tasks = sheets_db.get_all_tasks()
+        gravados = bq_db.importar_projects(projects, tasks)
+        projects_bq = bq_db.get_projects()
+        tasks_bq = bq_db.get_all_tasks()
+        chaves_sheets = {bq_db.chave_project(p) for p in projects} | {bq_db.chave_task(t) for t in tasks}
+        chaves_bq = {bq_db.chave_project(p) for p in projects_bq} | {bq_db.chave_task(t) for t in tasks_bq}
+    except _DB_ERRORS as exc:
+        _handle_sheets_error(exc)
+
+    divergentes = sorted({c[0] for c in chaves_sheets ^ chaves_bq})
+    return {
+        "gravados": gravados,
+        "planilha": {"projects": len(projects), "tasks": len(tasks)},
+        "bigquery": {"projects": len(projects_bq), "tasks": len(tasks_bq)},
+        "ids_divergentes": divergentes,
+        "confere": len(projects) == len(projects_bq) and len(tasks) == len(tasks_bq) and not divergentes,
+    }

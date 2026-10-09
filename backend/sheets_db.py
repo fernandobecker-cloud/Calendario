@@ -551,6 +551,10 @@ def delete_project(project_id: int) -> bool:
     return True
 
 
+def get_all_tasks() -> list[dict[str, Any]]:
+    return _load_tasks()
+
+
 def get_tasks(project_id: int) -> list[dict[str, Any]]:
     tasks = _load_tasks()
     return [task for task in tasks if task["project_id"] == project_id]
