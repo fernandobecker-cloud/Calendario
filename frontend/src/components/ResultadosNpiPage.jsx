@@ -512,6 +512,63 @@ function VerRegionalForm({ periodos, onFechar }) {
   )
 }
 
+// Migracao temporaria Sheets -> BigQuery (POST /migrar-para-bigquery). So
+// aparece enquanto o backend ainda roda com NPI_STORAGE=sheets - depois da
+// troca no Render o endpoint passa a recusar e o botao some.
+function MigrarBigQuery() {
+  const [migrando, setMigrando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState(null)
+
+  const migrar = async () => {
+    if (!window.confirm('Copiar os períodos e valores da planilha para o BigQuery? O que já estiver nas tabelas do BigQuery será substituído.')) return
+    setMigrando(true)
+    setErro('')
+    setResultado(null)
+    try {
+      const res = await fetch('/api/open-data/npi/migrar-para-bigquery', { method: 'POST' })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setResultado(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao migrar para o BigQuery.')
+    } finally {
+      setMigrando(false)
+    }
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-amber-800">Migração: os dados desta tela ainda estão no Google Sheets.</p>
+        <button
+          onClick={migrar}
+          disabled={migrando}
+          className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+        >
+          {migrando ? 'Migrando...' : 'Migrar para BigQuery'}
+        </button>
+      </div>
+      {erro && <p className="mt-2 text-xs text-rose-600">{erro}</p>}
+      {resultado && (
+        <div className="mt-3 text-xs text-slate-700">
+          <p className={`font-semibold ${resultado.confere ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {resultado.confere
+              ? '✓ Conferido: planilha e BigQuery batem. Agora configure NPI_STORAGE=bigquery no Render.'
+              : '✗ Os números não bateram - não troque o NPI_STORAGE ainda.'}
+          </p>
+          <p className="mt-1">
+            Planilha: {resultado.planilha.periodos} períodos, {resultado.planilha.valores} valores, {formatCurrency(resultado.planilha.soma_receita)}
+          </p>
+          <p>
+            BigQuery: {resultado.bigquery.periodos} períodos, {resultado.bigquery.valores} valores, {formatCurrency(resultado.bigquery.soma_receita)}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ResultadosNpiPage({ currentRole }) {
   const [dados, setDados] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -602,6 +659,8 @@ export default function ResultadosNpiPage({ currentRole }) {
       </section>
 
       {erro && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
+
+      {isAdmin && dados?.storage === 'sheets' && <MigrarBigQuery />}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

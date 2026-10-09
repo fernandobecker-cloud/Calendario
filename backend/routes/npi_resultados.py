@@ -98,7 +98,7 @@ def get_resultados() -> dict[str, Any]:
         if v["periodo_id"] in tabela and v["canal"] in CANAL_KEYS:
             tabela[v["periodo_id"]][v["canal"]] = v["receita"]
 
-    return {"canais": CANAIS, "periodos": periodos, "valores": tabela}
+    return {"canais": CANAIS, "periodos": periodos, "valores": tabela, "storage": NPI_STORAGE}
 
 
 class PeriodoPayload(BaseModel):
