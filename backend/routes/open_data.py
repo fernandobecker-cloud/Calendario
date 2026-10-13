@@ -1667,7 +1667,11 @@ _NPI_APPLE_ITEM_SQL = (
 
 
 def _build_npi_orders_sql() -> str:
-    """So referencia tabelas do projeto/dataset da Emarsys - nunca
+    """Datas (compra, toque) sempre no fuso de Brasilia - em UTC, um disparo
+    ou venda depois das 21h caia no dia seguinte (e um disparo de "ultimas
+    horas" na noite do ultimo dia do periodo ia pro periodo seguinte).
+
+    So referencia tabelas do projeto/dataset da Emarsys - nunca
     `apuracao_npi26` (projeto externo `base-vendas-496714`) na mesma query.
     Motivo: uma versao anterior desta funcao juntava as duas coisas numa
     query so, e o BigQuery passou a recusar com "VPC Service Controls:
@@ -1692,7 +1696,7 @@ WITH orders AS (
       ra.contact_id, ra.order_id, ra.event_time, ra.treatments,
       ROW_NUMBER() OVER (PARTITION BY ra.order_id, ra.contact_id ORDER BY ra.event_time) AS rn
     FROM `{project_id}.{dataset}.{revenue_table}` ra
-    WHERE DATE(ra.event_time) BETWEEN @start_date AND @end_date
+    WHERE DATE(ra.event_time, 'America/Sao_Paulo') BETWEEN @start_date AND @end_date
   )
   WHERE rn = 1
 ),
@@ -1735,7 +1739,7 @@ orders_calc AS (
   SELECT
     CAST(o.contact_id AS STRING) AS contact_id,
     o.order_id,
-    DATE(o.event_time) AS purchase_date,
+    DATE(o.event_time, 'America/Sao_Paulo') AS purchase_date,
     IFNULL(si.order_total_si, 0) AS order_total,
     IFNULL(si.apple_amount_si, 0) AS apple_amount,
     IFNULL(si.apple_qty_si, 0) AS apple_qty,
@@ -1759,7 +1763,7 @@ exploded AS (
     'treatment' AS tipo,
     UPPER(t.channel) AS channel,
     CAST(t.campaign_id AS STRING) AS campaign_id,
-    DATE(t.event_time) AS event_date,
+    DATE(t.event_time, 'America/Sao_Paulo') AS event_date,
     ROUND(t.attributed_amount, 2) AS amount,
     o.order_total, o.apple_amount, o.apple_qty, o.outros_qty
   FROM orders_calc o, UNNEST(o.treatments) t
@@ -1821,11 +1825,11 @@ WITH bridge AS (
     AND CAST(user_id AS STRING) IN UNNEST(@contact_ids)
 ),
 omni_filtrado AS (
-  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date, template_title
+  SELECT phone, DATE(campaign_message_created_at, 'America/Sao_Paulo') AS dispatch_date, template_title
   FROM {omni_table}
   WHERE delivered = 1
     AND template_title IN UNNEST(@template_titles)
-    AND DATE(campaign_message_created_at)
+    AND DATE(campaign_message_created_at, 'America/Sao_Paulo')
       BETWEEN DATE_SUB(@start_date, INTERVAL @janela_dias DAY) AND @end_date
 )
 SELECT DISTINCT b.contact_id, o.dispatch_date, o.template_title
@@ -1998,11 +2002,14 @@ def calcular_npi_canal(
         else:
             event_date = row.get("event_date")
             channel = str(row.get("channel") or "")
-            toque = toque_na_janela(contact_id, purchase_date, limite=event_date)
             data_toque = event_date
-            if toque is not None:
+            if toque_na_janela(contact_id, purchase_date, limite=event_date) is not None:
+                # Canal decidido pela regra de sempre (toque do Omni ANTES do
+                # treatment); o template creditado e o ultimo toque do Omni
+                # antes da COMPRA - senao um "ultimas horas" mandado depois
+                # do email perdia o credito pro disparo anterior.
                 canal = "whatsapp_omni"
-                data_toque, disparo_id = toque
+                data_toque, disparo_id = toque_na_janela(contact_id, purchase_date)
             elif channel == "WHATSAPP":
                 canal = "whatsapp_nativo"
             elif channel == "EMAIL":
@@ -2110,8 +2117,8 @@ def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
 SELECT
   template_title,
   COUNT(*) AS total_entregues,
-  MIN(DATE(campaign_message_created_at)) AS primeiro_envio,
-  MAX(DATE(campaign_message_created_at)) AS ultimo_envio
+  MIN(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS primeiro_envio,
+  MAX(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS ultimo_envio
 FROM {omni_table}
 WHERE delivered = 1 AND template_title IS NOT NULL AND TRIM(template_title) != ''
 GROUP BY template_title

@@ -127,7 +127,11 @@ def _build_emarsys_metricas_sql() -> str:
   GROUP BY ids.id
 )"""
 
-    envio = f"MIN(DATE(x.event_time, '{_TZ}')) AS data, COUNT(DISTINCT x.contact_id) AS n"
+    # Data de disparo = primeiro envio DENTRO do periodo (automacao dispara todo
+    # dia - o MIN da janela larga mostrava 45 dias antes do inicio).
+    dia = f"DATE(x.event_time, '{_TZ}')"
+    data_disparo = f"COALESCE(MIN(IF({dia} BETWEEN @start AND @end, {dia}, NULL)), MIN({dia})) AS data"
+    envio = f"{data_disparo}, COUNT(DISTINCT x.contact_id) AS n"
     contatos = "COUNT(DISTINCT x.contact_id) AS n"
     conversas = "COUNT(DISTINCT x.conversation_id) AS n"
 
@@ -151,7 +155,7 @@ def _build_emarsys_metricas_sql() -> str:
 
         ids("wa_ids", "conversation_sends", "message_id", "wa_ids", particionada=False),
         agregado("wa_envios", "conversation_sends", "message_id", "wa_ids",
-                 f"MIN(DATE(x.event_time, '{_TZ}')) AS data, {conversas}", particionada=False),
+                 f"{data_disparo}, {conversas}", particionada=False),
         agregado("wa_entregues", "conversation_deliveries", "message_id", "wa_ids", conversas,
                  extra="UPPER(CAST(x.status AS STRING)) = 'DELIVERED'", particionada=False),
         agregado("wa_lidas", "conversation_opens", "message_id", "wa_ids", conversas, particionada=False),
@@ -197,7 +201,11 @@ def _build_omni_metricas_sql() -> str:
     return f"""
 SELECT
   template_title AS id,
-  MIN(DATE(campaign_message_created_at)) AS data,
+  COALESCE(
+    MIN(IF(DATE(campaign_message_created_at, 'America/Sao_Paulo') BETWEEN @start AND @end,
+           DATE(campaign_message_created_at, 'America/Sao_Paulo'), NULL)),
+    MIN(DATE(campaign_message_created_at, 'America/Sao_Paulo'))
+  ) AS data,
   COUNT(DISTINCT campaign_message_id) AS envios,
   COUNT(DISTINCT phone) AS audiencia,
   COUNT(DISTINCT IF({flag.format(c='delivered')}, campaign_message_id, NULL)) AS entregues,
@@ -205,7 +213,7 @@ SELECT
   COUNT(DISTINCT IF({flag.format(c='click')}, campaign_message_id, NULL)) AS cliques
 FROM {omni_table}
 WHERE template_title IN UNNEST(@template_titles)
-  AND DATE(campaign_message_created_at) BETWEEN DATE_SUB(@start, INTERVAL @janela_dias DAY) AND @end
+  AND DATE(campaign_message_created_at, 'America/Sao_Paulo') BETWEEN DATE_SUB(@start, INTERVAL @janela_dias DAY) AND @end
 GROUP BY template_title
 """.strip()
 
