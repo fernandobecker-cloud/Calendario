@@ -1764,6 +1764,12 @@ exploded AS (
     UPPER(t.channel) AS channel,
     CAST(t.campaign_id AS STRING) AS campaign_id,
     DATE(t.event_time, 'America/Sao_Paulo') AS event_date,
+    -- Engajamento que gerou o credito (abertura no email, envio no
+    -- WhatsApp/SMS) - a janela de 7 dias conta daqui, como na Emarsys.
+    DATE(COALESCE(t.reason.event_time, t.event_time), 'America/Sao_Paulo') AS engagement_date,
+    -- Data do disparo (decide o periodo): a mais antiga das duas - o envio
+    -- vem antes da abertura.
+    DATE(LEAST(t.event_time, COALESCE(t.reason.event_time, t.event_time)), 'America/Sao_Paulo') AS send_date,
     ROUND(t.attributed_amount, 2) AS amount,
     o.order_total, o.apple_amount, o.apple_qty, o.outros_qty
   FROM orders_calc o, UNNEST(o.treatments) t
@@ -1778,6 +1784,8 @@ gaps AS (
     CAST(NULL AS STRING) AS channel,
     CAST(NULL AS STRING) AS campaign_id,
     CAST(NULL AS DATE) AS event_date,
+    CAST(NULL AS DATE) AS engagement_date,
+    CAST(NULL AS DATE) AS send_date,
     ROUND(o.order_total - IFNULL((
       SELECT SUM(t.attributed_amount) FROM UNNEST(o.treatments) t WHERE t.attributed_amount > 0
     ), 0), 2) AS amount,
@@ -1870,8 +1878,10 @@ def calcular_npi_canal(
     receita de um periodo e a dos disparos feitos DENTRO dele, com compra em
     ate `janela_dias` depois do toque - mesmo que a compra caia depois do
     fim do periodo (disparo de 30/09 conta as vendas de ate 07/10 em
-    setembro). Por isso os pedidos sao buscados ate fim + janela. Cada
-    linha atribuida vira:
+    setembro). Por isso os pedidos sao buscados ate fim + janela. A janela
+    conta do ENGAJAMENTO (abertura no email, envio no WhatsApp/SMS - mesma
+    regra da Emarsys, `t.reason.event_time`) e o periodo e o da data do
+    DISPARO. Omnichat: envio pros dois. Cada linha atribuida vira:
     - canal, se o toque (treatment da Emarsys ou disparo do Omni) foi no
       periodo e a compra ate `janela_dias` depois;
     - descartada, se o toque foi no periodo ANTERIOR dentro da janela (essa
@@ -1948,13 +1958,16 @@ def calcular_npi_canal(
     disparos: dict[tuple[str, str], dict[str, Any]] = {}
 
     def soma(canal: str, valor: float, order_id: str, disparo_id: str, row: dict[str, Any],
-             data_toque: date | None) -> None:
+             data_disparo: date | None, data_janela: date | None) -> None:
         purchase_date = row["purchase_date"]
         if canal != "sem_atribuicao":
-            toque_valido = data_toque is not None and 0 <= (purchase_date - data_toque).days <= janela_dias
-            if toque_valido and inicio <= data_toque <= fim:
+            toque_valido = (
+                data_disparo is not None and data_janela is not None
+                and 0 <= (purchase_date - data_janela).days <= janela_dias
+            )
+            if toque_valido and inicio <= data_disparo <= fim:
                 pass  # disparo do periodo - conta aqui
-            elif toque_valido and data_toque < inicio:
+            elif toque_valido and data_disparo < inicio:
                 return  # disparo do periodo anterior - conta la
             else:
                 canal = "sem_atribuicao"
@@ -1999,10 +2012,12 @@ def calcular_npi_canal(
             toque = toque_na_janela(contact_id, purchase_date)
             canal = "whatsapp_omni" if toque is not None else "sem_atribuicao"
             data_toque, disparo_id = toque if toque else (None, "")
+            data_janela = data_toque
         else:
             event_date = row.get("event_date")
             channel = str(row.get("channel") or "")
-            data_toque = event_date
+            data_toque = row.get("send_date") or event_date
+            data_janela = row.get("engagement_date") or event_date
             if toque_na_janela(contact_id, purchase_date, limite=event_date) is not None:
                 # Canal decidido pela regra de sempre (toque do Omni ANTES do
                 # treatment); o template creditado e o ultimo toque do Omni
@@ -2010,6 +2025,7 @@ def calcular_npi_canal(
                 # do email perdia o credito pro disparo anterior.
                 canal = "whatsapp_omni"
                 data_toque, disparo_id = toque_na_janela(contact_id, purchase_date)
+                data_janela = data_toque
             elif channel == "WHATSAPP":
                 canal = "whatsapp_nativo"
             elif channel == "EMAIL":
@@ -2018,7 +2034,7 @@ def calcular_npi_canal(
                 canal = "sms"
             else:
                 canal = channel.lower() if channel else "outros"
-        soma(canal, amount, order_id, disparo_id, row, data_toque)
+        soma(canal, amount, order_id, disparo_id, row, data_toque, data_janela)
 
     return {
         "canal_totais": {canal: round(valor, 2) for canal, valor in canal_totais.items()},
