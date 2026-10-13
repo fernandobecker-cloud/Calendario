@@ -1,13 +1,16 @@
 """Relatorio da Apple (FY26 Report Campaign Template, aba CRM) - uma linha por
 disparo dos periodos NPI, nas colunas A..AB do template.
 
-Receita (T/V) e a MESMA da aba Resultados NPI: `calcular_npi_canal` rodado
-por periodo, so que quebrado por disparo (ver `disparos` la) - a soma das
-linhas de um canal bate com a celula daquele canal na aba NPI (menos o
-"Sem atribuicao", que nao e disparo). Entram todas as campanhas com envio
-dentro dos periodos escolhidos ou com receita atribuida neles (decisao do
-usuario: "todas dentro dos periodos NPI"), mais os templates do Omnichat
-marcados na tela.
+Receita (T/V) usa as MESMAS regras de canal da aba Resultados NPI
+(`calcular_npi_canal`, quebrado por disparo - ver `disparos` la), com uma
+diferenca pedida pelo usuario: a janela de 7 dias conta a partir do
+DISPARO, mesmo que a venda caia no periodo/mes seguinte. Por isso cada
+periodo e calculado com pedidos ate fim + janela, mas so credita disparos
+feitos dentro do periodo (sem contar duas vezes entre periodos). A soma por
+canal fica diferente da aba NPI (que corta no fim do periodo) - a tela
+mostra as duas lado a lado. Entram todas as campanhas com envio dentro dos
+periodos escolhidos ou com receita atribuida (decisao do usuario: "todas
+dentro dos periodos NPI"), mais os templates do Omnichat marcados.
 
 Metricas (J..Q) vem das tabelas de evento da Emarsys por campaign_id (Email,
 SMS, WhatsApp nativo - cujo campaign_id na atribuicao e o message_id das
@@ -26,7 +29,7 @@ enviados.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -219,13 +222,16 @@ def montar_relatorio(periodos: list[dict[str, Any]], template_titles: list[str],
     start = min(p["start_date"] for p in periodos)
     end = max(p["end_date"] for p in periodos)
 
-    # 1) Receita por disparo - mesmo calculo da aba NPI, periodo a periodo.
+    # 1) Receita por disparo - regras da aba NPI, periodo a periodo, com a
+    # janela contada do disparo (pedidos ate fim + janela).
     receita: dict[tuple[str, str], dict[str, Any]] = {}
-    canal_totais: dict[str, float] = {}
     for p in periodos:
-        calc = calcular_npi_canal(p["start_date"], p["end_date"], template_titles, janela_dias)
-        for canal, valor in calc["canal_totais"].items():
-            canal_totais[canal] = round(canal_totais.get(canal, 0.0) + valor, 2)
+        inicio = date.fromisoformat(p["start_date"])
+        fim = date.fromisoformat(p["end_date"])
+        calc = calcular_npi_canal(
+            p["start_date"], (fim + timedelta(days=janela_dias)).isoformat(), template_titles, janela_dias,
+            disparo_inicio=inicio, disparo_fim=fim,
+        )
         for d in calc["disparos"]:
             key = (_canal_de(d["canal"]), d["disparo_id"])
             acc = receita.setdefault(key, {
@@ -338,20 +344,26 @@ def montar_relatorio(periodos: list[dict[str, Any]], template_titles: list[str],
 
     linhas.sort(key=lambda l: (l["B_data_disparo"] or "9999", l["H_formato"], l["nome_campanha"]))
 
-    # Conferencia com a aba NPI: soma das linhas por canal x canal_totais.
-    conferencia = {}
-    for canal, total in canal_totais.items():
+    # Comparacao (informativa) com o que esta salvo na aba NPI pros mesmos
+    # periodos - difere porque aqui a venda pode cair depois do fim do periodo.
+    ids_periodos = {p["id"] for p in periodos}
+    aba_npi: dict[str, float] = {}
+    for v in npi_db.get_npi_valores():
+        if v["periodo_id"] in ids_periodos:
+            aba_npi[v["canal"]] = round(aba_npi.get(v["canal"], 0.0) + v["receita"], 2)
+    comparacao = {}
+    for canal in sorted(set(aba_npi) | {l["canal"] for l in linhas}):
         if canal == "sem_atribuicao":
             continue
-        soma = round(sum(l["receita_atribuida"] for l in linhas if l["canal"] == _canal_de(canal)), 2)
-        conferencia[canal] = {"aba_npi": total, "relatorio": soma, "confere": abs(soma - total) < 0.05}
+        soma = round(sum(l["receita_atribuida"] for l in linhas if l["canal"] == canal), 2)
+        comparacao[canal] = {"aba_npi": aba_npi.get(canal, 0.0), "relatorio": soma}
 
     return {
         "inicio": start,
         "fim": end,
+        "janela_dias": janela_dias,
         "linhas": linhas,
-        "conferencia_npi": conferencia,
-        "sem_atribuicao": canal_totais.get("sem_atribuicao", 0.0),
+        "comparacao_npi": comparacao,
     }
 
 

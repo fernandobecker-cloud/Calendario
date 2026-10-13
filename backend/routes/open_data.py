@@ -1839,6 +1839,8 @@ def calcular_npi_canal(
     end_date: str,
     template_titles: list[str],
     janela_dias: int = 7,
+    disparo_inicio: date | None = None,
+    disparo_fim: date | None = None,
 ) -> dict[str, Any]:
     """Calcula receita por canal (NPI) pro periodo informado. Roda DUAS
     consultas independentes - uma so no projeto da Emarsys (pedidos +
@@ -1860,7 +1862,13 @@ def calcular_npi_canal(
       pro Omnichat, com abertura Apple x nao Apple (receita e unidades
       rateadas pela fatia do pedido atribuida). Sem "sem_atribuicao". Soma
       de `receita` por canal == `canal_totais`. Usado pelo relatorio da
-      Apple (backend/routes/relatorio_apple.py)."""
+      Apple (backend/routes/relatorio_apple.py).
+      Com `disparo_inicio`/`disparo_fim`, `disparos` so recebe receita de
+      toques (disparo da Emarsys ou do Omni) feitos nesse intervalo e com a
+      compra em ate `janela_dias` depois do toque - o relatorio da Apple
+      chama com start/end estendidos (fim + janela) pra pegar a venda que
+      cai no periodo/mes seguinte ao disparo. `canal_totais` ignora esse
+      filtro."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     if not template_titles:
@@ -1908,9 +1916,9 @@ def calcular_npi_canal(
             continue
         touches_by_contact.setdefault(contact_id, []).append((dispatch_date, str(r.get("template_title") or "")))
 
-    def toque_na_janela(contact_id: str, referencia: date, limite: date | None = None) -> str | None:
-        """Template do toque do Omni mais recente dentro da janela (o que
-        leva o credito no relatorio por disparo), ou None se nao houve."""
+    def toque_na_janela(contact_id: str, referencia: date, limite: date | None = None) -> tuple[date, str] | None:
+        """(data, template) do toque do Omni mais recente dentro da janela (o
+        que leva o credito no relatorio por disparo), ou None se nao houve."""
         melhor: tuple[date, str] | None = None
         for dispatch_date, template in touches_by_contact.get(contact_id, []):
             dias = (referencia - dispatch_date).days
@@ -1920,18 +1928,28 @@ def calcular_npi_canal(
                 continue
             if melhor is None or (dispatch_date, template) > melhor:
                 melhor = (dispatch_date, template)
-        return melhor[1] if melhor else None
+        return melhor
 
     canal_totais: dict[str, float] = {}
     order_amounts: dict[str, float] = {}
     disparos: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def soma(canal: str, valor: float, order_id: str, disparo_id: str, row: dict[str, Any]) -> None:
+    def soma(canal: str, valor: float, order_id: str, disparo_id: str, row: dict[str, Any],
+             data_toque: date | None) -> None:
         canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
         if canal == "sem_atribuicao":
             return
         if order_id:
             order_amounts[order_id] = order_amounts.get(order_id, 0.0) + valor
+        if disparo_inicio is not None or disparo_fim is not None:
+            if data_toque is None:
+                return
+            if disparo_inicio is not None and data_toque < disparo_inicio:
+                return
+            if disparo_fim is not None and data_toque > disparo_fim:
+                return
+            if not 0 <= (row["purchase_date"] - data_toque).days <= janela_dias:
+                return
         d = disparos.setdefault((canal, disparo_id), {
             "canal": canal, "disparo_id": disparo_id, "receita": 0.0, "receita_apple": 0.0,
             "receita_sem_detalhe": 0.0, "unidades_apple": 0.0, "unidades_outros": 0.0, "pedidos": set(),
@@ -1963,16 +1981,17 @@ def calcular_npi_canal(
         disparo_id = str(row.get("campaign_id") or "")
 
         if row.get("tipo") == "gap":
-            template = toque_na_janela(contact_id, purchase_date)
-            canal = "whatsapp_omni" if template is not None else "sem_atribuicao"
-            disparo_id = template or ""
+            toque = toque_na_janela(contact_id, purchase_date)
+            canal = "whatsapp_omni" if toque is not None else "sem_atribuicao"
+            data_toque, disparo_id = toque if toque else (None, "")
         else:
             event_date = row.get("event_date")
             channel = str(row.get("channel") or "")
-            template = toque_na_janela(contact_id, purchase_date, limite=event_date)
-            if template is not None:
+            toque = toque_na_janela(contact_id, purchase_date, limite=event_date)
+            data_toque = event_date
+            if toque is not None:
                 canal = "whatsapp_omni"
-                disparo_id = template
+                data_toque, disparo_id = toque
             elif channel == "WHATSAPP":
                 canal = "whatsapp_nativo"
             elif channel == "EMAIL":
@@ -1981,7 +2000,7 @@ def calcular_npi_canal(
                 canal = "sms"
             else:
                 canal = channel.lower() if channel else "outros"
-        soma(canal, amount, order_id, disparo_id, row)
+        soma(canal, amount, order_id, disparo_id, row, data_toque)
 
     return {
         "canal_totais": {canal: round(valor, 2) for canal, valor in canal_totais.items()},
