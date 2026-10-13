@@ -512,6 +512,203 @@ function VerRegionalForm({ periodos, onFechar }) {
   )
 }
 
+// Colunas A..AB da aba CRM do "FY26 Report Campaign Template" da Apple, na
+// ordem do template: [titulo, campo na linha do backend, formato].
+const COLUNAS_RELATORIO_APPLE = [
+  ['Parceiro', 'A_parceiro', 'texto'],
+  ['Data de disparo', 'B_data_disparo', 'data'],
+  ['Audiência', 'C_audiencia', 'texto'],
+  ['Texto / Assunto', 'D_texto_assunto', 'texto'],
+  ['Asset', 'E_asset', 'texto'],
+  ['Destino', 'F_destino', 'texto'],
+  ['Sistema operacional', 'G_sistema_operacional', 'texto'],
+  ['Formato', 'H_formato', 'texto'],
+  ['Tamanho da audiência', 'I_tamanho_audiencia', 'inteiro'],
+  ['Envios', 'J_envios', 'inteiro'],
+  ['Entregues', 'K_entregues', 'inteiro'],
+  ['Bounce rate', 'L_bounce', 'pct'],
+  ['Aberturas', 'M_aberturas', 'inteiro'],
+  ['Open rate', 'N_open_rate', 'pct'],
+  ['Cliques', 'O_cliques', 'inteiro'],
+  ['CTR', 'P_ctr', 'pct'],
+  ['Opt-out', 'Q_optout', 'pct'],
+  ['Leads gerados', 'R_leads', 'inteiro'],
+  ['Unidades Apple', 'S_unidades_apple', 'inteiro'],
+  ['Apple Revenue', 'T_receita_apple', 'decimal'],
+  ['Unidades não Apple', 'U_unidades_nao_apple', 'inteiro'],
+  ['Revenue não Apple', 'V_receita_nao_apple', 'decimal'],
+  ['CPM', 'W_cpm', 'decimal'],
+  ['CPC', 'X_cpc', 'decimal'],
+  ['CPA', 'Y_cpa', 'decimal'],
+  ['ROAS', 'Z_roas', 'decimal'],
+  ['Investimento', 'AA_investimento', 'decimal'],
+  ['Contexto', 'AB_contexto', 'texto'],
+]
+
+function formatarCelulaCsv(valor, formato) {
+  if (valor == null || valor === '') return ''
+  if (formato === 'data') {
+    const m = String(valor).match(/^(\d{4})-(\d{2})-(\d{2})/)
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : String(valor)
+  }
+  if (formato === 'inteiro') return String(Math.round(Number(valor)))
+  if (formato === 'decimal') return Number(valor).toFixed(2).replace('.', ',')
+  if (formato === 'pct') return `${(Number(valor) * 100).toFixed(2).replace('.', ',')}%`
+  const texto = String(valor)
+  return /[;"\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto
+}
+
+// CSV com ";" e virgula decimal - mesmo formato do template que o usuario
+// recebe, abre direto no Excel em pt-BR. BOM pra acentuacao.
+function baixarCsvRelatorioApple(linhas, inicio, fim) {
+  const cabecalho = COLUNAS_RELATORIO_APPLE.map(([titulo]) => titulo).join(';')
+  const corpo = linhas.map((l) => COLUNAS_RELATORIO_APPLE.map(([, campo, fmt]) => formatarCelulaCsv(l[campo], fmt)).join(';'))
+  const blob = new Blob(['﻿' + [cabecalho, ...corpo].join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `relatorio-apple-crm_${inicio}_a_${fim}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function RelatorioAppleForm({ periodos, onFechar }) {
+  const [periodoIds, setPeriodoIds] = useState(() => new Set(periodos.map((p) => p.id)))
+  const [selecionados, setSelecionados] = useState(() => new Set())
+  const [janelaDias, setJanelaDias] = useState(7)
+  const [gerando, setGerando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [resultado, setResultado] = useState(null)
+
+  const togglePeriodo = (id) => setPeriodoIds((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const toggleTemplate = (titulo) => setSelecionados((prev) => {
+    const next = new Set(prev)
+    if (next.has(titulo)) next.delete(titulo)
+    else next.add(titulo)
+    return next
+  })
+
+  const gerar = async (e) => {
+    e.preventDefault()
+    setGerando(true)
+    setErro('')
+    setResultado(null)
+    try {
+      const res = await fetch('/api/relatorio-apple/npi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo_ids: [...periodoIds], template_titles: [...selecionados], janela_dias: janelaDias }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setResultado(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar o relatório.')
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  const conferencia = Object.entries(resultado?.conferencia_npi ?? {})
+  const tudoConfere = conferencia.every(([, c]) => c.confere)
+
+  return (
+    <form onSubmit={gerar} className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-semibold text-slate-700">Relatório Apple (aba CRM) - uma linha por disparo, receita igual à desta tela</p>
+      <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+        {periodos.map((p) => (
+          <label key={p.id} className="flex items-center gap-1.5">
+            <input type="checkbox" checked={periodoIds.has(p.id)} onChange={() => togglePeriodo(p.id)} />
+            {p.nome} <span className="text-slate-400">({formatarPeriodo(p)})</span>
+          </label>
+        ))}
+      </div>
+      <TemplateSelector selecionados={selecionados} onToggle={toggleTemplate} />
+      <label className="flex items-center gap-2 text-sm text-slate-600">
+        Janela de atribuição (dias)
+        <input
+          type="number"
+          min={1}
+          max={30}
+          value={janelaDias}
+          onChange={(e) => setJanelaDias(Number(e.target.value) || 7)}
+          className="w-20 rounded-lg border border-slate-300 px-2 py-1"
+        />
+      </label>
+      <p className="text-xs text-slate-500">
+        Use os mesmos templates e a mesma janela do "Calcular automaticamente", senão a receita não bate com a tabela.
+      </p>
+      <div className="flex gap-2">
+        <button type="submit" disabled={gerando || periodoIds.size === 0} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+          {gerando ? 'Gerando (pode levar 1-2 min)...' : 'Gerar relatório'}
+        </button>
+        <button type="button" onClick={onFechar} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+          Fechar
+        </button>
+      </div>
+      {erro && <p className="text-xs text-rose-600">{erro}</p>}
+      {resultado && (
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-slate-700">{resultado.linhas.length} disparos</p>
+            <button
+              type="button"
+              onClick={() => baixarCsvRelatorioApple(resultado.linhas, resultado.inicio, resultado.fim)}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+            >
+              Baixar CSV (colunas do template)
+            </button>
+          </div>
+          <p className={`text-xs font-semibold ${tudoConfere ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {tudoConfere ? '✓ Receita por canal bate com a tabela de NPI' : '✗ Receita por canal diferente da tabela de NPI - confira templates/janela'}
+          </p>
+          <ul className="text-xs text-slate-600">
+            {conferencia.map(([canal, c]) => (
+              <li key={canal}>{canal}: relatório {formatCurrency(c.relatorio)} / tabela NPI {formatCurrency(c.aba_npi)}</li>
+            ))}
+            <li>Sem atribuição (fora do relatório): {formatCurrency(resultado.sem_atribuicao)}</li>
+          </ul>
+          <div className="max-h-80 overflow-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="px-2 py-1">Data</th>
+                  <th className="px-2 py-1">Formato</th>
+                  <th className="px-2 py-1">Campanha</th>
+                  <th className="px-2 py-1 text-right">Envios</th>
+                  <th className="px-2 py-1 text-right">Apple Revenue</th>
+                  <th className="px-2 py-1 text-right">Não Apple</th>
+                  <th className="px-2 py-1 text-right">Investimento</th>
+                  <th className="px-2 py-1 text-right">ROAS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultado.linhas.map((l) => (
+                  <tr key={`${l.canal}-${l.disparo_id}`} className="border-b border-slate-100">
+                    <td className="whitespace-nowrap px-2 py-1">{formatarCelulaCsv(l.B_data_disparo, 'data')}</td>
+                    <td className="px-2 py-1">{l.H_formato}</td>
+                    <td className="px-2 py-1">{l.nome_campanha}</td>
+                    <td className="px-2 py-1 text-right">{l.J_envios?.toLocaleString('pt-BR') ?? '-'}</td>
+                    <td className="px-2 py-1 text-right">{formatCurrency(l.T_receita_apple)}</td>
+                    <td className="px-2 py-1 text-right">{formatCurrency(l.V_receita_nao_apple)}</td>
+                    <td className="px-2 py-1 text-right">{formatCurrency(l.AA_investimento)}</td>
+                    <td className="px-2 py-1 text-right">{l.Z_roas != null ? l.Z_roas.toFixed(1).replace('.', ',') : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </form>
+  )
+}
+
 // Migracao temporaria Sheets -> BigQuery (POST /migrar-para-bigquery). So
 // aparece enquanto o backend ainda roda com NPI_STORAGE=sheets - depois da
 // troca no Render o endpoint passa a recusar e o botao some.
@@ -576,6 +773,7 @@ export default function ResultadosNpiPage({ currentRole }) {
   const [mostrarNovoPeriodo, setMostrarNovoPeriodo] = useState(false)
   const [mostrarCalcular, setMostrarCalcular] = useState(false)
   const [mostrarRegional, setMostrarRegional] = useState(false)
+  const [mostrarRelatorioApple, setMostrarRelatorioApple] = useState(false)
 
   const isAdmin = currentRole === 'admin'
 
@@ -690,6 +888,14 @@ export default function ResultadosNpiPage({ currentRole }) {
                 📊 Ver abertura por regional/loja
               </button>
             )}
+            {isAdmin && !mostrarRelatorioApple && periodos.length > 0 && (
+              <button
+                onClick={() => setMostrarRelatorioApple(true)}
+                className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+              >
+                📄 Relatório Apple
+              </button>
+            )}
           </div>
         </div>
 
@@ -705,6 +911,13 @@ export default function ResultadosNpiPage({ currentRole }) {
             periodos={periodos}
             onCalculado={carregar}
             onCancelar={() => setMostrarCalcular(false)}
+          />
+        )}
+
+        {mostrarRelatorioApple && (
+          <RelatorioAppleForm
+            periodos={periodos}
+            onFechar={() => setMostrarRelatorioApple(false)}
           />
         )}
 

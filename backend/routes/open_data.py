@@ -1655,6 +1655,17 @@ def disparos_reais_por_cpfs(cpfs_normalizados: list[str], nome_campanha_like: st
 # Match de telefone confirmado em 99.5% (2026-09) - ver conversa.
 # ---------------------------------------------------------------------------
 
+# Item Apple no si_purchases, por nome de produto: aparelhos (comecam com
+# iphone/ipad/mac.../airpods/apple watch) + qualquer item com a palavra
+# "apple" (pega acessorio oficial tipo "CABO APPLE USB-C", que o
+# `_APPLE_PRODUCT_FILTER` - so STARTS_WITH - deixava de fora).
+_NPI_APPLE_ITEM_SQL = (
+    "(REGEXP_CONTAINS(LOWER(COALESCE(p.product_name, '')), r'\\bapple\\b') "
+    "OR REGEXP_CONTAINS(LOWER(COALESCE(p.product_name, '')), "
+    "r'^(iphone|ipad|macbook|imac|mac mini|mac pro|mac studio|airpods|apple watch)'))"
+)
+
+
 def _build_npi_orders_sql() -> str:
     """So referencia tabelas do projeto/dataset da Emarsys - nunca
     `apuracao_npi26` (projeto externo `base-vendas-496714`) na mesma query.
@@ -1672,6 +1683,7 @@ def _build_npi_orders_sql() -> str:
     revenue_table = _quote_identifier(EMARSYS_OPEN_DATA_REVENUE_ATTRIBUTION_TABLE)
     contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
     purchases_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_PURCHASES_TABLE)
+    apple_item = _NPI_APPLE_ITEM_SQL
 
     return f"""
 WITH orders AS (
@@ -1700,14 +1712,20 @@ contato_si_bridge AS (
   FROM `{project_id}.{dataset}.{contacts_table}`
   WHERE contact_id IS NOT NULL AND si_contact_id IS NOT NULL
 ),
+-- apple_amount/apple_qty/outros_qty: abertura Apple x nao Apple do pedido
+-- (relatorio da Apple, backend/routes/relatorio_apple.py) - mesma regra de
+-- nome de produto de `_NPI_APPLE_ITEM_SQL`.
 si_orders AS (
   SELECT
-    CAST(order_id AS STRING) AS order_id,
-    CAST(si_contact_id AS STRING) AS si_contact_id,
-    ROUND(SUM(sales_amount), 2) AS order_total_si
-  FROM `{project_id}.{dataset}.{purchases_table}`
-  WHERE DATE(purchase_date) BETWEEN @start_date AND @end_date
-  GROUP BY order_id, si_contact_id
+    CAST(p.order_id AS STRING) AS order_id,
+    CAST(p.si_contact_id AS STRING) AS si_contact_id,
+    ROUND(SUM(p.sales_amount), 2) AS order_total_si,
+    ROUND(SUM(IF({apple_item}, p.sales_amount, 0)), 2) AS apple_amount_si,
+    SUM(IF({apple_item}, p.quantity, 0)) AS apple_qty_si,
+    SUM(IF({apple_item}, 0, p.quantity)) AS outros_qty_si
+  FROM `{project_id}.{dataset}.{purchases_table}` p
+  WHERE DATE(p.purchase_date) BETWEEN @start_date AND @end_date
+  GROUP BY p.order_id, p.si_contact_id
 ),
 -- Pedido sem ponte pro si_contact_id, ou sem match no si_purchases (pedido
 -- que nao chegou a virar venda liquidada la), sai com order_total = 0 -
@@ -1719,6 +1737,9 @@ orders_calc AS (
     o.order_id,
     DATE(o.event_time) AS purchase_date,
     IFNULL(si.order_total_si, 0) AS order_total,
+    IFNULL(si.apple_amount_si, 0) AS apple_amount,
+    IFNULL(si.apple_qty_si, 0) AS apple_qty,
+    IFNULL(si.outros_qty_si, 0) AS outros_qty,
     o.treatments
   FROM orders o
   LEFT JOIN contato_si_bridge b ON b.contact_id = CAST(o.contact_id AS STRING)
@@ -1737,8 +1758,10 @@ exploded AS (
     o.purchase_date,
     'treatment' AS tipo,
     UPPER(t.channel) AS channel,
+    CAST(t.campaign_id AS STRING) AS campaign_id,
     DATE(t.event_time) AS event_date,
-    ROUND(t.attributed_amount, 2) AS amount
+    ROUND(t.attributed_amount, 2) AS amount,
+    o.order_total, o.apple_amount, o.apple_qty, o.outros_qty
   FROM orders_calc o, UNNEST(o.treatments) t
   WHERE t.attributed_amount > 0
 ),
@@ -1749,10 +1772,12 @@ gaps AS (
     o.purchase_date,
     'gap' AS tipo,
     CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS STRING) AS campaign_id,
     CAST(NULL AS DATE) AS event_date,
     ROUND(o.order_total - IFNULL((
       SELECT SUM(t.attributed_amount) FROM UNNEST(o.treatments) t WHERE t.attributed_amount > 0
-    ), 0), 2) AS amount
+    ), 0), 2) AS amount,
+    o.order_total, o.apple_amount, o.apple_qty, o.outros_qty
   FROM orders_calc o
   WHERE o.order_total - IFNULL((
     SELECT SUM(t.attributed_amount) FROM UNNEST(o.treatments) t WHERE t.attributed_amount > 0
@@ -1796,14 +1821,14 @@ WITH bridge AS (
     AND CAST(user_id AS STRING) IN UNNEST(@contact_ids)
 ),
 omni_filtrado AS (
-  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date
+  SELECT phone, DATE(campaign_message_created_at) AS dispatch_date, template_title
   FROM {omni_table}
   WHERE delivered = 1
     AND template_title IN UNNEST(@template_titles)
     AND DATE(campaign_message_created_at)
       BETWEEN DATE_SUB(@start_date, INTERVAL @janela_dias DAY) AND @end_date
 )
-SELECT DISTINCT b.contact_id, o.dispatch_date
+SELECT DISTINCT b.contact_id, o.dispatch_date, o.template_title
 FROM omni_filtrado o
 JOIN bridge b ON b.phone = o.phone
 """.strip()
@@ -1829,7 +1854,13 @@ def calcular_npi_canal(
       != "sem_atribuicao", pronto pra alimentar `_cross_orders_regional`
       (mesmo cruzamento order_id -> vendas_iplace ja usado em
       /sms-apuracao-regional e /email-apuracao-regional) e montar a
-      abertura por regional/loja."""
+      abertura por regional/loja.
+    - `disparos`: a mesma receita quebrada por disparo - (canal,
+      campaign_id) pros canais da Emarsys e (whatsapp_omni, template_title)
+      pro Omnichat, com abertura Apple x nao Apple (receita e unidades
+      rateadas pela fatia do pedido atribuida). Sem "sem_atribuicao". Soma
+      de `receita` por canal == `canal_totais`. Usado pelo relatorio da
+      Apple (backend/routes/relatorio_apple.py)."""
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     if not template_titles:
@@ -1869,31 +1900,53 @@ def calcular_npi_canal(
             ],
         )
 
-    touches_by_contact: dict[str, list[date]] = {}
+    touches_by_contact: dict[str, list[tuple[date, str]]] = {}
     for r in touches_records:
         contact_id = str(r.get("contact_id") or "")
         dispatch_date = r.get("dispatch_date")
         if not contact_id or dispatch_date is None:
             continue
-        touches_by_contact.setdefault(contact_id, []).append(dispatch_date)
+        touches_by_contact.setdefault(contact_id, []).append((dispatch_date, str(r.get("template_title") or "")))
 
-    def tocou_dentro_da_janela(contact_id: str, referencia: date, limite: date | None = None) -> bool:
-        for dispatch_date in touches_by_contact.get(contact_id, []):
+    def toque_na_janela(contact_id: str, referencia: date, limite: date | None = None) -> str | None:
+        """Template do toque do Omni mais recente dentro da janela (o que
+        leva o credito no relatorio por disparo), ou None se nao houve."""
+        melhor: tuple[date, str] | None = None
+        for dispatch_date, template in touches_by_contact.get(contact_id, []):
             dias = (referencia - dispatch_date).days
             if not (0 <= dias <= janela_dias):
                 continue
             if limite is not None and dispatch_date > limite:
                 continue
-            return True
-        return False
+            if melhor is None or (dispatch_date, template) > melhor:
+                melhor = (dispatch_date, template)
+        return melhor[1] if melhor else None
 
     canal_totais: dict[str, float] = {}
     order_amounts: dict[str, float] = {}
+    disparos: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def soma(canal: str, valor: float, order_id: str) -> None:
+    def soma(canal: str, valor: float, order_id: str, disparo_id: str, row: dict[str, Any]) -> None:
         canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
-        if canal != "sem_atribuicao" and order_id:
+        if canal == "sem_atribuicao":
+            return
+        if order_id:
             order_amounts[order_id] = order_amounts.get(order_id, 0.0) + valor
+        d = disparos.setdefault((canal, disparo_id), {
+            "canal": canal, "disparo_id": disparo_id, "receita": 0.0, "receita_apple": 0.0,
+            "receita_sem_detalhe": 0.0, "unidades_apple": 0.0, "unidades_outros": 0.0, "pedidos": set(),
+        })
+        d["receita"] += valor
+        d["pedidos"].add((str(row.get("contact_id") or ""), order_id))
+        order_total = float(row.get("order_total") or 0)
+        if order_total <= 0:
+            # Pedido sem itens no si_purchases: nao da pra dizer o que e Apple.
+            d["receita_sem_detalhe"] += valor
+            return
+        fatia = valor / order_total
+        d["receita_apple"] += valor * float(row.get("apple_amount") or 0) / order_total
+        d["unidades_apple"] += fatia * float(row.get("apple_qty") or 0)
+        d["unidades_outros"] += fatia * float(row.get("outros_qty") or 0)
 
     # `orders_records` ja vem achatado (uma linha por treatment/gap, feito
     # dentro do BigQuery em _build_npi_orders_sql) - o Python so decide o
@@ -1907,14 +1960,19 @@ def calcular_npi_canal(
         if purchase_date is None:
             continue
         order_id = str(row.get("order_id") or "")
+        disparo_id = str(row.get("campaign_id") or "")
 
         if row.get("tipo") == "gap":
-            canal = "whatsapp_omni" if tocou_dentro_da_janela(contact_id, purchase_date) else "sem_atribuicao"
+            template = toque_na_janela(contact_id, purchase_date)
+            canal = "whatsapp_omni" if template is not None else "sem_atribuicao"
+            disparo_id = template or ""
         else:
             event_date = row.get("event_date")
             channel = str(row.get("channel") or "")
-            if tocou_dentro_da_janela(contact_id, purchase_date, limite=event_date):
+            template = toque_na_janela(contact_id, purchase_date, limite=event_date)
+            if template is not None:
                 canal = "whatsapp_omni"
+                disparo_id = template
             elif channel == "WHATSAPP":
                 canal = "whatsapp_nativo"
             elif channel == "EMAIL":
@@ -1923,11 +1981,12 @@ def calcular_npi_canal(
                 canal = "sms"
             else:
                 canal = channel.lower() if channel else "outros"
-        soma(canal, amount, order_id)
+        soma(canal, amount, order_id, disparo_id, row)
 
     return {
         "canal_totais": {canal: round(valor, 2) for canal, valor in canal_totais.items()},
         "order_amounts": {oid: round(valor, 2) for oid, valor in order_amounts.items()},
+        "disparos": list(disparos.values()),
     }
 
 
