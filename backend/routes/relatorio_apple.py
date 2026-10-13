@@ -89,113 +89,79 @@ def _canal_de(canal_npi: str) -> str:
 def _build_emarsys_metricas_sql() -> str:
     """Uma linha por campanha dos canais da Emarsys. Campanha entra se teve
     envio entre @start e @end ou se esta nas listas de ids com receita.
-    Eventos posteriores (abertura/clique/bounce) olham ate @end + 15 dias."""
-    janela_envio = (
-        "DATE(partitiontime) BETWEEN DATE_SUB(@start, INTERVAL 2 DAY) AND DATE_ADD(@end, INTERVAL 2 DAY) "
-        f"AND DATE(event_time, '{_TZ}') BETWEEN @start AND @end"
-    )
-    janela_larga = "DATE(partitiontime) BETWEEN DATE_SUB(@start, INTERVAL 45 DAY) AND DATE_ADD(@end, INTERVAL 15 DAY)"
+    Eventos posteriores (abertura/clique/bounce) olham ate @end + 15 dias.
 
-    def contagem(tabela: str, chave: str, ids_cte: str, extra: str = "", distinto: str = "contact_id") -> str:
-        return f"""
-  SELECT CAST({chave} AS STRING) AS id, COUNT(DISTINCT {distinto}) AS n
-  FROM {_t(tabela)}
-  WHERE {janela_larga} AND CAST({chave} AS STRING) IN (SELECT id FROM {ids_cte}) {extra}
-  GROUP BY 1"""
+    Filtro por campanha sempre via JOIN com o CTE de ids: `IN (SELECT ...)`
+    sobre as views do Open Data e recusado pelo BigQuery ("Correlated
+    subqueries that reference other tables are not supported")."""
+    def ids(nome: str, tabela: str, chave: str, param: str, particionada: bool = True) -> str:
+        filtro_particao = (
+            "DATE(partitiontime) BETWEEN DATE_SUB(@start, INTERVAL 2 DAY) AND DATE_ADD(@end, INTERVAL 2 DAY) AND "
+            if particionada else ""
+        )
+        return f"""{nome} AS (
+  SELECT DISTINCT CAST({chave} AS STRING) AS id FROM {_t(tabela)}
+  WHERE {filtro_particao}DATE(event_time, '{_TZ}') BETWEEN @start AND @end
+  UNION DISTINCT
+  SELECT id FROM UNNEST(@{param}) AS id
+)"""
 
-    return f"""
-WITH
-email_ids AS (
-  SELECT DISTINCT CAST(campaign_id AS STRING) AS id FROM {_t('email_sends')} WHERE {janela_envio}
-  UNION DISTINCT SELECT id FROM UNNEST(@email_ids) AS id
-),
-email_envios AS (
-  SELECT CAST(campaign_id AS STRING) AS id, MIN(DATE(event_time, '{_TZ}')) AS data, COUNT(DISTINCT contact_id) AS n
-  FROM {_t('email_sends')}
-  WHERE {janela_larga} AND CAST(campaign_id AS STRING) IN (SELECT id FROM email_ids)
-  GROUP BY 1
-),
-email_aberturas AS ({contagem('email_opens', 'campaign_id', 'email_ids')}),
-email_cliques AS ({contagem('email_clicks', 'campaign_id', 'email_ids')}),
-email_bounces AS ({contagem('email_bounces', 'campaign_id', 'email_ids')}),
-email_optout AS ({contagem('email_unsubscribes', 'campaign_id', 'email_ids')}),
-email_nomes AS (
-  SELECT CAST(campaign_id AS STRING) AS id,
-    ARRAY_AGG(STRUCT(name, subject) ORDER BY event_time DESC LIMIT 1)[OFFSET(0)] AS c
-  FROM {_t('email_campaigns_v2')}
-  WHERE CAST(campaign_id AS STRING) IN (SELECT id FROM email_ids)
-  GROUP BY 1
-),
-sms_ids AS (
-  SELECT DISTINCT CAST(campaign_id AS STRING) AS id FROM {_t('sms_sends')} WHERE {janela_envio}
-  UNION DISTINCT SELECT id FROM UNNEST(@sms_ids) AS id
-),
-sms_envios AS (
-  SELECT CAST(campaign_id AS STRING) AS id, MIN(DATE(event_time, '{_TZ}')) AS data, COUNT(DISTINCT contact_id) AS n
-  FROM {_t('sms_sends')}
-  WHERE {janela_larga} AND CAST(campaign_id AS STRING) IN (SELECT id FROM sms_ids)
-  GROUP BY 1
-),
-sms_entregues AS ({contagem('sms_send_reports', 'campaign_id', 'sms_ids',
-                            "AND UPPER(TRIM(COALESCE(CAST(status AS STRING), ''))) = 'ACCEPTED'")}),
-sms_cliques AS ({contagem('sms_clicks', 'campaign_id', 'sms_ids',
-                          "AND LOWER(COALESCE(CAST(is_dry_run AS STRING), 'false')) NOT IN ('true', '1')")}),
-sms_optout AS (
-  SELECT CAST(campaign_id AS STRING) AS id, COUNT(DISTINCT contact_id) AS n
-  FROM {_t('sms_unsubscribes')}
-  WHERE {janela_larga} AND CAST(campaign_id AS STRING) IN (SELECT id FROM sms_ids)
-  GROUP BY 1
-),
-sms_nomes AS (
-  SELECT CAST(campaign_id AS STRING) AS id, ARRAY_AGG(name IGNORE NULLS ORDER BY event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS nome
-  FROM {_t('sms_campaigns')}
-  WHERE CAST(campaign_id AS STRING) IN (SELECT id FROM sms_ids)
-  GROUP BY 1
-),
-wa_ids AS (
-  SELECT DISTINCT CAST(message_id AS STRING) AS id FROM {_t('conversation_sends')}
-  WHERE DATE(event_time, '{_TZ}') BETWEEN @start AND @end
-  UNION DISTINCT SELECT id FROM UNNEST(@wa_ids) AS id
-),
-wa_envios AS (
-  SELECT CAST(message_id AS STRING) AS id, MIN(DATE(event_time, '{_TZ}')) AS data, COUNT(DISTINCT conversation_id) AS n
-  FROM {_t('conversation_sends')}
-  WHERE DATE(event_time) BETWEEN DATE_SUB(@start, INTERVAL 45 DAY) AND DATE_ADD(@end, INTERVAL 15 DAY)
-    AND CAST(message_id AS STRING) IN (SELECT id FROM wa_ids)
-  GROUP BY 1
-),
-wa_entregues AS (
-  SELECT CAST(message_id AS STRING) AS id, COUNT(DISTINCT conversation_id) AS n
-  FROM {_t('conversation_deliveries')}
-  WHERE DATE(event_time) BETWEEN DATE_SUB(@start, INTERVAL 45 DAY) AND DATE_ADD(@end, INTERVAL 15 DAY)
-    AND CAST(message_id AS STRING) IN (SELECT id FROM wa_ids) AND UPPER(CAST(status AS STRING)) = 'DELIVERED'
-  GROUP BY 1
-),
-wa_lidas AS (
-  SELECT CAST(message_id AS STRING) AS id, COUNT(DISTINCT conversation_id) AS n
-  FROM {_t('conversation_opens')}
-  WHERE DATE(event_time) BETWEEN DATE_SUB(@start, INTERVAL 45 DAY) AND DATE_ADD(@end, INTERVAL 15 DAY)
-    AND CAST(message_id AS STRING) IN (SELECT id FROM wa_ids)
-  GROUP BY 1
-),
-wa_nomes AS (
-  SELECT CAST(message_id AS STRING) AS id,
-    ARRAY_AGG(STRUCT(name, channel) ORDER BY event_time DESC LIMIT 1)[OFFSET(0)] AS c
-  FROM {_t('conversation_messages')}
-  WHERE CAST(message_id AS STRING) IN (SELECT id FROM wa_ids)
-  GROUP BY 1
-),
-wp_ids AS (
-  SELECT DISTINCT CAST(campaign_id AS STRING) AS id FROM {_t('web_push_sends')} WHERE {janela_envio}
-  UNION DISTINCT SELECT id FROM UNNEST(@wp_ids) AS id
-),
-wp_envios AS (
-  SELECT CAST(campaign_id AS STRING) AS id, MIN(DATE(event_time, '{_TZ}')) AS data, COUNT(DISTINCT contact_id) AS n
-  FROM {_t('web_push_sends')}
-  WHERE {janela_larga} AND CAST(campaign_id AS STRING) IN (SELECT id FROM wp_ids)
-  GROUP BY 1
-),
-wp_cliques AS ({contagem('web_push_clicks', 'campaign_id', 'wp_ids')})
+    def agregado(nome: str, tabela: str, chave: str, ids_cte: str, colunas: str,
+                 extra: str = "", particionada: bool = True) -> str:
+        coluna_data = "x.partitiontime" if particionada else "x.event_time"
+        janela = f"DATE({coluna_data}) BETWEEN DATE_SUB(@start, INTERVAL 45 DAY) AND DATE_ADD(@end, INTERVAL 15 DAY)"
+        return f"""{nome} AS (
+  SELECT ids.id, {colunas}
+  FROM {_t(tabela)} x
+  JOIN {ids_cte} ids ON ids.id = CAST(x.{chave} AS STRING)
+  WHERE {janela}{(' AND ' + extra) if extra else ''}
+  GROUP BY ids.id
+)"""
+
+    def nomes(nome: str, tabela: str, chave: str, ids_cte: str, campos: str) -> str:
+        return f"""{nome} AS (
+  SELECT ids.id, ARRAY_AGG(STRUCT({campos}) ORDER BY x.event_time DESC LIMIT 1)[OFFSET(0)] AS c
+  FROM {_t(tabela)} x
+  JOIN {ids_cte} ids ON ids.id = CAST(x.{chave} AS STRING)
+  GROUP BY ids.id
+)"""
+
+    envio = f"MIN(DATE(x.event_time, '{_TZ}')) AS data, COUNT(DISTINCT x.contact_id) AS n"
+    contatos = "COUNT(DISTINCT x.contact_id) AS n"
+    conversas = "COUNT(DISTINCT x.conversation_id) AS n"
+
+    ctes = [
+        ids("email_ids", "email_sends", "campaign_id", "email_ids"),
+        agregado("email_envios", "email_sends", "campaign_id", "email_ids", envio),
+        agregado("email_aberturas", "email_opens", "campaign_id", "email_ids", contatos),
+        agregado("email_cliques", "email_clicks", "campaign_id", "email_ids", contatos),
+        agregado("email_bounces", "email_bounces", "campaign_id", "email_ids", contatos),
+        agregado("email_optout", "email_unsubscribes", "campaign_id", "email_ids", contatos),
+        nomes("email_nomes", "email_campaigns_v2", "campaign_id", "email_ids", "x.name AS name, x.subject AS subject"),
+
+        ids("sms_ids", "sms_sends", "campaign_id", "sms_ids"),
+        agregado("sms_envios", "sms_sends", "campaign_id", "sms_ids", envio),
+        agregado("sms_entregues", "sms_send_reports", "campaign_id", "sms_ids", contatos,
+                 extra="UPPER(TRIM(COALESCE(CAST(x.status AS STRING), ''))) = 'ACCEPTED'"),
+        agregado("sms_cliques", "sms_clicks", "campaign_id", "sms_ids", contatos,
+                 extra="LOWER(COALESCE(CAST(x.is_dry_run AS STRING), 'false')) NOT IN ('true', '1')"),
+        agregado("sms_optout", "sms_unsubscribes", "campaign_id", "sms_ids", contatos),
+        nomes("sms_nomes", "sms_campaigns", "campaign_id", "sms_ids", "x.name AS name"),
+
+        ids("wa_ids", "conversation_sends", "message_id", "wa_ids", particionada=False),
+        agregado("wa_envios", "conversation_sends", "message_id", "wa_ids",
+                 f"MIN(DATE(x.event_time, '{_TZ}')) AS data, {conversas}", particionada=False),
+        agregado("wa_entregues", "conversation_deliveries", "message_id", "wa_ids", conversas,
+                 extra="UPPER(CAST(x.status AS STRING)) = 'DELIVERED'", particionada=False),
+        agregado("wa_lidas", "conversation_opens", "message_id", "wa_ids", conversas, particionada=False),
+        nomes("wa_nomes", "conversation_messages", "message_id", "wa_ids", "x.name AS name, x.channel AS channel"),
+
+        ids("wp_ids", "web_push_sends", "campaign_id", "wp_ids"),
+        agregado("wp_envios", "web_push_sends", "campaign_id", "wp_ids", envio),
+        agregado("wp_cliques", "web_push_clicks", "campaign_id", "wp_ids", contatos),
+    ]
+
+    return "WITH\n" + ",\n".join(ctes) + """
 
 SELECT 'email' AS canal, i.id, n.c.name AS nome, n.c.subject AS assunto, e.data,
   e.n AS envios, e.n - IFNULL(b.n, 0) AS entregues, a.n AS aberturas, c.n AS cliques, o.n AS optout
@@ -203,7 +169,7 @@ FROM email_ids i
 LEFT JOIN email_envios e USING (id) LEFT JOIN email_bounces b USING (id) LEFT JOIN email_aberturas a USING (id)
 LEFT JOIN email_cliques c USING (id) LEFT JOIN email_optout o USING (id) LEFT JOIN email_nomes n USING (id)
 UNION ALL
-SELECT 'sms', i.id, n.nome, CAST(NULL AS STRING), e.data,
+SELECT 'sms', i.id, n.c.name, CAST(NULL AS STRING), e.data,
   e.n, d.n, CAST(NULL AS INT64), c.n, o.n
 FROM sms_ids i
 LEFT JOIN sms_envios e USING (id) LEFT JOIN sms_entregues d USING (id) LEFT JOIN sms_cliques c USING (id)
@@ -219,7 +185,7 @@ SELECT 'web_push', i.id, CAST(NULL AS STRING), CAST(NULL AS STRING), e.data,
   e.n, e.n, CAST(NULL AS INT64), c.n, CAST(NULL AS INT64)
 FROM wp_ids i
 LEFT JOIN wp_envios e USING (id) LEFT JOIN wp_cliques c USING (id)
-""".strip()
+"""
 
 
 def _build_omni_metricas_sql() -> str:
