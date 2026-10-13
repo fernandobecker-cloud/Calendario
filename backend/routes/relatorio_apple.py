@@ -1,14 +1,12 @@
 """Relatorio da Apple (FY26 Report Campaign Template, aba CRM) - uma linha por
 disparo dos periodos NPI, nas colunas A..AB do template.
 
-Receita (T/V) usa as MESMAS regras de canal da aba Resultados NPI
-(`calcular_npi_canal`, quebrado por disparo - ver `disparos` la), com uma
-diferenca pedida pelo usuario: a janela de 7 dias conta a partir do
-DISPARO, mesmo que a venda caia no periodo/mes seguinte. Por isso cada
-periodo e calculado com pedidos ate fim + janela, mas so credita disparos
-feitos dentro do periodo (sem contar duas vezes entre periodos). A soma por
-canal fica diferente da aba NPI (que corta no fim do periodo) - a tela
-mostra as duas lado a lado. Entram todas as campanhas com envio dentro dos
+Receita (T/V) e a MESMA da aba Resultados NPI: `calcular_npi_canal`
+rodado por periodo, quebrado por disparo (ver `disparos` la) - janela de 7
+dias contada a partir do disparo, inclusive vendas depois do fim do
+periodo. A soma das linhas de um canal bate com a celula da aba NPI desde
+que o periodo tenha sido (re)calculado com os mesmos templates/janela. A
+tela mostra a comparacao por canal. Entram todas as campanhas com envio dentro dos
 periodos escolhidos ou com receita atribuida (decisao do usuario: "todas
 dentro dos periodos NPI"), mais os templates do Omnichat marcados.
 
@@ -29,7 +27,7 @@ enviados.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -222,16 +220,10 @@ def montar_relatorio(periodos: list[dict[str, Any]], template_titles: list[str],
     start = min(p["start_date"] for p in periodos)
     end = max(p["end_date"] for p in periodos)
 
-    # 1) Receita por disparo - regras da aba NPI, periodo a periodo, com a
-    # janela contada do disparo (pedidos ate fim + janela).
+    # 1) Receita por disparo - mesmo calculo da aba NPI, periodo a periodo.
     receita: dict[tuple[str, str], dict[str, Any]] = {}
     for p in periodos:
-        inicio = date.fromisoformat(p["start_date"])
-        fim = date.fromisoformat(p["end_date"])
-        calc = calcular_npi_canal(
-            p["start_date"], (fim + timedelta(days=janela_dias)).isoformat(), template_titles, janela_dias,
-            disparo_inicio=inicio, disparo_fim=fim,
-        )
+        calc = calcular_npi_canal(p["start_date"], p["end_date"], template_titles, janela_dias)
         for d in calc["disparos"]:
             key = (_canal_de(d["canal"]), d["disparo_id"])
             acc = receita.setdefault(key, {
@@ -344,8 +336,8 @@ def montar_relatorio(periodos: list[dict[str, Any]], template_titles: list[str],
 
     linhas.sort(key=lambda l: (l["B_data_disparo"] or "9999", l["H_formato"], l["nome_campanha"]))
 
-    # Comparacao (informativa) com o que esta salvo na aba NPI pros mesmos
-    # periodos - difere porque aqui a venda pode cair depois do fim do periodo.
+    # Comparacao com o que esta salvo na aba NPI pros mesmos periodos - so
+    # bate se o periodo foi (re)calculado com os mesmos templates/janela.
     ids_periodos = {p["id"] for p in periodos}
     aba_npi: dict[str, float] = {}
     for v in npi_db.get_npi_valores():
@@ -356,7 +348,11 @@ def montar_relatorio(periodos: list[dict[str, Any]], template_titles: list[str],
         if canal == "sem_atribuicao":
             continue
         soma = round(sum(l["receita_atribuida"] for l in linhas if l["canal"] == canal), 2)
-        comparacao[canal] = {"aba_npi": aba_npi.get(canal, 0.0), "relatorio": soma}
+        comparacao[canal] = {
+            "aba_npi": aba_npi.get(canal, 0.0),
+            "relatorio": soma,
+            "confere": abs(aba_npi.get(canal, 0.0) - soma) < 0.05,
+        }
 
     return {
         "inicio": start,

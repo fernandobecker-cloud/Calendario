@@ -1839,8 +1839,6 @@ def calcular_npi_canal(
     end_date: str,
     template_titles: list[str],
     janela_dias: int = 7,
-    disparo_inicio: date | None = None,
-    disparo_fim: date | None = None,
 ) -> dict[str, Any]:
     """Calcula receita por canal (NPI) pro periodo informado. Roda DUAS
     consultas independentes - uma so no projeto da Emarsys (pedidos +
@@ -1863,12 +1861,23 @@ def calcular_npi_canal(
       rateadas pela fatia do pedido atribuida). Sem "sem_atribuicao". Soma
       de `receita` por canal == `canal_totais`. Usado pelo relatorio da
       Apple (backend/routes/relatorio_apple.py).
-      Com `disparo_inicio`/`disparo_fim`, `disparos` so recebe receita de
-      toques (disparo da Emarsys ou do Omni) feitos nesse intervalo e com a
-      compra em ate `janela_dias` depois do toque - o relatorio da Apple
-      chama com start/end estendidos (fim + janela) pra pegar a venda que
-      cai no periodo/mes seguinte ao disparo. `canal_totais` ignora esse
-      filtro."""
+
+    Janela contada a partir do DISPARO (decisao do usuario, 2026-10): a
+    receita de um periodo e a dos disparos feitos DENTRO dele, com compra em
+    ate `janela_dias` depois do toque - mesmo que a compra caia depois do
+    fim do periodo (disparo de 30/09 conta as vendas de ate 07/10 em
+    setembro). Por isso os pedidos sao buscados ate fim + janela. Cada
+    linha atribuida vira:
+    - canal, se o toque (treatment da Emarsys ou disparo do Omni) foi no
+      periodo e a compra ate `janela_dias` depois;
+    - descartada, se o toque foi no periodo ANTERIOR dentro da janela (essa
+      venda ja conta la - sem contar duas vezes);
+    - "sem_atribuicao", se a compra e do periodo e nao tem toque valido;
+    - descartada, se a compra e depois do fim e o toque nao e do periodo
+      (pertence ao periodo seguinte)."""
+    inicio = date.fromisoformat(start_date)
+    fim = date.fromisoformat(end_date)
+    fim_pedidos = (fim + timedelta(days=janela_dias)).isoformat()
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
     if not template_titles:
@@ -1881,7 +1890,7 @@ def calcular_npi_canal(
         timeout=90,
         params=[
             bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
-            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", fim_pedidos),
         ],
     )
     # So interessam toques de contatos que tem pedido no periodo - reduz o
@@ -1902,7 +1911,7 @@ def calcular_npi_canal(
             params=[
                 bigquery.ArrayQueryParameter("template_titles", "STRING", template_titles),
                 bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
-                bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+                bigquery.ScalarQueryParameter("end_date", "DATE", fim_pedidos),
                 bigquery.ScalarQueryParameter("janela_dias", "INT64", janela_dias),
                 bigquery.ArrayQueryParameter("contact_ids", "STRING", contact_ids),
             ],
@@ -1936,20 +1945,22 @@ def calcular_npi_canal(
 
     def soma(canal: str, valor: float, order_id: str, disparo_id: str, row: dict[str, Any],
              data_toque: date | None) -> None:
+        purchase_date = row["purchase_date"]
+        if canal != "sem_atribuicao":
+            toque_valido = data_toque is not None and 0 <= (purchase_date - data_toque).days <= janela_dias
+            if toque_valido and inicio <= data_toque <= fim:
+                pass  # disparo do periodo - conta aqui
+            elif toque_valido and data_toque < inicio:
+                return  # disparo do periodo anterior - conta la
+            else:
+                canal = "sem_atribuicao"
+        if canal == "sem_atribuicao" and not inicio <= purchase_date <= fim:
+            return  # compra depois do fim sem disparo do periodo - periodo seguinte
         canal_totais[canal] = canal_totais.get(canal, 0.0) + valor
         if canal == "sem_atribuicao":
             return
         if order_id:
             order_amounts[order_id] = order_amounts.get(order_id, 0.0) + valor
-        if disparo_inicio is not None or disparo_fim is not None:
-            if data_toque is None:
-                return
-            if disparo_inicio is not None and data_toque < disparo_inicio:
-                return
-            if disparo_fim is not None and data_toque > disparo_fim:
-                return
-            if not 0 <= (row["purchase_date"] - data_toque).days <= janela_dias:
-                return
         d = disparos.setdefault((canal, disparo_id), {
             "canal": canal, "disparo_id": disparo_id, "receita": 0.0, "receita_apple": 0.0,
             "receita_sem_detalhe": 0.0, "unidades_apple": 0.0, "unidades_outros": 0.0, "pedidos": set(),

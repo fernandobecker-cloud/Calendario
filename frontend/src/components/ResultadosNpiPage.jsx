@@ -615,10 +615,11 @@ function RelatorioAppleForm({ periodos, onFechar }) {
   }
 
   const comparacao = Object.entries(resultado?.comparacao_npi ?? {})
+  const tudoConfere = comparacao.every(([, c]) => c.confere)
 
   return (
     <form onSubmit={gerar} className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-700">Relatório Apple (aba CRM) - uma linha por disparo</p>
+      <p className="text-sm font-semibold text-slate-700">Relatório Apple (aba CRM) - uma linha por disparo, receita igual à desta tabela</p>
       <div className="flex flex-wrap gap-3 text-sm text-slate-600">
         {periodos.map((p) => (
           <label key={p.id} className="flex items-center gap-1.5">
@@ -640,7 +641,7 @@ function RelatorioAppleForm({ periodos, onFechar }) {
         />
       </label>
       <p className="text-xs text-slate-500">
-        Mesmas regras de canal desta tela, mas a janela conta a partir do disparo: a venda em até {janelaDias} dias depois entra, mesmo que caia no período ou mês seguinte. Só entram disparos feitos dentro dos períodos marcados.
+        Receita igual à desta tabela: disparos feitos no período, com venda em até {janelaDias} dias depois do disparo (mesmo que caia no mês seguinte). Use os mesmos templates e janela do "Calcular automaticamente".
       </p>
       <div className="flex gap-2">
         <button type="submit" disabled={gerando || periodoIds.size === 0} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
@@ -663,13 +664,14 @@ function RelatorioAppleForm({ periodos, onFechar }) {
               Baixar CSV (colunas do template)
             </button>
           </div>
-          <p className="text-xs text-slate-500">
-            Receita por canal - relatório (janela de {resultado.janela_dias} dias a partir do disparo) x tabela NPI (vendas dentro do período).
-            A diferença é a venda que caiu depois do fim do período.
+          <p className={`text-xs font-semibold ${tudoConfere ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {tudoConfere
+              ? '✓ Receita por canal bate com a tabela de NPI'
+              : '✗ Receita diferente da tabela de NPI - recalcule os períodos ("Calcular automaticamente") com os mesmos templates e janela'}
           </p>
           <ul className="text-xs text-slate-600">
             {comparacao.map(([canal, c]) => (
-              <li key={canal}>{canal}: relatório {formatCurrency(c.relatorio)} / tabela NPI {formatCurrency(c.aba_npi)}</li>
+              <li key={canal}>{c.confere ? '✓' : '✗'} {canal}: relatório {formatCurrency(c.relatorio)} / tabela NPI {formatCurrency(c.aba_npi)}</li>
             ))}
           </ul>
           <div className="max-h-80 overflow-auto">
@@ -851,7 +853,7 @@ export default function ResultadosNpiPage({ currentRole }) {
       <section className="mb-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-500 p-6 text-white shadow-soft md:p-8">
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Resultados NPI</h1>
         <p className="mt-2 text-sm text-indigo-100 md:text-base">
-          Receita por canal e por período da campanha NPI - lançamento manual, sem cálculo automático.
+          Receita por canal dos disparos de cada período, com vendas em até 7 dias depois do disparo (mesmo que caiam no mês seguinte).
         </p>
       </section>
 
