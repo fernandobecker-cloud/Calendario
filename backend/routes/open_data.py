@@ -2416,13 +2416,13 @@ def ultimos_disparos_email(
 # "Demais disparos" do SAC - mesma ideia da busca acima, so que mais
 # abrangente: ultimos 10 disparos de QUALQUER canal da Emarsys (e-mail, SMS e
 # WhatsApp nativo das conversation_*), com o status de cada um, mais o cupom
-# de primeira compra (campo 17807 da Emarsys, preenchido quando o cliente faz
+# de primeira compra (campo 17804 da Emarsys, preenchido quando o cliente faz
 # o cadastro de primeira compra). Existe porque muitos clientes reclamam que
 # nao receberam o cupom - o atendente ve o cupom na tela e confere se a
 # mensagem saiu/chegou.
 # ---------------------------------------------------------------------------
 
-CAMPO_CUPOM_PRIMEIRA_COMPRA = "17807"
+CAMPO_CUPOM_PRIMEIRA_COMPRA = "17804"
 
 
 def _build_ultimos_disparos_todos_canais_sql() -> str:
