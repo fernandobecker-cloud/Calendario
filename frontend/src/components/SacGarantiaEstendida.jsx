@@ -22,6 +22,10 @@ const LABELS_GARANTIA = {
 }
 const CAMPOS_GARANTIA_OCULTOS = new Set(['ge_serial', 'GE_IMEI', 'Origem'])
 
+// Responsavel no comercial pra quando o cliente nao esta na base de garantia
+// estendida (pedido do CRM).
+const CONTATO_COMERCIAL = 'Roger Lopes da Veiga (roger.veiga@iplace.com.br)'
+
 function CampoGarantia({ campo, valor }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -103,7 +107,7 @@ function calcularPassos({ garantia, erroGarantia, resultado, erro }) {
     titulo: 'Está na base do comercial?',
     texto: encontrado
       ? 'Sim, o cliente está na base de garantia estendida.'
-      : 'Não. Peça para o cliente aguardar — a garantia estendida está sendo emitida.',
+      : `Não. Entre em contato com ${CONTATO_COMERCIAL} para verificar a garantia estendida desse cliente e peça para o cliente aguardar o retorno.`,
     status: encontrado ? 'ok' : 'bloqueio',
   }
   if (!encontrado) return [passo1, PENDENTE_2, PENDENTE_3]
@@ -310,7 +314,9 @@ export default function SacGarantiaEstendida({ onVoltar }) {
           {erroGarantia ? (
             <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erroGarantia}</p>
           ) : !garantia.encontrado ? (
-            <p className="text-sm text-slate-500">Nenhum contrato de garantia estendida encontrado para esse CPF.</p>
+            <p className="text-sm text-slate-500">
+              Nenhum contrato de garantia estendida encontrado para esse CPF. Entre em contato com {CONTATO_COMERCIAL}.
+            </p>
           ) : (
             <div className="flex flex-col gap-4">
               {garantia.items.map((item, i) => (
