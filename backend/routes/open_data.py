@@ -2413,6 +2413,210 @@ def ultimos_disparos_email(
 
 
 # ---------------------------------------------------------------------------
+# "Demais disparos" do SAC - mesma ideia da busca acima, so que mais
+# abrangente: ultimos 10 disparos de QUALQUER canal da Emarsys (e-mail, SMS e
+# WhatsApp nativo das conversation_*), com o status de cada um, mais o cupom
+# de primeira compra (campo 17807 da Emarsys, preenchido quando o cliente faz
+# o cadastro de primeira compra). Existe porque muitos clientes reclamam que
+# nao receberam o cupom - o atendente ve o cupom na tela e confere se a
+# mensagem saiu/chegou.
+# ---------------------------------------------------------------------------
+
+CAMPO_CUPOM_PRIMEIRA_COMPRA = "17807"
+
+
+def _build_ultimos_disparos_todos_canais_sql() -> str:
+    """Uma linha por campanha (ultimo envio pra esse contato), dos 3 canais,
+    ordenado do mais recente. Filtro do contato sempre via JOIN com
+    `matched` - `IN (SELECT ...)` sobre as views do Open Data da erro de
+    subquery correlacionada. Status por canal:
+    - email: entregue = sem bounce (email_bounces), abriu (email_opens);
+    - SMS: entregue = status ACCEPTED em sms_send_reports (mesma regra do
+      resto do portal); SMS nao tem abertura;
+    - WhatsApp: entregue (conversation_deliveries DELIVERED) e lida
+      (conversation_opens)."""
+    project_id = _quote_identifier(EMARSYS_OPEN_DATA_PROJECT_ID)
+    dataset = _quote_identifier(EMARSYS_OPEN_DATA_DATASET)
+    suffix = EMARSYS_OPEN_DATA_DATASET.rsplit("_", 1)[-1]
+
+    def t(nome: str) -> str:
+        return f"`{project_id}.{dataset}.{nome}_{suffix}`"
+
+    contacts_table = _quote_identifier(EMARSYS_OPEN_DATA_SI_CONTACTS_TABLE)
+    case_sql = _cpf_match_case_sql("c.external_id")
+    lookback = _ULTIMOS_DISPAROS_LOOKBACK_DIAS
+    particao = f"DATE(x.partitiontime) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+    evento = f"DATE(x.event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL {lookback} DAY)"
+
+    return f"""
+WITH matched AS (
+  SELECT CAST(c.contact_id AS STRING) AS contact_id
+  FROM `{project_id}.{dataset}.{contacts_table}` c
+  WHERE c.external_id IS NOT NULL AND {case_sql} = @cpf
+  LIMIT 1
+),
+email_envios AS (
+  SELECT CAST(x.campaign_id AS STRING) AS id, MAX(x.event_time) AS event_time
+  FROM {t('email_sends')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {particao}
+  GROUP BY 1
+),
+email_aberturas AS (
+  SELECT DISTINCT CAST(x.campaign_id AS STRING) AS id
+  FROM {t('email_opens')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {particao}
+),
+email_bounces AS (
+  SELECT DISTINCT CAST(x.campaign_id AS STRING) AS id
+  FROM {t('email_bounces')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {particao}
+),
+email_nomes AS (
+  SELECT CAST(x.campaign_id AS STRING) AS id,
+    ARRAY_AGG(STRUCT(x.name AS name, x.subject AS subject) ORDER BY x.event_time DESC LIMIT 1)[OFFSET(0)] AS c
+  FROM {t('email_campaigns_v2')} x JOIN email_envios e ON e.id = CAST(x.campaign_id AS STRING)
+  GROUP BY 1
+),
+sms_envios AS (
+  SELECT CAST(x.campaign_id AS STRING) AS id, MAX(x.event_time) AS event_time
+  FROM {t('sms_sends')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {particao}
+  GROUP BY 1
+),
+sms_entregues AS (
+  SELECT DISTINCT CAST(x.campaign_id AS STRING) AS id
+  FROM {t('sms_send_reports')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {particao} AND UPPER(TRIM(COALESCE(CAST(x.status AS STRING), ''))) = 'ACCEPTED'
+),
+sms_nomes AS (
+  SELECT CAST(x.campaign_id AS STRING) AS id,
+    ARRAY_AGG(x.name IGNORE NULLS ORDER BY x.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS name
+  FROM {t('sms_campaigns')} x JOIN sms_envios e ON e.id = CAST(x.campaign_id AS STRING)
+  GROUP BY 1
+),
+wa_conversas AS (
+  SELECT CAST(x.message_id AS STRING) AS id, x.conversation_id, x.event_time
+  FROM {t('conversation_sends')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {evento}
+),
+wa_envios AS (
+  SELECT id, MAX(event_time) AS event_time FROM wa_conversas GROUP BY 1
+),
+wa_entregues AS (
+  SELECT DISTINCT CAST(x.message_id AS STRING) AS id
+  FROM {t('conversation_deliveries')} x JOIN matched m ON CAST(x.contact_id AS STRING) = m.contact_id
+  WHERE {evento} AND UPPER(CAST(x.status AS STRING)) = 'DELIVERED'
+),
+wa_lidas AS (
+  -- conversation_opens nao tem contact_id: liga pela conversa do envio.
+  SELECT DISTINCT w.id
+  FROM {t('conversation_opens')} x JOIN wa_conversas w ON w.conversation_id = x.conversation_id
+  WHERE {evento}
+),
+wa_nomes AS (
+  SELECT CAST(x.message_id AS STRING) AS id,
+    ARRAY_AGG(x.name IGNORE NULLS ORDER BY x.event_time DESC LIMIT 1)[SAFE_OFFSET(0)] AS name
+  FROM {t('conversation_messages')} x JOIN wa_envios e ON e.id = CAST(x.message_id AS STRING)
+  GROUP BY 1
+)
+SELECT 'email' AS canal, e.id, COALESCE(n.c.name, CONCAT('Campanha #', e.id)) AS campanha,
+  n.c.subject AS assunto, e.event_time, b.id IS NULL AS entregue, a.id IS NOT NULL AS abriu
+FROM email_envios e LEFT JOIN email_nomes n USING (id) LEFT JOIN email_aberturas a USING (id)
+LEFT JOIN email_bounces b USING (id)
+UNION ALL
+SELECT 'sms', e.id, COALESCE(n.name, CONCAT('Campanha #', e.id)), CAST(NULL AS STRING), e.event_time,
+  d.id IS NOT NULL, CAST(NULL AS BOOL)
+FROM sms_envios e LEFT JOIN sms_nomes n USING (id) LEFT JOIN sms_entregues d USING (id)
+UNION ALL
+SELECT 'whatsapp', e.id, COALESCE(n.name, CONCAT('Mensagem #', e.id)), CAST(NULL AS STRING), e.event_time,
+  d.id IS NOT NULL, l.id IS NOT NULL
+FROM wa_envios e LEFT JOIN wa_nomes n USING (id) LEFT JOIN wa_entregues d USING (id) LEFT JOIN wa_lidas l USING (id)
+ORDER BY event_time DESC
+LIMIT 10
+""".strip()
+
+
+@router.get("/emarsys/ultimos-disparos")
+def ultimos_disparos_todos_canais(
+    cpf: str = Query(min_length=3, description="CPF do cliente, com ou sem pontuacao"),
+    campo_optin: str = Query(default="31", description="ID do campo de opt-in de e-mail na Emarsys"),
+    campo_email: str = Query(default="3", description="ID do campo de endereco de e-mail na Emarsys"),
+    campo_cupom: str = Query(default=CAMPO_CUPOM_PRIMEIRA_COMPRA, description="ID do campo do cupom de primeira compra"),
+) -> dict[str, Any]:
+    """Ultimos 10 disparos (e-mail, SMS, WhatsApp nativo) de um contato por
+    CPF + cupom de primeira compra, opt-in e e-mail cadastrado (API da
+    Emarsys, best-effort como em `ultimos_disparos_email`: se a API falhar,
+    os disparos - 100% BigQuery - continuam aparecendo)."""
+    cpf_normalizado = _normalize_match_key(cpf)
+    if not cpf_normalizado:
+        raise HTTPException(status_code=400, detail="CPF invalido.")
+
+    cpf_param = [bigquery.ScalarQueryParameter("cpf", "STRING", cpf_normalizado)]
+    try:
+        existe_records = run_bigquery_records(
+            _build_cpf_contato_existe_sql(),
+            EMARSYS_OPEN_DATA_PROJECT_ID,
+            location=EMARSYS_OPEN_DATA_LOCATION or None,
+            timeout=20,
+            params=cpf_param,
+        )
+        contact_id = str(existe_records[0].get("contact_id") or "") if existe_records else ""
+
+        def campo_vazio() -> dict[str, Any]:
+            return {"disponivel": False, "valor": None, "erro": None}
+
+        cupom, optin_email, email_cadastrado = campo_vazio(), campo_vazio(), campo_vazio()
+        items: list[dict[str, Any]] = []
+
+        if contact_id:
+            records = run_bigquery_records(
+                _build_ultimos_disparos_todos_canais_sql(),
+                EMARSYS_OPEN_DATA_PROJECT_ID,
+                location=EMARSYS_OPEN_DATA_LOCATION or None,
+                timeout=60,
+                params=cpf_param,
+            )
+            items = [
+                {
+                    "canal": r.get("canal"),
+                    "campanha": str(r.get("campanha") or ""),
+                    "assunto": r.get("assunto"),
+                    "data_envio": _normalize_open_data_value(r.get("event_time")),
+                    "entregue": r.get("entregue"),
+                    "abriu": r.get("abriu"),
+                }
+                for r in records
+            ]
+
+            try:
+                dados = EmarsysClient().get_contact_data([contact_id], [campo_optin, campo_email, campo_cupom])
+                if dados and isinstance(dados[0], dict):
+                    contato = dados[0]
+                    optin_email = {"disponivel": True, "valor": contato.get(str(campo_optin)), "erro": None}
+                    for destino, campo in ((email_cadastrado, campo_email), (cupom, campo_cupom)):
+                        valor = contato.get(str(campo))
+                        destino.update({"disponivel": True, "valor": valor or None})
+            except Exception as exc:
+                for destino in (optin_email, email_cadastrado, cupom):
+                    destino["erro"] = str(exc)
+
+        return {
+            "cpf": cpf_normalizado,
+            "contato_encontrado": bool(contact_id),
+            "cupom_primeira_compra": cupom,
+            "optin_email": optin_email,
+            "email_cadastrado": email_cadastrado,
+            "items": items,
+            "lookback_dias": _ULTIMOS_DISPAROS_LOOKBACK_DIAS,
+            "source": "bigquery_email_sms_conversation_x_cpf",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Falha ao buscar ultimos disparos: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # Garantia estendida por CPF - mesma tela do SAC ("Últimos Disparos"). Tabela
 # carregada manualmente pelo usuário no BigQuery (projeto base-vendas-496714,
 # nao Emarsys) com os clientes que o comercial passou pra gente disparar a
