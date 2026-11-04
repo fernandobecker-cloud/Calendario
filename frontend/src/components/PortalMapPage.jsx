@@ -7,7 +7,7 @@ const ELEMENTS = [
   { code: 'LOGIN.PASS',   type: 'Campo',    name: 'Senha',                     location: 'Login',                description: 'Campo de senha para autenticação' },
   { code: 'LOGIN.BTN',    type: 'Botão',    name: 'Entrar',                    location: 'Login',                description: 'Botão que envia as credenciais e autentica o usuário' },
   { code: 'LOGIN.ERR',    type: 'Alerta',   name: 'Erro de login',             location: 'Login',                description: 'Mensagem em vermelho exibida quando usuário/senha estão incorretos' },
-  { code: 'LOGIN.INACT',  type: 'Alerta',   name: 'Sessão expirada',           location: 'Login',                description: 'Mensagem âmbar exibida após 14min 30s de inatividade — instrui o usuário a recarregar a página' },
+  { code: 'LOGIN.INACT',  type: 'Alerta',   name: 'Sessão expirada',           location: 'Login',                description: 'Mensagem âmbar exibida após 14min 30s de inatividade (2h para admin) — instrui o usuário a recarregar a página' },
 
   // ── NAV – Barra de navegação superior ─────────────────────────────────────
   { code: 'NAV.TAB.RG',   type: 'Aba',      name: 'Resultado Geral',           location: 'Nav → Topo',           description: 'Aba de navegação para /resultado-geral; visível a todos os usuários com permissão' },

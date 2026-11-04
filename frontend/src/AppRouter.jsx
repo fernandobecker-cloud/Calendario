@@ -28,6 +28,9 @@ const ALL_TABS = [
 
 // 14 min 30 s — desloga antes dos 15 min do Render free entrar em sleep
 const INACTIVITY_MS = 14 * 60 * 1000 + 30 * 1000
+// Admin fica 2h sem ser deslogado (pedido do CRM: fluxos longos, como o envio
+// em massa da Emarsys, derrubavam a sessao no meio). Demais perfis seguem 14min30s.
+const INACTIVITY_MS_ADMIN = 2 * 60 * 60 * 1000
 
 const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click']
 
@@ -115,8 +118,9 @@ export default function AppRouter() {
 
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
-    inactivityTimer.current = setTimeout(() => handleLogout('inactivity'), INACTIVITY_MS)
-  }, [handleLogout])
+    const limite = currentRole === 'admin' ? INACTIVITY_MS_ADMIN : INACTIVITY_MS
+    inactivityTimer.current = setTimeout(() => handleLogout('inactivity'), limite)
+  }, [handleLogout, currentRole])
 
   // Liga/desliga o timer de inatividade conforme o estado de autenticacao
   useEffect(() => {

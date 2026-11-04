@@ -764,7 +764,20 @@ def iniciar_todas_lojas(
         try:
             export_id = client.iniciar_export(segmento_id, campos_exportacao)
         except EmarsysError as exc:
-            falhas.append({"filial": loja.filial, "ok": False, "erro": f"Falha ao disparar exportacao: {exc}"})
+            # replyCode 4001 = ja existe um export igual (mesmo segmento e
+            # campos) rodando na Emarsys - quase sempre de uma tentativa
+            # anterior ainda em processamento. Nao e erro de segmento.
+            em_andamento = '"replyCode":4001' in str(exc).replace(" ", "")
+            falhas.append({
+                "filial": loja.filial,
+                "ok": False,
+                "exportacao_em_andamento": em_andamento,
+                "erro": (
+                    "Ja existe uma exportacao igual desta loja rodando na Emarsys (provavelmente de uma "
+                    "tentativa anterior). Aguarde alguns minutos e tente de novo."
+                    if em_andamento else f"Falha ao disparar exportacao: {exc}"
+                ),
+            })
             continue
         lote.append({"filial": loja.filial, "segmento_id": segmento_id, "export_id": export_id})
 

@@ -134,6 +134,30 @@ function ResultadoDetalhe({ resultado }) {
   )
 }
 
+// Diz em que passo do fluxo em duas etapas a rodada esta e o que fazer em
+// seguida - o fluxo confundia (ex: depois de um F5 com a rodada concluida, o
+// botao "Coletar" ficava desativado sem explicacao).
+function EtapaEnvioMassa({ iniciando, coletando, pendentes, concluidaEm, baixarArquivo }) {
+  let texto
+  let estilo = 'border-indigo-200 bg-indigo-50 text-indigo-800'
+  if (iniciando) {
+    texto = 'Passo 1 de 2: disparando a exportacao de todas as lojas. Nao atualize a pagina ate o contador chegar ao fim.'
+  } else if (coletando) {
+    texto = baixarArquivo
+      ? 'Passo 2 de 2: coletando as lojas. Deixe a aba aberta - o .zip baixa sozinho quando a ultima loja ficar pronta.'
+      : 'Passo 2 de 2: coletando e enviando as lojas. Deixe a aba aberta ate nao sobrar nenhuma pendente.'
+  } else if (pendentes > 0) {
+    texto = `Passo 2 de 2: clique em "2. Coletar" - ${pendentes} loja(s) aguardando coleta. Nao clique em "Iniciar" de novo.`
+    estilo = 'border-amber-200 bg-amber-50 text-amber-800'
+  } else if (concluidaEm) {
+    texto = `Ultima rodada concluida em ${new Date(concluidaEm).toLocaleString('pt-BR')}. Para uma nova rodada, clique em "1. Iniciar".`
+    estilo = 'border-emerald-200 bg-emerald-50 text-emerald-800'
+  } else {
+    texto = 'Passo 1 de 2: escolha o modo acima e clique em "1. Iniciar exportacao de todas as lojas" (uma unica vez).'
+  }
+  return <p className={`mb-4 rounded-lg border px-4 py-2 text-sm ${estilo}`}>{texto}</p>
+}
+
 export default function EmarsysPage() {
   const [lojas, setLojas] = useState([])
   const [lojasLoading, setLojasLoading] = useState(true)
@@ -167,6 +191,10 @@ export default function EmarsysPage() {
   const [coletarResumoUltima, setColetarResumoUltima] = useState(null)
   const [resultadosPorFilial, setResultadosPorFilial] = useState({})
   const [autoColetando, setAutoColetando] = useState(false)
+  // Quando a ultima rodada terminou (todas as lojas coletadas) - fica salvo
+  // pra o resultado continuar na tela depois de um F5 (antes sumia tudo e o
+  // botao "Coletar" ficava desativado sem explicacao).
+  const [rodadaConcluidaEm, setRodadaConcluidaEm] = useState(null)
   const arquivosAcumulados = useRef([])
   const autoColetaAtivaRef = useRef(false)
   const pollTimeoutRef = useRef(null)
@@ -201,6 +229,7 @@ export default function EmarsysPage() {
     setResultadosPorFilial(salvo.resultadosPorFilial || {})
     setIniciarResumo(salvo.iniciarResumo || null)
     setColetarResumoUltima(salvo.coletarResumoUltima || null)
+    setRodadaConcluidaEm(salvo.concluidaEm || null)
   }, [])
 
   const totalProntas = useMemo(() => lojas.filter((l) => l.segmento_base_id).length, [lojas])
@@ -257,6 +286,15 @@ export default function EmarsysPage() {
   // chamada) - processar tudo de uma vez demora minutos e o proxy do
   // Render (plano gratuito) derruba a conexao com 502 antes de terminar.
   const handleIniciar = useCallback(async () => {
+    // Disparar de novo com lojas ainda pendentes perde a rodada anterior - e
+    // as exportacoes dela continuam rodando na Emarsys, entao a nova tentativa
+    // falha em todas as lojas com "replyCode 4001" (export igual em andamento).
+    if (lotePendente.length > 0 && !window.confirm(
+      `Ainda ha ${lotePendente.length} loja(s) pendente(s) de coleta da rodada anterior.\n\n` +
+      'Iniciar de novo descarta essa rodada, e as exportacoes dela ainda podem estar rodando na Emarsys ' +
+      '(a nova tentativa falharia com "exportacao igual em andamento").\n\n' +
+      'Clique em Cancelar e use "2. Coletar" para terminar a rodada atual. Deseja mesmo iniciar uma nova?',
+    )) return
     autoColetaAtivaRef.current = false
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
     setAutoColetando(false)
@@ -266,6 +304,7 @@ export default function EmarsysPage() {
     setResultadosPorFilial({})
     setColetarResumoUltima(null)
     setIniciarResumo(null)
+    setRodadaConcluidaEm(null)
     setLoteTotal([])
     setLotePendente([])
     arquivosAcumulados.current = []
@@ -309,7 +348,7 @@ export default function EmarsysPage() {
     }
     iniciarAtivoRef.current = false
     setIniciarLoading(false)
-  }, [])
+  }, [lotePendente])
 
   const handlePararIniciar = useCallback(() => {
     iniciarAtivoRef.current = false
@@ -373,21 +412,20 @@ export default function EmarsysPage() {
       }
     }
 
-    if (novoLotePendente.length === 0) {
-      limparProgressoLote()
-    } else {
-      const resultadosParaSalvar = {}
-      for (const [filial, r] of Object.entries(resultadosAtualizados)) {
-        resultadosParaSalvar[filial] = semArquivoBase64(r)
-      }
-      salvarProgressoLote({
-        loteTotal,
-        lotePendente: novoLotePendente,
-        resultadosPorFilial: resultadosParaSalvar,
-        iniciarResumo,
-        coletarResumoUltima: payload,
-      })
+    const resultadosParaSalvar = {}
+    for (const [filial, r] of Object.entries(resultadosAtualizados)) {
+      resultadosParaSalvar[filial] = semArquivoBase64(r)
     }
+    const concluidaEm = novoLotePendente.length === 0 ? new Date().toISOString() : null
+    if (concluidaEm) setRodadaConcluidaEm(concluidaEm)
+    salvarProgressoLote({
+      loteTotal,
+      lotePendente: novoLotePendente,
+      resultadosPorFilial: resultadosParaSalvar,
+      iniciarResumo,
+      coletarResumoUltima: payload,
+      concluidaEm,
+    })
     return novoLotePendente
   }, [dryRunMassa, confirmarMassa, campanhaMassa, emailTesteMassa, baixarArquivoMassa, loteTotal, iniciarResumo])
 
@@ -660,6 +698,14 @@ export default function EmarsysPage() {
           </div>
         )}
 
+        <EtapaEnvioMassa
+          iniciando={iniciarLoading}
+          coletando={autoColetando}
+          pendentes={lotePendente.length}
+          concluidaEm={rodadaConcluidaEm}
+          baixarArquivo={baixarArquivoMassa}
+        />
+
         <div className="flex flex-wrap gap-3">
           <button
             onClick={handleIniciar}
@@ -707,7 +753,7 @@ export default function EmarsysPage() {
             Exportacao disparada: {iniciarResumo.iniciados} de {iniciarResumo.total_lojas} lojas
             {iniciarResumo.falhas > 0 && (
               <>
-                {' '}- <span className="text-amber-700">{iniciarResumo.falhas} falharam ao achar o segmento</span>
+                {' '}- <span className="text-amber-700">{iniciarResumo.falhas} falharam ao disparar a exportacao</span>
                 <details className="mt-1 inline">
                   <summary className="inline cursor-pointer text-xs text-slate-500">ver erros</summary>
                   <ul className="mt-1 list-disc pl-5 text-xs text-slate-600">
@@ -718,6 +764,14 @@ export default function EmarsysPage() {
                 </details>
               </>
             )}
+          </p>
+        )}
+
+        {(iniciarResumo?.erros || []).some((e) => e.exportacao_em_andamento) && (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            {(iniciarResumo.erros || []).filter((e) => e.exportacao_em_andamento).length} loja(s) ja tinham uma
+            exportacao igual rodando na Emarsys - provavelmente de uma tentativa anterior. Aguarde de 15 a 30 minutos
+            (para essas exportacoes terminarem) e clique em "1. Iniciar" de novo, uma unica vez.
           </p>
         )}
 
