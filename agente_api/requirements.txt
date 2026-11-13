@@ -1,0 +1,7 @@
+# Dependencias so do servico do agente de IA (Web Service separado na Render).
+# Build command: pip install -r agente_api/requirements.txt
+fastapi==0.115.12
+starlette==0.46.2
+pydantic==2.12.5
+uvicorn==0.34.0
+requests==2.32.3
