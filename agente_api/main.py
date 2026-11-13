@@ -121,7 +121,12 @@ def buscar_produtos(
         resultado = _buscar(tipo, termo, inicio, quantidade)
     except oracle.OracleErro as exc:
         log.warning("busca falhou tipo=%s termo=%r: %s", tipo, termo, exc)
-        return JSONResponse(status_code=502, content={"detail": "Site da iPlace indisponivel no momento."})
+        # "detail" e o texto neutro para a Omnichat; "motivo" ajuda quem diagnostica
+        # (a aba Catalogo do agente no portal mostra ele). Nao tem dado sensivel.
+        return JSONResponse(status_code=502, content={
+            "detail": "Site da iPlace indisponivel no momento.",
+            "motivo": str(exc),
+        })
     log.info(
         "busca tipo=%s termo=%r from=%s size=%s -> %s produtos (%sms)",
         tipo, termo, inicio, quantidade, len(resultado), int((time.monotonic() - comeco) * 1000),

@@ -47,6 +47,7 @@ from backend.routes.open_data import router as open_data_router
 from backend.routes.emarsys_segments import router as emarsys_segments_router
 from backend.routes.npi_resultados import router as npi_resultados_router
 from backend.routes.relatorio_apple import router as relatorio_apple_router
+from backend.routes.agente_catalogo import router as agente_catalogo_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -79,6 +80,7 @@ app.include_router(open_data_router)
 app.include_router(emarsys_segments_router)
 app.include_router(npi_resultados_router)
 app.include_router(relatorio_apple_router)
+app.include_router(agente_catalogo_router)
 
 
 def is_single_auth_mode() -> bool:
