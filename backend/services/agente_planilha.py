@@ -57,6 +57,9 @@ COLUNAS: dict[str, tuple[str, bool, list[str], str]] = {
                       "Condição de pagamento na loja, em texto (ex.: 10x sem juros)."),
     "estoque": ("inteiro", False, ["quantidade", "qtd estoque"],
                 "Quantidade em estoque. 0 = esgotado (o agente não oferece). Em branco = disponível."),
+    "categoria": ("texto", False, ["categoria do produto"],
+                  "Categoria (ex.: IPHONE, WATCH, CAPAS IPHONE APPLE). Aparelhos aparecem antes de acessórios na busca. "
+                  "Em branco = usa o \"Categoria: X\" da descrição, se houver."),
     "link": ("texto", False, ["url", "link site", "url do produto"], "Link da página do produto no site."),
     "imagem": ("texto", False, ["foto", "url imagem", "imagem url"], "Link da imagem do produto."),
     "descricao": ("texto", False, ["descricao do produto"], "Descrição curta para o agente."),

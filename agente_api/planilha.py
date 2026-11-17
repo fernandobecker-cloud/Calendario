@@ -30,7 +30,39 @@ log = logging.getLogger("agente_api.planilha")
 _STOPWORDS = {
     "a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "e", "em", "no", "na",
     "para", "pra", "com", "quero", "queria", "comprar", "preco", "valor", "tem", "voces",
+    # Quase tudo e Apple e os nomes do ERP nao repetem a marca ("WATCH SE 3 44...").
+    "apple",
 }
+
+# Os nomes da planilha vem do ERP, abreviados e com cor em ingles. Cada palavra
+# do nome ganha as formas que o cliente escreve ("ORANGE" tambem acha "laranja").
+_SINONIMOS = {
+    "iph": "iphone", "iphon": "iphone", "macb": "macbook", "ult": "ultra", "ult2": "ultra 2",
+    "ultra2": "ultra 2", "ultra3": "ultra 3", "ultra4": "ultra 4", "s10": "series 10", "s11": "series 11",
+    "3ger": "3 geracao", "4ger": "4 geracao", "5ger": "5 geracao", "wf": "wifi", "wi": "wifi",
+    "cel": "cellular celular 5g", "cell": "cellular celular 5g", "pel": "pelicula",
+    "orange": "laranja", "org": "laranja", "lara": "laranja", "cos": "cosmico",
+    "black": "preto", "bk": "preto", "pto": "preto", "white": "branco", "bco": "branco",
+    "blue": "azul", "blu": "azul", "azl": "azul", "green": "verde", "pink": "rosa",
+    "purple": "roxo", "pur": "roxo", "yellow": "amarelo", "silver": "prata", "sil": "prata",
+    "red": "vermelho", "midnight": "meia noite", "mdn": "meia noite", "starlight": "estelar",
+    "star": "estelar", "stl": "estelar", "gray": "cinza", "grey": "cinza", "gr": "cinza",
+    "sg": "cinza espacial", "spg": "cinza espacial", "spgr": "cinza espacial", "spb": "preto espacial",
+    "gold": "dourado", "gd": "dourado", "teal": "verde", "ultramarine": "azul ultramarino",
+    "ultmarine": "azul ultramarino", "nt": "natural", "ti": "titanio", "al": "aluminio",
+}
+
+# Categorias de aparelho: aparecem antes de capa, pelicula, cabo... quando o
+# cliente procura "watch" ou "iphone 17".
+_CATEGORIAS_APARELHO = {
+    "iphone", "ipad", "watch", "mac", "fones de ouvido apple", "airtag apple", "apple tv", "caixas de som apple",
+}
+_PALAVRAS_ACESSORIO = {
+    "capa", "capas", "case", "pelicula", "peliculas", "cabo", "cabos", "carregador", "carregadores",
+    "pulseira", "pulseiras", "adaptador", "suporte", "bolsa", "mochila", "fonte", "protetor", "acessorio",
+    "acessorios", "sleeve",
+}
+_RE_CATEGORIA = re.compile(r"categoria:\s*([^|\n]+)", re.I)
 _RE_NAO_ALFANUM = re.compile(r"[^a-z0-9]+")
 _RE_ID_PRODUTO_NA_URL = re.compile(r"/([0-9]+PR)\b", re.I)
 
@@ -127,7 +159,12 @@ def _nome_variante(linha: dict) -> str:
 def _nome_completo(linha: dict) -> str:
     produto = (linha.get("produto") or "").strip()
     variante = _nome_variante(linha)
-    return produto if not variante or variante == produto else f"{produto} {variante}"
+    if not variante or variante == produto:
+        return produto
+    # A planilha do ERP repete o nome do produto na variante ("WATCH SE 3 ... MXEK3BE/A").
+    if normalizar(variante).startswith(normalizar(produto)):
+        return variante
+    return f"{produto} {variante}"
 
 
 def _variante(linha: dict) -> dict:
@@ -212,29 +249,51 @@ def produto_omnichat(grupo: dict, somente_sku: str | None = None) -> dict | None
     }
 
 
+def categoria(linha: dict) -> str:
+    """Coluna categoria ou, se vier vazia, o "Categoria: X" da descricao."""
+    if linha.get("categoria"):
+        return normalizar(linha["categoria"])
+    achou = _RE_CATEGORIA.search(linha.get("descricao") or "")
+    return normalizar(achou.group(1)) if achou else ""
+
+
 def _texto_de_busca(grupo: dict) -> list[str]:
     partes = []
     for l in grupo["linhas"]:
         partes += [l.get("produto"), l.get("variante"), l.get("cor"), l.get("capacidade"),
-                   l.get("produto_id"), str(l.get("sku"))]
-    return normalizar(" ".join(p for p in partes if p)).split()
+                   l.get("produto_id"), str(l.get("sku")), categoria(l)]
+        cat = categoria(l)
+        if "acessorios watch" in cat:
+            partes.append("pulseira")
+        if "protecao de tela" in cat:
+            partes.append("pelicula")
+    palavras = normalizar(" ".join(p for p in partes if p)).split()
+    return palavras + [extra for p in palavras for extra in _SINONIMOS.get(p, "").split()]
 
 
 def buscar_texto(termo: str, inicio: int, quantidade: int) -> list[dict]:
     """Busca simples por palavras: o produto precisa ter todas as palavras do
     termo (cada uma pode ser o comeco de uma palavra: "256" acha "256gb").
-    Empate: nome mais curto primeiro ("iphone 17" traz o 17 antes do 17 Pro)."""
+    Ordem: aparelhos antes de acessorios (a menos que o cliente peca acessorio),
+    depois o nome com menos palavras alem das pedidas ("iphone 17" traz o 17
+    antes do 17 Pro Max) e o menor preco (256GB antes de 1TB)."""
     tokens = [t for t in normalizar(termo).split() if t not in _STOPWORDS]
     if not tokens:
         return []
+    quer_acessorio = any(t in _PALAVRAS_ACESSORIO for t in tokens)
     achados = []
     for ordem, grupo in enumerate(agrupar(carregar_feed()["linhas"])):
         palavras = _texto_de_busca(grupo)
         if all(any(p.startswith(t) for p in palavras) for t in tokens):
-            achados.append((len(normalizar(grupo["linhas"][0].get("produto"))), ordem, grupo))
-    achados.sort(key=lambda x: (x[0], x[1]))
+            primeira = grupo["linhas"][0]
+            acessorio = 0 if quer_acessorio or categoria(primeira) in _CATEGORIAS_APARELHO else 1
+            nome = normalizar(primeira.get("produto")).split()
+            sobrando = sum(1 for p in nome if p not in tokens)  # "17e" conta como a mais em "iphone 17"
+            menor_preco = min(float(l["preco_por"]) for l in grupo["linhas"])
+            achados.append(((acessorio, sobrando, menor_preco, ordem), grupo))
+    achados.sort(key=lambda x: x[0])
     resultado = []
-    for _, _, grupo in achados[inicio:]:
+    for _, grupo in achados[inicio:]:
         item = produto_omnichat(grupo)
         if item:
             resultado.append(item)

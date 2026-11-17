@@ -170,6 +170,21 @@ class Planilha(unittest.TestCase):
         r = chamar(query="laranja cosmico", x_api_key="segredo-teste")
         self.assertEqual(r[0]["objectId"], "100544PR")
 
+    def test_nomes_do_erp_e_aparelho_antes_de_acessorio(self):
+        linhas = [
+            {"produto": "CAPA APPLE IPH 17 PRO LARANJA", "sku": "1", "preco_por": 499.0,
+             "descricao": "Categoria: CAPAS IPHONE APPLE | Ação: BF", "ativo": True},
+            {"produto": "IPHONE 17 PRO COS ORANGE 256GB", "sku": "2", "preco_por": 7999.0,
+             "variante": "IPHONE 17 PRO COS ORANGE 256GB MG8H4BE/A",
+             "descricao": "Categoria: IPHONE | Ação: BF", "ativo": True},
+        ]
+        planilha._estado.update(feed={"linhas": linhas}, lido_em=1e18)
+        r = chamar(query="iphone 17 pro laranja cosmico", x_api_key="segredo-teste")
+        self.assertEqual([p["objectId"] for p in r][0], planilha.normalizar("IPHONE 17 PRO COS ORANGE 256GB"))
+        self.assertEqual(r[0]["mainVariant"]["name"], "IPHONE 17 PRO COS ORANGE 256GB MG8H4BE/A")
+        r = chamar(query="capa iphone 17", x_api_key="segredo-teste")
+        self.assertEqual(r[0]["name"], "CAPA APPLE IPH 17 PRO LARANJA")
+
     def test_sku_id_url(self):
         r = chamar(searchType="SKUID", query="100072475", x_api_key="segredo-teste")
         self.assertEqual(r, [])  # unica variante pedida esta sem estoque
