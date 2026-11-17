@@ -6,7 +6,8 @@ guarda no BigQuery e expoe as linhas em /api/agente-ia/planilha/feed. Aqui a
 gente le esse feed, guarda em memoria por PLANILHA_TTL_S e monta os produtos
 no mesmo formato da Omnichat que a fonte "site" devolve.
 
-Preco do site/televendas = preco_por (com Pix e cartao). Preco de loja e
+Preco do site/televendas = preco_por, que e o preco grande da pagina (Pix);
+o cartao parte de Pix / 0,9 (ver precos()). Preco de loja e
 diferente e vai como texto na descricao do produto, para o agente so usar
 depois que o cliente escolher comprar na loja.
 """
@@ -167,8 +168,20 @@ def _nome_completo(linha: dict) -> str:
     return f"{produto} {variante}"
 
 
+def precos(linha: dict) -> tuple[float, float]:
+    """(Pix, cartao) como o site mostra: o preco grande da pagina e o do Pix
+    (preco_por; preco_pix, se vier, tem prioridade) e o cartao parte do preco
+    cheio = Pix / (1 - desconto do Pix), salvo se a planilha trouxer preco_cartao.
+    Ex. do site: R$ 5.399,00 no Pix -> cartao R$ 5.998,89 -> 21x R$ 319,80."""
+    pix = float(linha.get("preco_pix") or linha["preco_por"])
+    cartao = linha.get("preco_cartao")
+    if not cartao:
+        cartao = round(pix / (1 - config.PIX_DESCONTO), 2) if config.PIX_DESCONTO < 1 else pix
+    return pix, float(cartao)
+
+
 def _variante(linha: dict) -> dict:
-    preco = float(linha["preco_por"])
+    pix, cartao = precos(linha)
     estoque = linha.get("estoque")
     # Estoque em branco = o CRM nao controla: o agente considera disponivel.
     quantidade = int(estoque) if estoque is not None else 1
@@ -183,16 +196,17 @@ def _variante(linha: dict) -> dict:
         "erpId": str(linha["sku"]),
         "name": _nome_completo(linha),
         "visible": quantidade > 0,
-        "price": float(linha.get("preco_de") or preco),
-        "salePrice": preco,
+        # price = "de" riscado; salePrice = o preco grande do site (Pix).
+        "price": float(linha.get("preco_de") or pix),
+        "salePrice": pix,
         "quantity": quantidade,
         "sellerId": "1",
         "sellerName": "iPlace",
         "installmentOptions": opcoes_de_pagamento(
-            preco,
+            cartao,
             parcelas=linha.get("parcelas"),
             juros_mensal_pct=linha.get("juros_mes"),
-            preco_pix=linha.get("preco_pix"),
+            preco_pix=pix,
         ),
         "variations": variacoes,
     }

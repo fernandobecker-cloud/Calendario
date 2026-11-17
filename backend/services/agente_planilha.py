@@ -46,9 +46,11 @@ COLUNAS: dict[str, tuple[str, bool, list[str], str]] = {
     "capacidade": ("texto", False, ["armazenamento"], "Capacidade ou tamanho (ex.: 256GB, 46mm)."),
     "preco_de": ("numero", False, ["preco de", "de"], "Preço \"de\" (riscado). Em branco = sem desconto."),
     "preco_por": ("numero", True, ["preco por", "por", "preco site", "preco"],
-                  "Preço de venda no site. Também vale para o televendas."),
-    "preco_pix": ("numero", False, ["pix", "preco no pix"], "Preço no Pix. Em branco = preço por menos 10%."),
-    "parcelas": ("inteiro", False, ["max parcelas", "qtd parcelas"], "Máximo de parcelas no cartão. Em branco = 21."),
+                  "Preço do site como aparece grande na página (o preço no Pix). Também vale para o televendas."),
+    "preco_pix": ("numero", False, ["pix", "preco no pix"], "Preço no Pix, se for diferente do preco_por. Em branco = preco_por."),
+    "preco_cartao": ("numero", False, ["cartao", "preco no cartao", "preco cartao"],
+                     "Preço no cartão (base do parcelamento). Em branco = Pix ÷ 0,9, como no site."),
+    "parcelas": ("inteiro", False, ["max parcelas", "qtd parcelas"], "Máximo de parcelas no cartão. Em branco = 21 (menos, se a parcela ficar abaixo de R$ 5)."),
     "juros_mes": ("numero", False, ["juros", "juros a m", "juros ao mes"],
                   "Juros ao mês no cartão, em % (0 = sem juros). Em branco = 1,05."),
     "preco_loja": ("numero", False, ["preco loja", "preco na loja"],
@@ -245,8 +247,9 @@ def validar(conteudo: bytes, arquivo: str) -> tuple[list[dict[str, Any]], list[s
             skus[sku] = numero_linha
         if linha.get("preco_de") and linha.get("preco_por") and linha["preco_de"] < linha["preco_por"]:
             avisos.append(f"Linha {numero_linha}: preco_de menor que preco_por (o agente não vai mostrar desconto).")
-        if linha.get("preco_pix") and linha.get("preco_por") and linha["preco_pix"] > linha["preco_por"]:
-            avisos.append(f"Linha {numero_linha}: preco_pix maior que preco_por.")
+        pix = linha.get("preco_pix") or linha.get("preco_por")
+        if linha.get("preco_cartao") and pix and linha["preco_cartao"] < pix:
+            avisos.append(f"Linha {numero_linha}: preco_cartao menor que o preço no Pix.")
         linhas.append(linha)
 
     if not linhas:

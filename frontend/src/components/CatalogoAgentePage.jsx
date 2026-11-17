@@ -315,8 +315,9 @@ function PainelPlanilha() {
                   <th className="px-2 py-1.5">Linha</th>
                   <th className="px-2 py-1.5">SKU</th>
                   <th className="px-2 py-1.5">Produto</th>
-                  <th className="px-2 py-1.5 text-right">Por (site)</th>
-                  <th className="px-2 py-1.5 text-right">Pix</th>
+                  <th className="px-2 py-1.5 text-right">De</th>
+                  <th className="px-2 py-1.5 text-right">Por / Pix (site)</th>
+                  <th className="px-2 py-1.5 text-right">Cartão</th>
                   <th className="px-2 py-1.5 text-right">Loja</th>
                   <th className="px-2 py-1.5 text-right">Estoque</th>
                 </tr>
@@ -327,8 +328,9 @@ function PainelPlanilha() {
                     <td className="px-2 py-1.5">{l.linha}</td>
                     <td className="px-2 py-1.5">{l.sku}</td>
                     <td className="px-2 py-1.5">{l.produto} {l.variante || [l.capacidade, l.cor].filter(Boolean).join(' ')}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_por)}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{l.preco_pix != null ? moeda(l.preco_pix) : 'padrão'}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_de)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_pix ?? l.preco_por)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{l.preco_cartao != null ? moeda(l.preco_cartao) : 'Pix ÷ 0,9'}</td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_loja)}</td>
                     <td className="px-2 py-1.5 text-right">{l.estoque ?? 'disponível'}</td>
                   </tr>

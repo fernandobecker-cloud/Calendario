@@ -50,6 +50,10 @@ def opcoes_de_pagamento(
     opcoes = []
     n = config.CARTAO_MAX_PARCELAS if parcelas is None else parcelas
     juros = config.CARTAO_JUROS_MENSAL_PCT if juros_mensal_pct is None else juros_mensal_pct
+    # Parcela minima: o site corta o numero de parcelas para nenhuma ficar
+    # abaixo dela (produto de R$ 69 no Pix aparece em 16x, nao em 21x).
+    while n > 1 and parcela_price(preco_venda, n, juros) < config.PARCELA_MINIMA:
+        n -= 1
     if n >= 1:
         parcela = parcela_price(preco_venda, n, juros)
         opcoes.append({

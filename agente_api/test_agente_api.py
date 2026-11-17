@@ -124,13 +124,13 @@ class Endpoint(unittest.TestCase):
 
 LINHAS_PLANILHA = [
     {"produto_id": "100544PR", "produto": "iPhone 17 Pro Max", "sku": "100072474", "variante": "256GB Laranja-cósmico",
-     "cor": "Laranja-cósmico", "capacidade": "256GB", "preco_de": 12499.0, "preco_por": 10921.11,
+     "cor": "Laranja-cósmico", "capacidade": "256GB", "preco_de": 12499.0, "preco_por": 9829.0,
      "preco_loja": 10499.0, "condicao_loja": "10x sem juros", "estoque": 3,
      "link": "https://www.iplace.com.br/apple-iphone-17-pro-max/100544PR", "ativo": True},
     {"produto_id": "100544PR", "produto": "iPhone 17 Pro Max", "sku": "100072475", "variante": "256GB Prata",
-     "cor": "Prata", "capacidade": "256GB", "preco_por": 10921.11, "estoque": 0, "ativo": True},
+     "cor": "Prata", "capacidade": "256GB", "preco_por": 9829.0, "estoque": 0, "ativo": True},
     {"produto_id": "", "produto": "iPhone 17", "sku": "200", "variante": "128GB Preto", "preco_por": 5000.0,
-     "preco_pix": 4400.0, "parcelas": 10, "juros_mes": 0, "estoque": None, "ativo": True},
+     "preco_pix": 4400.0, "preco_cartao": 5000.0, "parcelas": 10, "juros_mes": 0, "estoque": None, "ativo": True},
     {"produto_id": "", "produto": "AirPods Pro 3", "sku": "300", "preco_por": 2643.33, "ativo": False},
 ]
 
@@ -151,8 +151,10 @@ class Planilha(unittest.TestCase):
         pro = r[1]
         self.assertEqual(pro["objectId"], "100544PR")
         self.assertEqual(pro["mainVariant"]["objectId"], "100072474")
-        pix = conversao.opcoes_de_pagamento(10921.11)[1]["oneTimePayment"]
-        self.assertEqual([o["oneTimePayment"] for o in pro["mainVariant"]["installmentOptions"]], [10921.11, pix])
+        cartao, pix = pro["mainVariant"]["installmentOptions"]
+        self.assertEqual(pro["mainVariant"]["salePrice"], 9829.0)  # preco grande do site = Pix
+        self.assertEqual((cartao["oneTimePayment"], cartao["installmentPrice"], pix["oneTimePayment"]),
+                         (10921.11, 582.20, 9829.0))
         self.assertIn("PREÇO NA LOJA FÍSICA", pro["productDescription"])
         self.assertIn("R$ 10.499,00, 10x sem juros", pro["productDescription"])
         self.assertTrue(pro["externalUrl"].endswith("?" + config.UTM))
@@ -169,6 +171,17 @@ class Planilha(unittest.TestCase):
         self.assertEqual(chamar(query="airpods", x_api_key="segredo-teste"), [])
         r = chamar(query="laranja cosmico", x_api_key="segredo-teste")
         self.assertEqual(r[0]["objectId"], "100544PR")
+
+    def test_regra_do_site_pix_e_cartao(self):
+        # Paginas do site em 17/11/2026: (preco no Pix, parcelas, valor da parcela)
+        for pix, n, parcela in [(5399.0, 21, 319.80), (99.0, 21, 5.86), (69.0, 16, None)]:
+            cartao, opcao_pix = planilha.produto_omnichat(
+                {"chave": "x", "linhas": [{"produto": "X", "sku": "1", "preco_por": pix, "ativo": True}]}
+            )["mainVariant"]["installmentOptions"]
+            self.assertEqual(opcao_pix["oneTimePayment"], pix)
+            self.assertEqual(cartao["maxInstallments"], n, pix)
+            if parcela:
+                self.assertEqual(cartao["installmentPrice"], parcela, pix)
 
     def test_nomes_do_erp_e_aparelho_antes_de_acessorio(self):
         linhas = [
