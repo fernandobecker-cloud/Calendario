@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react'
-import { extrairDetalheErro } from './sacUtils'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { extrairDetalheErro, formatarData } from './sacUtils'
 
-// Aba "Catalogo do agente": mostra exatamente o que a API do agente de IA
-// (servico agente-ia-api) devolve para a Omnichat, para conferir com o site.
+// Aba "Catalogo do agente":
+//  - Planilha da campanha: o CRM sobe aqui os produtos e precos que o agente usa
+//    enquanto o site esta bloqueado pelo Akamai (plano B).
+//  - Busca: mostra exatamente o que a API do agente de IA (servico
+//    agente-ia-api) devolve para a Omnichat, venha da planilha ou do site.
 // O portal nao calcula nada: preco, Pix e parcelamento vem prontos da API.
 
 const TIPOS = [
@@ -35,6 +38,7 @@ function ordenar(variantes) {
 
 function TabelaVariantes({ produto }) {
   const principal = produto.mainVariant?.objectId
+  const semControle = produto.trackInventory === false
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
@@ -85,7 +89,7 @@ function TabelaVariantes({ produto }) {
                   ) : '-'}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
-                  {esgotado ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">Esgotado</span> : v.quantity}
+                  {esgotado ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">Esgotado</span> : semControle ? 'disponível' : v.quantity}
                 </td>
               </tr>
             )
@@ -121,9 +125,217 @@ function CartaoProduto({ produto }) {
       {produto.productDescription && (
         <details className="mt-4 text-sm text-slate-600">
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Descrição que o agente recebe
+            Descrição que o agente recebe (inclui o preço de loja, se houver)
           </summary>
           <p className="mt-2 whitespace-pre-line">{produto.productDescription}</p>
+        </details>
+      )}
+    </section>
+  )
+}
+
+function PainelPlanilha() {
+  const [dados, setDados] = useState(null)
+  const [carregando, setCarregando] = useState(true)
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [errosPlanilha, setErrosPlanilha] = useState([])
+  const [avisos, setAvisos] = useState([])
+  const [sucesso, setSucesso] = useState('')
+  const inputRef = useRef(null)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const res = await fetch('/api/agente-ia/planilha')
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setDados(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar a planilha.')
+    } finally {
+      setCarregando(false)
+    }
+  }, [])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const enviar = async (event) => {
+    const arquivo = event.target.files?.[0]
+    event.target.value = ''
+    if (!arquivo) return
+    setEnviando(true)
+    setErro('')
+    setErrosPlanilha([])
+    setAvisos([])
+    setSucesso('')
+    try {
+      const res = await fetch(`/api/agente-ia/planilha?arquivo=${encodeURIComponent(arquivo.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: arquivo,
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        const detalhe = payload?.detail
+        if (detalhe && Array.isArray(detalhe.erros)) {
+          setErro(detalhe.mensagem)
+          setErrosPlanilha(detalhe.erros)
+          return
+        }
+        throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      }
+      setDados((atual) => ({ ...atual, ...payload }))
+      setAvisos(payload.avisos || [])
+      setSucesso(`Planilha carregada: ${payload.planilha?.linhas?.length || 0} linha(s). O agente passa a usar em até 1 minuto.`)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar a planilha.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  // Download via fetch: o login do portal so injeta a credencial no fetch,
+  // um <a href> direto para /api daria 401.
+  const baixarModelo = async () => {
+    try {
+      const res = await fetch('/api/agente-ia/planilha/modelo')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const url = URL.createObjectURL(await res.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'modelo_planilha_agente.csv'
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      setErro(`Não consegui baixar o modelo: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const planilha = dados?.planilha
+  const linhas = planilha?.linhas || []
+  const ativas = linhas.filter((l) => l.ativo !== false)
+  const produtos = new Set(ativas.map((l) => (l.produto_id || l.produto || '').toLowerCase())).size
+  const fonte = dados?.agente?.fonte
+
+  return (
+    <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Planilha da campanha</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Enquanto o site estiver bloqueado para a API, o agente usa os produtos e preços desta planilha. Uma linha
+            por SKU. Ao subir uma nova, ela substitui a anterior inteira.
+          </p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          fonte === 'planilha' ? 'bg-emerald-50 text-emerald-700'
+            : fonte === 'site' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}
+        >
+          {fonte === 'planilha' ? 'Agente usando: planilha'
+            : fonte === 'site' ? 'Agente usando: site (a planilha não é usada)' : 'Agente: fonte não confirmada'}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={enviando}
+          className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+        >
+          {enviando ? 'Enviando...' : 'Subir planilha (.xlsx ou .csv)'}
+        </button>
+        <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={enviar} />
+        <button
+          type="button"
+          onClick={baixarModelo}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+        >
+          Baixar modelo
+        </button>
+        {carregando ? (
+          <span className="text-sm text-slate-400">Carregando...</span>
+        ) : planilha ? (
+          <span className="text-sm text-slate-500">
+            Atual: <strong className="text-slate-700">{planilha.arquivo}</strong> · {ativas.length} SKU(s) ativos em{' '}
+            {produtos} produto(s) · por {planilha.carregado_por} em {formatarData(planilha.carregado_em)}
+          </span>
+        ) : (
+          <span className="text-sm text-amber-600">Nenhuma planilha carregada ainda.</span>
+        )}
+      </div>
+
+      {sucesso && <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</p>}
+      {erro && (
+        <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <p>{erro}</p>
+          {errosPlanilha.length > 0 && (
+            <ul className="mt-2 list-disc pl-5">{errosPlanilha.map((e) => <li key={e}>{e}</li>)}</ul>
+          )}
+        </div>
+      )}
+      {avisos.length > 0 && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <p>Carregada, mas confira:</p>
+          <ul className="mt-2 list-disc pl-5">{avisos.map((a) => <li key={a}>{a}</li>)}</ul>
+        </div>
+      )}
+
+      {dados?.colunas && (
+        <details className="mt-4 text-sm text-slate-600">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Colunas da planilha
+          </summary>
+          <table className="mt-2 min-w-full text-sm">
+            <tbody>
+              {dados.colunas.map((c) => (
+                <tr key={c.nome} className="border-b border-slate-100">
+                  <td className="whitespace-nowrap py-1.5 pr-4 font-mono text-xs text-slate-700">
+                    {c.nome}{c.obrigatoria && <span className="ml-1 text-rose-500">*</span>}
+                  </td>
+                  <td className="py-1.5">{c.explicacao}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs text-slate-400">* obrigatória. Preços aceitam "R$ 10.921,11" ou "10921.11".</p>
+        </details>
+      )}
+
+      {linhas.length > 0 && (
+        <details className="mt-3 text-sm text-slate-600">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Linhas carregadas ({linhas.length})
+          </summary>
+          <div className="mt-2 max-h-96 overflow-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-1.5">Linha</th>
+                  <th className="px-2 py-1.5">SKU</th>
+                  <th className="px-2 py-1.5">Produto</th>
+                  <th className="px-2 py-1.5 text-right">Por (site)</th>
+                  <th className="px-2 py-1.5 text-right">Pix</th>
+                  <th className="px-2 py-1.5 text-right">Loja</th>
+                  <th className="px-2 py-1.5 text-right">Estoque</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l) => (
+                  <tr key={l.sku} className={`border-b border-slate-100 ${l.ativo === false ? 'text-slate-400 line-through' : ''}`}>
+                    <td className="px-2 py-1.5">{l.linha}</td>
+                    <td className="px-2 py-1.5">{l.sku}</td>
+                    <td className="px-2 py-1.5">{l.produto} {l.variante || [l.capacidade, l.cor].filter(Boolean).join(' ')}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_por)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{l.preco_pix != null ? moeda(l.preco_pix) : 'padrão'}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_loja)}</td>
+                    <td className="px-2 py-1.5 text-right">{l.estoque ?? 'disponível'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </details>
       )}
     </section>
@@ -166,11 +378,14 @@ export default function CatalogoAgentePage() {
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Catálogo do agente de IA</h1>
         <p className="mt-2 text-sm text-indigo-100 md:text-base">
           O que o agente da Omnichat recebe quando o cliente pergunta por um produto: preço, desconto, Pix, parcelamento e
-          estoque. Confira com a página do produto no site.
+          estoque. Use a busca abaixo para conferir com a página do produto no site.
         </p>
       </section>
 
+      <PainelPlanilha />
+
       <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">O que o agente responde</h2>
         <form onSubmit={buscar} className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1 text-sm text-slate-600">
             Buscar por

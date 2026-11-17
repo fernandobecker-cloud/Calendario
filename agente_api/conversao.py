@@ -38,12 +38,18 @@ def parcela_price(valor: float, parcelas: int, juros_mensal_pct: float) -> float
     return truncar(valor * i / (1 - (1 + i) ** -parcelas))
 
 
-def opcoes_de_pagamento(preco_venda: float) -> list[dict]:
+def opcoes_de_pagamento(
+    preco_venda: float,
+    parcelas: int | None = None,
+    juros_mensal_pct: float | None = None,
+    preco_pix: float | None = None,
+) -> list[dict]:
     """Uma entrada por forma de pagamento, com o maior parcelamento de cada uma
-    (como pede o contrato da Omnichat)."""
+    (como pede o contrato da Omnichat). Sem os parametros opcionais, usa as
+    regras do site (config); a planilha da campanha pode sobrescrever por SKU."""
     opcoes = []
-    n = config.CARTAO_MAX_PARCELAS
-    juros = config.CARTAO_JUROS_MENSAL_PCT
+    n = config.CARTAO_MAX_PARCELAS if parcelas is None else parcelas
+    juros = config.CARTAO_JUROS_MENSAL_PCT if juros_mensal_pct is None else juros_mensal_pct
     if n >= 1:
         parcela = parcela_price(preco_venda, n, juros)
         opcoes.append({
@@ -54,7 +60,7 @@ def opcoes_de_pagamento(preco_venda: float) -> list[dict]:
             "interest": juros if n > 1 else 0,
             "totalWithInterest": arredondar(parcela * n),
         })
-    pix = arredondar(preco_venda * (1 - config.PIX_DESCONTO))
+    pix = arredondar(preco_pix if preco_pix is not None else preco_venda * (1 - config.PIX_DESCONTO))
     opcoes.append({
         "name": "Pix",
         "oneTimePayment": pix,

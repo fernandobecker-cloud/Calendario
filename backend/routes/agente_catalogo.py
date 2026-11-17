@@ -4,6 +4,11 @@
 O portal NAO calcula preco: so repassa a busca para a API do agente, assim o
 que aparece aqui e exatamente o que o agente vai responder ao cliente.
 
+Tambem guarda a planilha da campanha (plano B enquanto o Akamai bloqueia o
+site): o admin sobe o .xlsx/.csv aqui, o portal valida e grava no BigQuery, e
+a API do agente le as linhas em /planilha/feed (autenticado pelo token, fora
+do Basic Auth do portal - ver basic_auth_middleware em server.py).
+
 Env vars no servico do portal:
     AGENTE_API_URL    (padrao: https://agente-ia-api-r6cb.onrender.com)
     AGENTE_API_TOKEN  (o mesmo AGENTE_API_TOKEN do servico agente-ia-api)
@@ -11,10 +16,14 @@ Env vars no servico do portal:
 
 from __future__ import annotations
 
+import hmac
 import os
 
 import requests
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
+
+from backend.services import agente_planilha
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -73,3 +82,84 @@ def consultar_catalogo(
         raise HTTPException(status_code=502, detail=detalhe or f"A API do agente respondeu HTTP {resp.status_code}.")
 
     return {"itens": corpo, "agente_api_url": AGENTE_API_URL}
+
+
+# --- Planilha da campanha -----------------------------------------------------
+
+MAX_BYTES_PLANILHA = 5 * 1024 * 1024
+
+
+def _status_do_agente() -> dict | None:
+    """Fonte que a API do agente esta usando (planilha ou site). Se ela estiver
+    dormindo (plano Free), nao espera."""
+    try:
+        resp = requests.get(f"{AGENTE_API_URL}/health", timeout=4)
+        return resp.json() if resp.status_code == 200 else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def _resumo(feed: dict | None) -> dict:
+    return {
+        "planilha": feed,
+        "colunas": [
+            {"nome": nome, "obrigatoria": obrig, "explicacao": exp}
+            for nome, (_tipo, obrig, _apelidos, exp) in agente_planilha.COLUNAS.items()
+        ],
+    }
+
+
+@router.get("/planilha")
+def ver_planilha(request: Request):
+    _exigir_admin(request)
+    try:
+        feed = agente_planilha.carregar()
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**_resumo(feed), "agente": _status_do_agente()}
+
+
+@router.get("/planilha/modelo")
+def modelo_planilha(request: Request):
+    _exigir_admin(request)
+    return Response(
+        content=agente_planilha.modelo_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="modelo_planilha_agente.csv"'},
+    )
+
+
+@router.post("/planilha")
+async def subir_planilha(request: Request, arquivo: str = Query(..., min_length=1)):
+    """Recebe o arquivo cru no corpo (sem multipart) e substitui a planilha."""
+    _exigir_admin(request)
+    conteudo = await request.body()
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    if len(conteudo) > MAX_BYTES_PLANILHA:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 5 MB.")
+    try:
+        linhas, avisos = agente_planilha.validar(conteudo, arquivo)
+    except agente_planilha.PlanilhaInvalida as exc:
+        raise HTTPException(status_code=400, detail={"mensagem": "A planilha tem erros e nao foi carregada.",
+                                                     "erros": exc.erros}) from exc
+    try:
+        feed = agente_planilha.salvar(linhas, arquivo, request.state.auth_user.username)
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**_resumo(feed), "avisos": avisos}
+
+
+@router.get("/planilha/feed")
+def feed_planilha(request: Request):
+    """Para a API do agente. Sem Basic Auth: exige o AGENTE_API_TOKEN."""
+    recebido = (request.headers.get("x-api-key") or "").strip()
+    if not AGENTE_API_TOKEN or not hmac.compare_digest(recebido.encode(), AGENTE_API_TOKEN.encode()):
+        raise HTTPException(status_code=401, detail="Token invalido.")
+    try:
+        feed = agente_planilha.carregar()
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not feed:
+        raise HTTPException(status_code=404, detail="Nenhuma planilha carregada.")
+    return feed

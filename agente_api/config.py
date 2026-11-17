@@ -64,3 +64,21 @@ UTM = os.getenv(
 
 # Limite de produtos por busca (a Omnichat pede 10 por padrao).
 MAX_ITENS_POR_BUSCA = _int("MAX_ITENS_POR_BUSCA", 20)
+
+# De onde vem o catalogo:
+#   "planilha" = planilha da campanha que o CRM sobe no portal (aba Catalogo do
+#                agente). Plano B enquanto o Akamai bloqueia o site.
+#   "site"     = API publica do Oracle Commerce (precisa da liberacao do TI).
+# Para trocar, basta mudar AGENTE_FONTE no Environment da Render.
+FONTE = os.getenv("AGENTE_FONTE", "planilha").strip().lower()
+
+# Onde a planilha e lida: endpoint do portal que devolve as linhas ja
+# validadas. Autenticado com o mesmo AGENTE_API_TOKEN.
+PLANILHA_URL = os.getenv(
+    "AGENTE_PLANILHA_URL",
+    "https://calendario-39gp.onrender.com/api/agente-ia/planilha/feed",
+).strip()
+# A planilha e relida a cada PLANILHA_TTL_S; se o portal cair, segue com a
+# ultima copia boa.
+PLANILHA_TTL_S = _int("PLANILHA_TTL_S", 60)
+PLANILHA_TIMEOUT_S = _float("PLANILHA_TIMEOUT_S", 20.0)

@@ -23,7 +23,7 @@ import time
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from . import config, oracle
+from . import config, oracle, planilha
 from .conversao import produto_omnichat
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -72,7 +72,14 @@ def _montar(ids: list[str], somente_sku: str | None = None) -> list[dict]:
     return resultado
 
 
+TIPOS = {"TEXT", "ID", "SKUID", "REFERENCE", "URL"}
+
+
 def _buscar(tipo: str, termo: str, inicio: int, quantidade: int) -> list[dict]:
+    if tipo not in TIPOS:
+        raise HTTPException(status_code=400, detail=f"searchType nao suportado: {tipo}")
+    if config.FONTE == "planilha":
+        return planilha.buscar(tipo, termo, inicio, quantidade)
     if tipo == "TEXT":
         # Pede o dobro ao site porque produtos sem estoque sao descartados.
         ids = oracle.buscar_ids_por_texto(termo, inicio, min(quantidade * 2, 40))
@@ -97,7 +104,7 @@ def _buscar(tipo: str, termo: str, inicio: int, quantidade: int) -> list[dict]:
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "fonte": config.FONTE}
 
 
 @app.get("/omnichat/ecommerce/search")
@@ -119,16 +126,16 @@ def buscar_produtos(
     comeco = time.monotonic()
     try:
         resultado = _buscar(tipo, termo, inicio, quantidade)
-    except oracle.OracleErro as exc:
-        log.warning("busca falhou tipo=%s termo=%r: %s", tipo, termo, exc)
+    except (oracle.OracleErro, planilha.PlanilhaErro) as exc:
+        log.warning("busca falhou fonte=%s tipo=%s termo=%r: %s", config.FONTE, tipo, termo, exc)
         # "detail" e o texto neutro para a Omnichat; "motivo" ajuda quem diagnostica
         # (a aba Catalogo do agente no portal mostra ele). Nao tem dado sensivel.
         return JSONResponse(status_code=502, content={
-            "detail": "Site da iPlace indisponivel no momento.",
+            "detail": "Catalogo da iPlace indisponivel no momento.",
             "motivo": str(exc),
         })
     log.info(
-        "busca tipo=%s termo=%r from=%s size=%s -> %s produtos (%sms)",
-        tipo, termo, inicio, quantidade, len(resultado), int((time.monotonic() - comeco) * 1000),
+        "busca fonte=%s tipo=%s termo=%r from=%s size=%s -> %s produtos (%sms)",
+        config.FONTE, tipo, termo, inicio, quantidade, len(resultado), int((time.monotonic() - comeco) * 1000),
     )
     return resultado

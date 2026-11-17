@@ -9,7 +9,7 @@ os.environ.setdefault("AGENTE_API_TOKEN", "segredo-teste")
 
 from fastapi import HTTPException  # noqa: E402
 
-from agente_api import conversao, main, oracle  # noqa: E402
+from agente_api import config, conversao, main, oracle, planilha  # noqa: E402
 
 
 class RegrasDePagamento(unittest.TestCase):
@@ -82,6 +82,8 @@ def chamar(query="iphone", searchType="TEXT", size=10, token=None, x_api_key=Non
 
 class Endpoint(unittest.TestCase):
     def setUp(self):
+        self._fonte = config.FONTE
+        config.FONTE = "site"
         self._orig = (oracle.buscar_ids_por_texto, oracle.carregar_produtos, oracle.carregar_estoque, oracle.produto_do_sku)
         oracle.buscar_ids_por_texto = lambda termo, inicio, qtd: ["100544PR", "999PR"]
         oracle.carregar_produtos = lambda ids: {"100544PR": PRODUTO} if "100544PR" in ids else {}
@@ -89,6 +91,7 @@ class Endpoint(unittest.TestCase):
         oracle.produto_do_sku = lambda sku: "100544PR" if sku in ESTOQUE else None
 
     def tearDown(self):
+        config.FONTE = self._fonte
         (oracle.buscar_ids_por_texto, oracle.carregar_produtos, oracle.carregar_estoque, oracle.produto_do_sku) = self._orig
 
     def test_sem_token_recusa(self):
@@ -117,6 +120,87 @@ class Endpoint(unittest.TestCase):
             raise oracle.OracleErro("timeout")
         oracle.buscar_ids_por_texto = falha
         self.assertEqual(chamar(x_api_key="segredo-teste").status_code, 502)
+
+
+LINHAS_PLANILHA = [
+    {"produto_id": "100544PR", "produto": "iPhone 17 Pro Max", "sku": "100072474", "variante": "256GB Laranja-cósmico",
+     "cor": "Laranja-cósmico", "capacidade": "256GB", "preco_de": 12499.0, "preco_por": 10921.11,
+     "preco_loja": 10499.0, "condicao_loja": "10x sem juros", "estoque": 3,
+     "link": "https://www.iplace.com.br/apple-iphone-17-pro-max/100544PR", "ativo": True},
+    {"produto_id": "100544PR", "produto": "iPhone 17 Pro Max", "sku": "100072475", "variante": "256GB Prata",
+     "cor": "Prata", "capacidade": "256GB", "preco_por": 10921.11, "estoque": 0, "ativo": True},
+    {"produto_id": "", "produto": "iPhone 17", "sku": "200", "variante": "128GB Preto", "preco_por": 5000.0,
+     "preco_pix": 4400.0, "parcelas": 10, "juros_mes": 0, "estoque": None, "ativo": True},
+    {"produto_id": "", "produto": "AirPods Pro 3", "sku": "300", "preco_por": 2643.33, "ativo": False},
+]
+
+
+class Planilha(unittest.TestCase):
+    def setUp(self):
+        self._fonte = config.FONTE
+        config.FONTE = "planilha"
+        planilha._estado.update(feed={"linhas": LINHAS_PLANILHA}, lido_em=1e18)
+
+    def tearDown(self):
+        config.FONTE = self._fonte
+        planilha._estado.update(feed=None, lido_em=0.0)
+
+    def test_busca_texto_ordem_e_formato(self):
+        r = chamar(query="quero o iphone 17", x_api_key="segredo-teste")
+        self.assertEqual([p["name"] for p in r], ["iPhone 17", "iPhone 17 Pro Max"])
+        pro = r[1]
+        self.assertEqual(pro["objectId"], "100544PR")
+        self.assertEqual(pro["mainVariant"]["objectId"], "100072474")
+        pix = conversao.opcoes_de_pagamento(10921.11)[1]["oneTimePayment"]
+        self.assertEqual([o["oneTimePayment"] for o in pro["mainVariant"]["installmentOptions"]], [10921.11, pix])
+        self.assertIn("PREÇO NA LOJA FÍSICA", pro["productDescription"])
+        self.assertIn("R$ 10.499,00, 10x sem juros", pro["productDescription"])
+        self.assertTrue(pro["externalUrl"].endswith("?" + config.UTM))
+
+    def test_regras_por_linha_e_estoque_em_branco(self):
+        r = chamar(query="iphone 17 128", x_api_key="segredo-teste")
+        self.assertEqual(len(r), 1)
+        cartao, pix = r[0]["mainVariant"]["installmentOptions"]
+        self.assertEqual((cartao["maxInstallments"], cartao["installmentPrice"], cartao["interest"]), (10, 500.0, 0))
+        self.assertEqual(pix["oneTimePayment"], 4400.0)
+        self.assertFalse(r[0]["trackInventory"])
+
+    def test_inativo_e_sem_acento(self):
+        self.assertEqual(chamar(query="airpods", x_api_key="segredo-teste"), [])
+        r = chamar(query="laranja cosmico", x_api_key="segredo-teste")
+        self.assertEqual(r[0]["objectId"], "100544PR")
+
+    def test_sku_id_url(self):
+        r = chamar(searchType="SKUID", query="100072475", x_api_key="segredo-teste")
+        self.assertEqual(r, [])  # unica variante pedida esta sem estoque
+        r = chamar(searchType="ID", query="100544pr", x_api_key="segredo-teste")
+        self.assertEqual(len(r[0]["variants"]), 2)
+        r = chamar(searchType="URL", query="https://www.iplace.com.br/x/100544PR?utm=1", x_api_key="segredo-teste")
+        self.assertEqual(r[0]["objectId"], "100544PR")
+
+    def test_sem_planilha_responde_502(self):
+        planilha._estado.update(feed=None, lido_em=0.0)
+        orig = planilha._baixar_feed
+
+        def falha():
+            raise planilha.PlanilhaErro("nenhuma planilha da campanha foi carregada no portal ainda")
+        planilha._baixar_feed = falha
+        try:
+            self.assertEqual(chamar(x_api_key="segredo-teste").status_code, 502)
+        finally:
+            planilha._baixar_feed = orig
+
+    def test_portal_fora_usa_ultima_copia(self):
+        planilha._estado["lido_em"] = 0.0
+        orig = planilha._baixar_feed
+
+        def falha():
+            raise planilha.PlanilhaErro("timeout")
+        planilha._baixar_feed = falha
+        try:
+            self.assertEqual(len(chamar(query="iphone", x_api_key="segredo-teste")), 2)
+        finally:
+            planilha._baixar_feed = orig
 
 
 if __name__ == "__main__":
