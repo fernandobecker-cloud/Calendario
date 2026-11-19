@@ -23,7 +23,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
-from backend.services import agente_planilha
+from backend.services import agente_planilha, agente_site
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -99,9 +99,19 @@ def _status_do_agente() -> dict | None:
         return None
 
 
+def _site() -> dict | None:
+    try:
+        return agente_site.carregar()
+    except agente_planilha.PlanilhaErroBQ:
+        return None
+
+
 def _resumo(feed: dict | None) -> dict:
+    site = _site()
     return {
-        "planilha": feed,
+        "planilha": agente_site.completar(feed, site),
+        "site": {k: v for k, v in site.items() if k not in ("por_produto", "por_sku")} if site else None,
+        "cobertura_site": agente_site.cobertura(feed, site),
         "colunas": [
             {"nome": nome, "obrigatoria": obrig, "explicacao": exp}
             for nome, (_tipo, obrig, _apelidos, exp) in agente_planilha.COLUNAS.items()
@@ -162,4 +172,33 @@ def feed_planilha(request: Request):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not feed:
         raise HTTPException(status_code=404, detail="Nenhuma planilha carregada.")
-    return feed
+    return agente_site.completar(feed, _site())
+
+
+MAX_BYTES_SITE = 80 * 1024 * 1024
+
+
+@router.get("/site/script")
+def script_do_site(request: Request):
+    _exigir_admin(request)
+    return {"script": agente_site.SCRIPT_NAVEGADOR}
+
+
+@router.post("/site")
+async def subir_produtos_do_site(request: Request):
+    """Recebe o produtos_site_iplace.json (gerado no navegador) e grava no BigQuery."""
+    _exigir_admin(request)
+    conteudo = await request.body()
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    if len(conteudo) > MAX_BYTES_SITE:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 80 MB.")
+    try:
+        produtos = agente_site.ler_arquivo(conteudo)
+        agente_site.salvar(produtos, request.state.auth_user.username)
+        feed = agente_planilha.carregar()
+    except agente_site.ArquivoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**_resumo(feed), "agente": _status_do_agente()}

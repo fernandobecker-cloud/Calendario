@@ -134,6 +134,117 @@ function CartaoProduto({ produto }) {
   )
 }
 
+function PainelSite({ dados, setDados }) {
+  const [script, setScript] = useState('')
+  const [copiado, setCopiado] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
+  const inputRef = useRef(null)
+
+  const copiarScript = async () => {
+    setErro('')
+    try {
+      let texto = script
+      if (!texto) {
+        const res = await fetch('/api/agente-ia/site/script')
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+        texto = payload.script
+        setScript(texto)
+      }
+      await navigator.clipboard.writeText(texto)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 3000)
+    } catch (err) {
+      setErro(`Não consegui copiar o script: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  const enviar = async (event) => {
+    const arquivo = event.target.files?.[0]
+    event.target.value = ''
+    if (!arquivo) return
+    setEnviando(true)
+    setErro('')
+    setSucesso('')
+    try {
+      const res = await fetch('/api/agente-ia/site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: arquivo,
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setDados((atual) => ({ ...atual, ...payload }))
+      setSucesso(`Gravado: ${payload.site?.produtos || 0} produto(s) do site. O agente passa a usar em até 1 minuto.`)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar o arquivo.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const site = dados?.site
+  const cob = dados?.cobertura_site
+
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <h3 className="text-sm font-semibold text-slate-800">Descrições e links do site</h3>
+      <p className="mt-1 max-w-3xl text-sm text-slate-500">
+        Copia uma vez a descrição comercial e o link de cada produto do site e grava na base. O agente usa isso nas
+        linhas da planilha, casando pelo <span className="font-mono text-xs">produto_id</span> ou pelo{' '}
+        <span className="font-mono text-xs">sku</span>. Se a linha já tiver link na planilha, vale o da planilha; a
+        descrição do site vem antes do texto da coluna <span className="font-mono text-xs">descricao</span>.
+      </p>
+      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+        <li>Clique em <strong>Copiar script</strong>.</li>
+        <li>
+          Abra <span className="font-mono text-xs">www.iplace.com.br</span> no Chrome, aperte F12, vá na aba
+          <strong> Console</strong>, cole e aperte Enter. (Se o Chrome pedir, digite <span className="font-mono text-xs">allow pasting</span> antes.)
+        </li>
+        <li>Espere uns 30 segundos: ele baixa o arquivo <span className="font-mono text-xs">produtos_site_iplace.json</span>.</li>
+        <li>Volte aqui e clique em <strong>Subir arquivo do site</strong>.</li>
+      </ol>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={copiarScript}
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+        >
+          {copiado ? 'Copiado!' : 'Copiar script'}
+        </button>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={enviando}
+          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+        >
+          {enviando ? 'Enviando...' : 'Subir arquivo do site'}
+        </button>
+        <input ref={inputRef} type="file" accept=".json" className="hidden" onChange={enviar} />
+        {site ? (
+          <span className="text-sm text-slate-500">
+            {site.produtos} produto(s) do site, {site.com_descricao} com descrição · por {site.carregado_por} em{' '}
+            {formatarData(site.carregado_em)}
+          </span>
+        ) : (
+          <span className="text-sm text-slate-400">Ainda não carregado.</span>
+        )}
+      </div>
+      {cob && (
+        <p className={`mt-3 text-sm ${cob.ligadas < cob.linhas ? 'text-amber-700' : 'text-emerald-700'}`}>
+          Planilha: {cob.ligadas} de {cob.linhas} linha(s) encontradas no site · {cob.com_descricao} com descrição ·{' '}
+          {cob.com_link} com link.
+          {cob.ligadas < cob.linhas && ' As demais não bateram pelo produto_id nem pelo sku com o site.'}
+        </p>
+      )}
+      {sucesso && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</p>}
+      {erro && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{erro}</p>}
+    </div>
+  )
+}
+
 function PainelPlanilha() {
   const [dados, setDados] = useState(null)
   const [carregando, setCarregando] = useState(true)
@@ -282,6 +393,8 @@ function PainelPlanilha() {
         </div>
       )}
 
+      <PainelSite dados={dados} setDados={setDados} />
+
       {dados?.colunas && (
         <details className="mt-4 text-sm text-slate-600">
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -320,6 +433,7 @@ function PainelPlanilha() {
                   <th className="px-2 py-1.5 text-right">Cartão</th>
                   <th className="px-2 py-1.5 text-right">Loja</th>
                   <th className="px-2 py-1.5 text-right">Estoque</th>
+                  <th className="px-2 py-1.5">Link</th>
                 </tr>
               </thead>
               <tbody>
@@ -333,6 +447,9 @@ function PainelPlanilha() {
                     <td className="whitespace-nowrap px-2 py-1.5 text-right">{l.preco_cartao != null ? moeda(l.preco_cartao) : 'Pix ÷ 0,9'}</td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_loja)}</td>
                     <td className="px-2 py-1.5 text-right">{l.estoque ?? 'disponível'}</td>
+                    <td className="px-2 py-1.5">
+                      {l.link ? <a href={l.link} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">abrir</a> : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
