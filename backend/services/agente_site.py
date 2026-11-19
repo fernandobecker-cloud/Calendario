@@ -4,7 +4,7 @@ O Akamai bloqueia chamadas de servidor ao site, entao a copia e feita UMA vez
 pelo navegador do CRM (script colado no console em www.iplace.com.br, que baixa
 um .json) e o arquivo e enviado aqui. Fica gravado no BigQuery
 (portal_crm.agente_site_produtos) e o feed da planilha usa esses dados para
-completar a descricao e o link de cada linha, casando pelo produto_id ou pelo SKU.
+completar a descricao e o link de cada linha, casando pelo produto_id, pelo SKU ou pelo id no fim do link.
 
 Gravacao = load job WRITE_TRUNCATE e leitura = list_rows (sem custo de query).
 """
@@ -12,6 +12,7 @@ Gravacao = load job WRITE_TRUNCATE e leitura = list_rows (sem custo de query).
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -27,6 +28,8 @@ _TABELA = "agente_site_produtos"
 _TIMEOUT_S = 120
 _CACHE_TTL_S = 600
 SITE = "https://www.iplace.com.br"
+# Id do produto no fim da rota do site: /iphone-17-pro.../100544PR ou /.../10000031308
+_RE_ID_NO_LINK = re.compile(r"/([0-9]+(?:PR)?)/?(?:[?#]|$)", re.I)
 
 _SCHEMA = (
     bigquery.SchemaField("produto_id", "STRING"),
@@ -181,7 +184,11 @@ def produto_da_linha(linha: dict[str, Any], dados: dict[str, Any] | None) -> dic
         return None
     pid = _texto(linha.get("produto_id")).upper()
     achou = dados["por_produto"].get(pid) if pid else None
-    return achou or dados["por_sku"].get(_texto(linha.get("sku")).upper())
+    achou = achou or dados["por_sku"].get(_texto(linha.get("sku")).upper())
+    if not achou:
+        no_link = _RE_ID_NO_LINK.search(_texto(linha.get("link")))
+        achou = dados["por_produto"].get(no_link.group(1).upper()) if no_link else None
+    return achou
 
 
 def completar(feed: dict[str, Any] | None, dados: dict[str, Any] | None) -> dict[str, Any] | None:

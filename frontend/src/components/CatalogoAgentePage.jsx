@@ -194,7 +194,7 @@ function PainelSite({ dados, setDados }) {
       <p className="mt-1 max-w-3xl text-sm text-slate-500">
         Copia uma vez a descrição comercial e o link de cada produto do site e grava na base. O agente usa isso nas
         linhas da planilha, casando pelo <span className="font-mono text-xs">produto_id</span> ou pelo{' '}
-        <span className="font-mono text-xs">sku</span>. Se a linha já tiver link na planilha, vale o da planilha; a
+        <span className="font-mono text-xs">sku</span> ou pelo id no fim do <span className="font-mono text-xs">link</span>. Se a linha já tiver link na planilha, vale o da planilha; a
         descrição do site vem antes do texto da coluna <span className="font-mono text-xs">descricao</span>.
       </p>
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-600">
@@ -236,7 +236,7 @@ function PainelSite({ dados, setDados }) {
         <p className={`mt-3 text-sm ${cob.ligadas < cob.linhas ? 'text-amber-700' : 'text-emerald-700'}`}>
           Planilha: {cob.ligadas} de {cob.linhas} linha(s) encontradas no site · {cob.com_descricao} com descrição ·{' '}
           {cob.com_link} com link.
-          {cob.ligadas < cob.linhas && ' As demais não bateram pelo produto_id nem pelo sku com o site.'}
+          {cob.ligadas < cob.linhas && ' As demais não bateram com o site pelo produto_id, sku nem link.'}
         </p>
       )}
       {sucesso && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</p>}
