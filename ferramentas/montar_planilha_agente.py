@@ -8,10 +8,10 @@ Saída:
   CSV com ; no formato do modelo do portal (sobe em "Subir planilha") + relatório no terminal.
 
 Regras:
-  - Só categorias de ticket alto (iPhone, iPad, Mac, Watch, fones, caixas de som), sem DEMO.
+  - Só categorias de ticket alto (iPhone, iPad, Mac, Watch, fones, caixas de som), com DEMO.
   - Entram os SKUs da tabela do site e, sem preço de site, os que só estão na tabela de varejo
-    (item só de loja). Nos dois casos o SKU precisa estar ativo no site (nome, link, agrupamento;
-    também tira itens descontinuados). Os demais vão para um CSV de "fora" para conferência.
+    (item só de loja). Item que não está ativo no site entra como só loja, com a descrição do
+    comercial como nome e sem link. Sem preço nenhum vai para o CSV de "fora".
   - Nome do produto, agrupamento (produto_id), link, imagem, cor e capacidade vêm do site.
   - Preço do site (preco_por = Pix, preco_de = Pix antes do período) e estoque vêm do comercial.
   - Preço e condição de loja vêm da tabela de varejo, quando o SKU está nela.
@@ -100,7 +100,7 @@ def main() -> None:
     ap.add_argument("--produtos", required=True)
     ap.add_argument("--saida", required=True)
     ap.add_argument("--sem-so-loja", action="store_true", help="não incluir itens que só estão na tabela de varejo")
-    ap.add_argument("--incluir-demo", action="store_true", help="incluir aparelhos de demonstração (DEMO)")
+    ap.add_argument("--sem-demo", action="store_true", help="tirar os aparelhos de demonstração (DEMO)")
     a = ap.parse_args()
 
     produtos = json.loads(Path(a.produtos).read_text(encoding="utf-8-sig"))
@@ -120,18 +120,21 @@ def main() -> None:
 
     def categoria_ok(nivel1: str) -> bool:
         n = _norm(nivel1)
-        if "demo" in n.split() and not a.incluir_demo:
+        if "demo" in n.split() and a.sem_demo:
             return False
         return any(n == c or n.startswith(c + " ") for c in CATEGORIAS)
 
-    def montar(sku: str, p: dict, s: dict, l_site: dict | None, l_var: dict | None) -> dict:
+    def montar(sku: str, p: dict | None, s: dict | None, l_site: dict | None, l_var: dict | None) -> dict:
+        """p/s = produto e SKU no site; None quando o item não está no site (só loja):
+        aí vale a descrição do comercial, sem link nem imagem."""
+        p, s = p or {}, s or {}
         cor, cap = s.get("cor") or "", s.get("capacidade") or ""
         desc_erp = _col(l_site or l_var, "descricao")
         linha = {
-            "produto_id": p["id"],
-            "produto": (p.get("nome") or "").strip(),
+            "produto_id": p.get("id", ""),
+            "produto": (p.get("nome") or "").strip() or desc_erp,
             "sku": sku,
-            "variante": " ".join(x for x in (cap, cor) if x) or (s.get("nome") or "") or desc_erp,
+            "variante": (" ".join(x for x in (cap, cor) if x) or (s.get("nome") or "") or desc_erp) if p else "",
             "cor": cor,
             "capacidade": cap,
             "preco_de": "",
@@ -171,14 +174,21 @@ def main() -> None:
             site_rows[sku] = l
 
     saida, fora = [], []
-    cont = {"site": 0, "so_loja": 0, "fora_categoria": 0, "fora_site": 0, "sem_loja": 0}
+    cont = {"site": 0, "so_loja": 0, "so_loja_fora_site": 0, "fora_categoria": 0, "fora_site": 0, "sem_loja": 0}
     for sku, l in site_rows.items():
         if not categoria_ok(_col(l, "nivel 1")):
             cont["fora_categoria"] += 1
             continue
         if sku not in por_sku:
-            cont["fora_site"] += 1
-            fora.append({"sku": sku, "descricao": _col(l, "descricao"), "motivo": "tabela do site, mas não ativo no site"})
+            # Não dá para vender no site: se tiver preço de loja, entra como só loja.
+            l_var = varejo.get(sku)
+            if l_var and _num(_col(l_var, "pix")):
+                saida.append(montar(sku, None, None, None, l_var))
+                cont["so_loja_fora_site"] += 1
+            else:
+                cont["fora_site"] += 1
+                fora.append({"sku": sku, "descricao": _col(l, "descricao"),
+                             "motivo": "tabela do site, não ativo no site e sem preço de loja"})
             continue
         linha = montar(sku, *por_sku[sku], l, varejo.get(sku))
         cont["site"] += 1
@@ -192,16 +202,16 @@ def main() -> None:
                 cont["fora_categoria"] += 1
                 continue
             if sku not in por_sku:
-                cont["fora_site"] += 1
-                fora.append({"sku": sku, "descricao": _col(l, "descricao"), "motivo": "só loja, não ativo no site"})
+                saida.append(montar(sku, None, None, None, l))
+                cont["so_loja_fora_site"] += 1
                 continue
             saida.append(montar(sku, *por_sku[sku], None, l))
             cont["so_loja"] += 1
     # Mantém juntas as variantes do mesmo produto (site e só loja misturados).
     ordem = {}
     for i, l in enumerate(saida):
-        ordem.setdefault(l["produto_id"], i)
-    saida.sort(key=lambda l: ordem[l["produto_id"]])
+        ordem.setdefault(l["produto_id"] or l["sku"], i)
+    saida.sort(key=lambda l: ordem[l["produto_id"] or l["sku"]])
 
     with open(a.saida, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLUNAS, delimiter=";")
@@ -213,10 +223,12 @@ def main() -> None:
         w.writeheader()
         w.writerows(fora)
 
-    produtos_ok = len({l["produto_id"] for l in saida})
+    produtos_ok = len({l["produto_id"] or l["sku"] for l in saida})
     print(f"Planilha do agente: {len(saida)} SKUs em {produtos_ok} produtos ({a.saida})")
     print(f"  -> com preço de site (tabela de promoção): {cont['site']} ({cont['sem_loja']} sem preço de loja)")
-    print(f"  -> só loja (tabela de varejo): {cont['so_loja']}")
+    print(f"  -> só loja, com página no site: {cont['so_loja']}")
+    print(f"  -> só loja, sem página no site (nome do comercial, sem link): {cont['so_loja_fora_site']}")
+    print(f"  -> DEMO: {sum(1 for l in saida if 'demo' in _norm(l['categoria']).split())}")
     print(f"  -> fora por categoria (acessórios etc.): {cont['fora_categoria']}")
     print(f"  -> fora por não estarem ativos no site: {cont['fora_site']} ({arq_fora})")
     print(f"  -> com imagem: {sum(1 for l in saida if l['imagem'])}")

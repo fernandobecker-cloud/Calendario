@@ -265,11 +265,17 @@ def _texto_loja(linhas: list[dict]) -> str:
     so = [l for l in linhas if so_loja(l)]
     if so:
         nomes = ", ".join(_nome_variante(l) for l in so)
-        texto += (
-            "\n\nATENÇÃO: " + nomes + " não tem preço de site/televendas nesta campanha. "
-            "O preço mostrado é o da LOJA FÍSICA. Se o cliente quiser comprar pelo site ou "
-            "televendas, não informe preço: envie o link do produto."
-        )
+        if any(l.get("link") for l in linhas):
+            texto += (
+                "\n\nATENÇÃO: " + nomes + " não tem preço de site/televendas nesta campanha. "
+                "O preço mostrado é o da LOJA FÍSICA. Se o cliente quiser comprar pelo site ou "
+                "televendas, não informe preço: envie o link do produto."
+            )
+        else:
+            texto += (
+                "\n\nATENÇÃO: " + nomes + " está à venda SOMENTE NA LOJA FÍSICA (não tem no site "
+                "nem no televendas). O preço mostrado é o da loja."
+            )
     return texto
 
 

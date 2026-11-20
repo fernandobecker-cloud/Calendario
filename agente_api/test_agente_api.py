@@ -175,7 +175,7 @@ class Planilha(unittest.TestCase):
     def test_item_so_de_loja(self):
         grupo = {"chave": "W", "linhas": [
             {"produto": "Apple Watch SE", "produto_id": "W", "sku": "1", "variante": "40mm", "preco_por": 2329.0,
-             "preco_loja": 2551.12, "ativo": True},
+             "preco_loja": 2551.12, "link": "https://www.iplace.com.br/x/WPR", "ativo": True},
             {"produto": "Apple Watch SE", "produto_id": "W", "sku": "2", "variante": "44mm", "preco_por": None,
              "preco_loja": 2903.12, "condicao_loja": "10x de R$ 329,90", "ativo": True},
         ]}
@@ -187,6 +187,10 @@ class Planilha(unittest.TestCase):
         self.assertIn({"key": "Preço", "value": "somente loja física"}, so["variations"])
         self.assertIn("não tem preço de site/televendas", item["productDescription"])
         self.assertEqual(item["mainVariant"]["objectId"], "1")
+        sem_site = planilha.produto_omnichat({"chave": "x", "linhas": [
+            {"produto": "IPHONE 13 MIDNIGHT 128GB MLPF3BR/A", "sku": "9", "preco_loja": 2287.12, "ativo": True}]})
+        self.assertIsNone(sem_site["externalUrl"])
+        self.assertIn("SOMENTE NA LOJA FÍSICA", sem_site["productDescription"])
         # Sem preço nenhum a linha não entra.
         self.assertEqual(planilha.agrupar([{"produto": "X", "sku": "3", "ativo": True}]), [])
 
