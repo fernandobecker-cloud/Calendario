@@ -33,8 +33,14 @@ from pathlib import Path
 SITE = "https://www.iplace.com.br"
 # Só itens de ticket alto (coluna Nível 1 do comercial); acessórios ficam de fora.
 CATEGORIAS = ["iphone", "ipad", "mac", "watch", "fones de ouvido", "caixa de som", "caixas de som"]
+TEXTO_DEMO = (
+    "APARELHO DE DEMONSTRAÇÃO (usado na vitrine da loja), vendido somente na loja física, com preço "
+    "menor por ser de demonstração. Ofereça só se o cliente pedir uma opção mais barata ou perguntar "
+    "por demonstração/vitrine. Sempre que citar este item, deixe claro que é aparelho de demonstração, "
+    "não um aparelho novo. Nunca apresente como versão ou cor diferente do produto novo."
+)
 COLUNAS = ["produto_id", "produto", "sku", "variante", "cor", "capacidade", "preco_de", "preco_por",
-           "preco_loja", "condicao_loja", "estoque", "categoria", "link", "imagem", "ativo"]
+           "preco_loja", "condicao_loja", "estoque", "categoria", "link", "imagem", "descricao", "ativo"]
 
 
 def _norm(t: str) -> str:
@@ -145,9 +151,14 @@ def main() -> None:
             "categoria": _col(l_site or l_var, "nivel 1"),
             "link": (p["route"] if str(p.get("route", "")).startswith("http") else SITE + p["route"]) if p.get("route") else "",
             "imagem": s.get("imagem") or p.get("imagem") or "",
+            "descricao": "",
             "ativo": "S",
             "_nome_sku": (s.get("nome") or "").strip(),
         }
+        # Demonstração: categoria DEMO ou "DM"/"DEMO" na descrição do comercial.
+        if "demo" in _norm(linha["categoria"]).split() or re.search(r"\b(dm|demo)\b", _norm(desc_erp)):
+            linha["produto"] = f"{linha['produto']} (DEMONSTRAÇÃO - VITRINE)"
+            linha["descricao"] = TEXTO_DEMO
         if l_site:
             por, antes = _num(_col(l_site, "preco final pix", "preco final")), _num(_col(l_site, "pix antes"))
             linha["preco_por"] = _fmt(por)
