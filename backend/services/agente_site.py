@@ -44,7 +44,11 @@ _SCHEMA = (
 # Script que o CRM cola no console do navegador, com o site da iPlace aberto.
 # Busca a lista de produtos em paginas, com pausa entre elas, e baixa um .json.
 SCRIPT_NAVEGADOR = r"""(async () => {
-  const campos = ['id','displayName','route','active','x_caracteristicasHtml','childSKUs.repositoryId'];
+  const site = location.origin;
+  const abs = (u) => (u ? (u.startsWith('http') ? u : site + u) : null);
+  const campos = ['id','displayName','route','active','brand','x_caracteristicasHtml','primaryFullImageURL',
+    'childSKUs.repositoryId','childSKUs.displayName','childSKUs.active','childSKUs.x_cor',
+    'childSKUs.x_capacidade','childSKUs.primaryFullImageURL'];
   const fields = 'totalResults,' + campos.map(c => 'items.' + c).join(',');
   const produtos = [];
   let offset = 0, total = 1;
@@ -56,8 +60,12 @@ SCRIPT_NAVEGADOR = r"""(async () => {
     for (const p of d.items || []) {
       if (p.active === false) continue;
       produtos.push({
-        id: p.id, nome: p.displayName, route: p.route,
-        skus: (p.childSKUs || []).map(s => s.repositoryId),
+        id: p.id, nome: p.displayName, route: p.route, marca: p.brand,
+        imagem: abs(p.primaryFullImageURL),
+        skus: (p.childSKUs || []).filter(s => s.active !== false).map(s => ({
+          id: s.repositoryId, nome: s.displayName, cor: s.x_cor || null,
+          capacidade: s.x_capacidade || null, imagem: abs(s.primaryFullImageURL),
+        })),
         html: (p.x_caracteristicasHtml || '').replace(/<(style|script)[\s\S]*?<\/\1>/gi, ''),
       });
     }
@@ -113,7 +121,9 @@ def ler_arquivo(conteudo: bytes) -> list[dict[str, Any]]:
         produtos[pid] = {
             "produto_id": pid,
             "nome": _texto(item.get("nome") or item.get("displayName")),
-            "skus": ",".join(_texto(s).upper() for s in skus or [] if _texto(s)),
+            # O script novo traz cada SKU como objeto ({id, nome, cor, capacidade, imagem}).
+        "skus": ",".join(_texto(s.get("id") if isinstance(s, dict) else s).upper()
+                         for s in skus or [] if _texto(s.get("id") if isinstance(s, dict) else s)),
             # So a descricao comercial; o campo "description" do site e o nome do ERP.
             "descricao": descricao_em_texto({"x_caracteristicasHtml": html or ""}) or None,
             "link": (rota if rota.startswith("http") else f"{SITE}{rota}") if rota else None,
