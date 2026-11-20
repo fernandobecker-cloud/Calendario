@@ -172,6 +172,24 @@ class Planilha(unittest.TestCase):
         r = chamar(query="laranja cosmico", x_api_key="segredo-teste")
         self.assertEqual(r[0]["objectId"], "100544PR")
 
+    def test_item_so_de_loja(self):
+        grupo = {"chave": "W", "linhas": [
+            {"produto": "Apple Watch SE", "produto_id": "W", "sku": "1", "variante": "40mm", "preco_por": 2329.0,
+             "preco_loja": 2551.12, "ativo": True},
+            {"produto": "Apple Watch SE", "produto_id": "W", "sku": "2", "variante": "44mm", "preco_por": None,
+             "preco_loja": 2903.12, "condicao_loja": "10x de R$ 329,90", "ativo": True},
+        ]}
+        self.assertEqual(len(planilha.agrupar(grupo["linhas"])[0]["linhas"]), 2)
+        item = planilha.produto_omnichat(grupo)
+        so = next(v for v in item["variants"] if v["objectId"] == "2")
+        self.assertEqual(so["salePrice"], 2903.12)
+        self.assertEqual(so["installmentOptions"], [])
+        self.assertIn({"key": "Preço", "value": "somente loja física"}, so["variations"])
+        self.assertIn("não tem preço de site/televendas", item["productDescription"])
+        self.assertEqual(item["mainVariant"]["objectId"], "1")
+        # Sem preço nenhum a linha não entra.
+        self.assertEqual(planilha.agrupar([{"produto": "X", "sku": "3", "ativo": True}]), [])
+
     def test_regra_do_site_pix_e_cartao(self):
         # Paginas do site em 17/11/2026: (preco no Pix, parcelas, valor da parcela)
         for pix, n, parcela in [(5399.0, 21, 319.80), (99.0, 21, 5.86), (69.0, 16, None)]:

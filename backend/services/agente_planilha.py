@@ -45,8 +45,8 @@ COLUNAS: dict[str, tuple[str, bool, list[str], str]] = {
     "cor": ("texto", False, [], "Cor."),
     "capacidade": ("texto", False, ["armazenamento"], "Capacidade ou tamanho (ex.: 256GB, 46mm)."),
     "preco_de": ("numero", False, ["preco de", "de"], "Preço \"de\" (riscado). Em branco = sem desconto."),
-    "preco_por": ("numero", True, ["preco por", "por", "preco site", "preco"],
-                  "Preço do site como aparece grande na página (o preço no Pix). Também vale para o televendas."),
+    "preco_por": ("numero", False, ["preco por", "por", "preco site", "preco"],
+                  "Preço do site como aparece grande na página (o preço no Pix). Também vale para o televendas. Em branco = item só de loja (aí preco_loja é obrigatório)."),
     "preco_pix": ("numero", False, ["pix", "preco no pix"], "Preço no Pix, se for diferente do preco_por. Em branco = preco_por."),
     "preco_cartao": ("numero", False, ["cartao", "preco no cartao", "preco cartao"],
                      "Preço no cartão (base do parcelamento). Em branco = Pix ÷ 0,9, como no site."),
@@ -229,9 +229,13 @@ def validar(conteudo: bytes, arquivo: str) -> tuple[list[dict[str, Any]], list[s
         for coluna in COLUNAS:
             linha.setdefault(coluna, True if coluna == "ativo" else None)
 
-        for coluna in ("produto", "sku", "preco_por"):
+        for coluna in ("produto", "sku"):
             if linha.get(coluna) in (None, "") and coluna not in invalidas:
                 erros.append(f"Linha {numero_linha}: {coluna} em branco.")
+        # Sem preco_por vale como item só de loja, desde que tenha preco_loja.
+        if linha.get("preco_por") in (None, "") and not linha.get("preco_loja") \
+                and "preco_por" not in invalidas and "preco_loja" not in invalidas:
+            erros.append(f"Linha {numero_linha}: preencha preco_por (site) ou preco_loja (item só de loja).")
         if linha.get("preco_por") is not None and linha["preco_por"] <= 0:
             erros.append(f"Linha {numero_linha}: preco_por precisa ser maior que zero.")
         if linha.get("parcelas") is not None and not 1 <= linha["parcelas"] <= 36:

@@ -129,7 +129,13 @@ def _chave_produto(linha: dict) -> str:
 
 
 def _ativa(linha: dict) -> bool:
-    return linha.get("ativo") is not False and bool(linha.get("sku")) and linha.get("preco_por")
+    return linha.get("ativo") is not False and bool(linha.get("sku")) and bool(
+        linha.get("preco_por") or linha.get("preco_loja"))
+
+
+def so_loja(linha: dict) -> bool:
+    """Linha sem preço de site/televendas na campanha: só tem preço de loja."""
+    return not linha.get("preco_por") and bool(linha.get("preco_loja"))
 
 
 def agrupar(linhas: list[dict]) -> list[dict]:
@@ -181,6 +187,8 @@ def precos(linha: dict) -> tuple[float, float]:
 
 
 def _variante(linha: dict) -> dict:
+    if so_loja(linha):
+        return _variante_so_loja(linha)
     pix, cartao = precos(linha)
     estoque = linha.get("estoque")
     # Estoque em branco = o CRM nao controla: o agente considera disponivel.
@@ -212,6 +220,34 @@ def _variante(linha: dict) -> dict:
     }
 
 
+def _variante_so_loja(linha: dict) -> dict:
+    """Sem preço de site nesta campanha: o preço que vai é o da loja física, sem
+    parcelamento do site (a condição da loja vai em texto na descrição)."""
+    estoque = linha.get("estoque")
+    quantidade = int(estoque) if estoque is not None else 1
+    loja = float(linha["preco_loja"])
+    variacoes = [
+        {"key": rotulo, "value": linha.get(campo)}
+        for campo, rotulo in (("cor", "Cor"), ("capacidade", "Capacidade"))
+        if linha.get(campo)
+    ]
+    variacoes.append({"key": "Preço", "value": "somente loja física"})
+    return {
+        "objectId": str(linha["sku"]),
+        "externalImageURL": linha.get("imagem") or None,
+        "erpId": str(linha["sku"]),
+        "name": _nome_completo(linha),
+        "visible": quantidade > 0,
+        "price": loja,
+        "salePrice": loja,
+        "quantity": quantidade,
+        "sellerId": "1",
+        "sellerName": "iPlace",
+        "installmentOptions": [],
+        "variations": variacoes,
+    }
+
+
 def _texto_loja(linhas: list[dict]) -> str:
     com_preco = [l for l in linhas if l.get("preco_loja")]
     if not com_preco:
@@ -222,10 +258,19 @@ def _texto_loja(linhas: list[dict]) -> str:
         if linha.get("condicao_loja"):
             texto += f", {linha['condicao_loja']}"
         itens.append(texto)
-    return (
+    texto = (
         "PREÇO NA LOJA FÍSICA (use somente se o cliente escolher comprar na loja; "
         "site e televendas usam o preço principal):\n" + "\n".join(itens)
     )
+    so = [l for l in linhas if so_loja(l)]
+    if so:
+        nomes = ", ".join(_nome_variante(l) for l in so)
+        texto += (
+            "\n\nATENÇÃO: " + nomes + " não tem preço de site/televendas nesta campanha. "
+            "O preço mostrado é o da LOJA FÍSICA. Se o cliente quiser comprar pelo site ou "
+            "televendas, não informe preço: envie o link do produto."
+        )
+    return texto
 
 
 def produto_omnichat(grupo: dict, somente_sku: str | None = None) -> dict | None:
@@ -303,7 +348,7 @@ def buscar_texto(termo: str, inicio: int, quantidade: int) -> list[dict]:
             acessorio = 0 if quer_acessorio or categoria(primeira) in _CATEGORIAS_APARELHO else 1
             nome = normalizar(primeira.get("produto")).split()
             sobrando = sum(1 for p in nome if p not in tokens)  # "17e" conta como a mais em "iphone 17"
-            menor_preco = min(float(l["preco_por"]) for l in grupo["linhas"])
+            menor_preco = min(float(l.get("preco_por") or l["preco_loja"]) for l in grupo["linhas"])
             achados.append(((acessorio, sobrando, menor_preco, ordem), grupo))
     achados.sort(key=lambda x: x[0])
     resultado = []
