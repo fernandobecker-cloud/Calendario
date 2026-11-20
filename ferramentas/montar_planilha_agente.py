@@ -146,6 +146,7 @@ def main() -> None:
             "link": (p["route"] if str(p.get("route", "")).startswith("http") else SITE + p["route"]) if p.get("route") else "",
             "imagem": s.get("imagem") or p.get("imagem") or "",
             "ativo": "S",
+            "_nome_sku": (s.get("nome") or "").strip(),
         }
         if l_site:
             por, antes = _num(_col(l_site, "preco final pix", "preco final")), _num(_col(l_site, "pix antes"))
@@ -207,6 +208,19 @@ def main() -> None:
                 continue
             saida.append(montar(sku, *por_sku[sku], None, l))
             cont["so_loja"] += 1
+    # Cor + capacidade nem sempre separam as variantes (Watch: tamanho e pulseira).
+    # Se repetir dentro do produto, usa o nome completo do SKU no site.
+    por_produto: dict[str, list[dict]] = {}
+    for l in saida:
+        if l["produto_id"]:
+            por_produto.setdefault(l["produto_id"], []).append(l)
+    for linhas_p in por_produto.values():
+        nomes = [l["variante"] for l in linhas_p]
+        if len(set(nomes)) < len(nomes):
+            for l in linhas_p:
+                l["variante"] = l["_nome_sku"] or l["variante"]
+    for l in saida:
+        l.pop("_nome_sku", None)
     # Mantém juntas as variantes do mesmo produto (site e só loja misturados).
     ordem = {}
     for i, l in enumerate(saida):
