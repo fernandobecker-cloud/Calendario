@@ -155,10 +155,24 @@ async def webhook_omnichat(
     try:
         fila.autorizar_webhook(authorization, x_api_key)
     except fila.WebhookNaoAutorizado as exc:
+        # Diagnostico sem expor segredo: so o formato e o tamanho do que chegou.
+        def _formato(valor: str | None) -> str:
+            if not valor:
+                return "ausente"
+            v = valor.strip()
+            if v.lower().startswith("bearer "):
+                return f"'Bearer ' + {len(v[7:].strip())} caracteres"
+            return f"sem 'Bearer ', {len(v)} caracteres"
+        log.warning(
+            "webhook recusado (%s): Authorization=%s, x-api-key=%s, esperado=%s caracteres, headers=%s",
+            exc, _formato(authorization), _formato(x_api_key), len(config.OMNI_WEBHOOK_TOKEN),
+            sorted(h for h in request.headers.keys()),
+        )
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     try:
         evento = await request.json()
     except ValueError as exc:
+        log.warning("webhook com corpo que nao e JSON: %r", (await request.body())[:300])
         raise HTTPException(status_code=400, detail="JSON invalido.") from exc
     eventos = evento if isinstance(evento, list) else [evento]
     for item in eventos:
