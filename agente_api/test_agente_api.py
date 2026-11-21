@@ -194,6 +194,21 @@ class Planilha(unittest.TestCase):
         # Sem preço nenhum a linha não entra.
         self.assertEqual(planilha.agrupar([{"produto": "X", "sku": "3", "ativo": True}]), [])
 
+    def test_orcamento_e_palavras_de_conversa(self):
+        self.assertEqual(planilha.orcamento("iphone ate 5 mil")[0], 5000)
+        self.assertEqual(planilha.orcamento("iphone até R$ 4.500,00")[0], 4500)
+        self.assertEqual(planilha.orcamento("iphone 5k")[0], 5000)
+        self.assertIsNone(planilha.orcamento("iphone 17 256")[0])
+        linhas = [
+            {"produto": "iPhone 17", "produto_id": "A", "sku": "1", "preco_por": 5399.0, "ativo": True, "categoria": "IPHONE"},
+            {"produto": "iPhone 17e", "produto_id": "B", "sku": "2", "preco_por": 4259.0, "ativo": True, "categoria": "IPHONE"},
+            {"produto": "iPhone 16e", "produto_id": "C", "sku": "3", "preco_por": 3129.0, "ativo": True, "categoria": "IPHONE"},
+        ]
+        planilha._estado.update(feed={"linhas": linhas}, lido_em=1e18)
+        nomes = [p["name"] for p in planilha.buscar_texto("iphone mais em conta ate 5 mil", 0, 10)]
+        self.assertEqual(nomes, ["iPhone 16e", "iPhone 17e"])
+        self.assertEqual(len(planilha.buscar_texto("iphone baratinho", 0, 10)), 3)
+
     def test_regra_do_site_pix_e_cartao(self):
         # Paginas do site em 17/11/2026: (preco no Pix, parcelas, valor da parcela)
         for pix, n, parcela in [(5399.0, 21, 319.80), (99.0, 21, 5.86), (69.0, 16, None)]:

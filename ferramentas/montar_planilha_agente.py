@@ -33,6 +33,9 @@ from pathlib import Path
 SITE = "https://www.iplace.com.br"
 # Só itens de ticket alto (coluna Nível 1 do comercial); acessórios ficam de fora.
 CATEGORIAS = ["iphone", "ipad", "mac", "watch", "fones de ouvido", "caixa de som", "caixas de som"]
+# Só loja SEM página no site abaixo deste preço (Pix) é cadastro antigo com preço simbólico
+# (ex.: iPhone 6S a R$ 51,92): fica de fora para o agente não oferecer.
+PISO_FORA_SITE = {"iphone": 1000, "ipad": 800, "mac": 1500, "watch": 600}
 TEXTO_DEMO = (
     "APARELHO DE DEMONSTRAÇÃO (usado na vitrine da loja), vendido somente na loja física, com preço "
     "menor por ser de demonstração. Ofereça só se o cliente pedir uma opção mais barata ou perguntar "
@@ -185,8 +188,13 @@ def main() -> None:
         if sku and sku not in site_rows and _num(_col(l, "preco final pix", "preco final")):
             site_rows[sku] = l
 
+    def preco_simbolico(l_var: dict) -> bool:
+        n = _norm(_col(l_var, "nivel 1")).split()
+        piso = PISO_FORA_SITE.get(n[0]) if n else None
+        return piso is not None and (_num(_col(l_var, "pix")) or 0) < piso
+
     saida, fora = [], []
-    cont = {"site": 0, "so_loja": 0, "so_loja_fora_site": 0, "fora_categoria": 0, "fora_site": 0, "sem_loja": 0}
+    cont = {"site": 0, "so_loja": 0, "so_loja_fora_site": 0, "fora_categoria": 0, "fora_site": 0, "sem_loja": 0, "simbolico": 0}
     for sku, l in site_rows.items():
         if not categoria_ok(_col(l, "nivel 1")):
             cont["fora_categoria"] += 1
@@ -194,7 +202,11 @@ def main() -> None:
         if sku not in por_sku:
             # Não dá para vender no site: se tiver preço de loja, entra como só loja.
             l_var = varejo.get(sku)
-            if l_var and _num(_col(l_var, "pix")):
+            if l_var and _num(_col(l_var, "pix")) and preco_simbolico(l_var):
+                cont["simbolico"] += 1
+                fora.append({"sku": sku, "descricao": _col(l, "descricao"),
+                             "motivo": "só loja sem página no site, preço simbólico (cadastro antigo)"})
+            elif l_var and _num(_col(l_var, "pix")):
                 saida.append(montar(sku, None, None, None, l_var))
                 cont["so_loja_fora_site"] += 1
             else:
@@ -214,6 +226,11 @@ def main() -> None:
                 cont["fora_categoria"] += 1
                 continue
             if sku not in por_sku:
+                if preco_simbolico(l):
+                    cont["simbolico"] += 1
+                    fora.append({"sku": sku, "descricao": _col(l, "descricao"),
+                                 "motivo": "só loja sem página no site, preço simbólico (cadastro antigo)"})
+                    continue
                 saida.append(montar(sku, None, None, None, l))
                 cont["so_loja_fora_site"] += 1
                 continue
@@ -256,6 +273,7 @@ def main() -> None:
     print(f"  -> DEMO: {sum(1 for l in saida if 'demo' in _norm(l['categoria']).split())}")
     print(f"  -> fora por categoria (acessórios etc.): {cont['fora_categoria']}")
     print(f"  -> fora por não estarem ativos no site: {cont['fora_site']} ({arq_fora})")
+    print(f"  -> fora por preço simbólico (cadastro antigo sem página no site): {cont['simbolico']}")
     print(f"  -> com imagem: {sum(1 for l in saida if l['imagem'])}")
     if not tem_detalhe:
         print("ATENÇÃO: o produtos_site_iplace.json é do script antigo (sem cor, capacidade e imagem dos SKUs).")

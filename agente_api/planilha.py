@@ -33,7 +33,31 @@ _STOPWORDS = {
     "para", "pra", "com", "quero", "queria", "comprar", "preco", "valor", "tem", "voces",
     # Quase tudo e Apple e os nomes do ERP nao repetem a marca ("WATCH SE 3 44...").
     "apple",
+    # Palavras de conversa/orcamento que o agente repassa na busca ("iphone mais em conta ate 5 mil").
+    "mais", "conta", "barato", "barata", "baratos", "baratas", "orcamento", "ate", "mil", "reais", "real",
+    "menor", "qual", "quais", "algum", "alguma", "modelo", "modelos", "opcao", "opcoes", "uns", "umas",
 }
+# "ate 5 mil", "ate 5000", "R$ 4.500", "5k" -> teto de preco (em reais).
+_RE_ORCAMENTO = re.compile(
+    r"(?:\bate\s+(?:r\s*\$?\s*)?|r\s*\$\s*)(\d+(?:[.,]\d+)*)\s*(mil|k)?\b|\b(\d+(?:[.,]\d+)?)\s*(mil|k)\b")
+
+
+def orcamento(termo: str) -> tuple[float | None, str]:
+    """(teto de preco, termo sem o trecho do orcamento)."""
+    # Normaliza sem tirar pontuacao: "R$ 4.500,00" precisa dos separadores.
+    texto = unicodedata.normalize("NFKD", str(termo or "")).encode("ascii", "ignore").decode().lower()
+    texto = re.sub(r"r\s*\$", "r$", texto)
+    achou = _RE_ORCAMENTO.search(texto)
+    if not achou:
+        return None, termo
+    numero, mult = (achou.group(1), achou.group(2)) if achou.group(1) else (achou.group(3), achou.group(4))
+    if mult:
+        valor = float(numero.replace(",", ".")) * 1000
+    else:
+        valor = float(numero.replace(".", "").replace(",", "."))
+    if valor < 100:  # "ate 5" sem "mil": nao da para saber, ignora
+        return None, texto[:achou.start()] + texto[achou.end():]
+    return valor, texto[:achou.start()] + texto[achou.end():]
 
 # Os nomes da planilha vem do ERP, abreviados e com cor em ingles. Cada palavra
 # do nome ganha as formas que o cliente escreve ("ORANGE" tambem acha "laranja").
@@ -267,14 +291,16 @@ def _texto_loja(linhas: list[dict]) -> str:
         nomes = ", ".join(_nome_variante(l) for l in so)
         if any(l.get("link") for l in linhas):
             texto += (
-                "\n\nATENÇÃO: " + nomes + " não tem preço de site/televendas nesta campanha. "
-                "O preço mostrado é o da LOJA FÍSICA. Se o cliente quiser comprar pelo site ou "
-                "televendas, não informe preço: envie o link do produto."
+                "\n\nATENÇÃO: " + nomes + " não tem preço de site/televendas nesta campanha, mas o "
+                "produto existe no site. O preço mostrado é o da LOJA FÍSICA. Se o cliente quiser comprar "
+                "pelo site ou televendas, não informe preço e não diga que é só na loja: envie o link para "
+                "ele ver o preço no site. Não temos informação de estoque deste item: não fale de estoque."
             )
         else:
             texto += (
                 "\n\nATENÇÃO: " + nomes + " está à venda SOMENTE NA LOJA FÍSICA (não tem no site "
-                "nem no televendas). O preço mostrado é o da loja."
+                "nem no televendas). O preço mostrado é o da loja. Não temos informação de estoque deste "
+                "item: não fale de estoque."
             )
     return texto
 
@@ -342,21 +368,44 @@ def buscar_texto(termo: str, inicio: int, quantidade: int) -> list[dict]:
     Ordem: aparelhos antes de acessorios (a menos que o cliente peca acessorio),
     depois o nome com menos palavras alem das pedidas ("iphone 17" traz o 17
     antes do 17 Pro Max) e o menor preco (256GB antes de 1TB)."""
+    teto, termo = orcamento(termo)
     tokens = [t for t in normalizar(termo).split() if t not in _STOPWORDS]
     if not tokens:
         return []
     quer_acessorio = any(t in _PALAVRAS_ACESSORIO for t in tokens)
+    grupos = agrupar(carregar_feed()["linhas"])
+    textos = [_texto_de_busca(g) for g in grupos]
+    # Palavra que nao existe em nenhum produto ("baratinho", "presente") nao pode zerar a busca.
+    vocabulario = {p for palavras in textos for p in palavras}
+    conhecidos = [t for t in tokens if any(p.startswith(t) for p in vocabulario)]
+    if conhecidos:
+        tokens = conhecidos
     achados = []
-    for ordem, grupo in enumerate(agrupar(carregar_feed()["linhas"])):
-        palavras = _texto_de_busca(grupo)
+    for ordem, grupo in enumerate(grupos):
+        palavras = textos[ordem]
         if all(any(p.startswith(t) for p in palavras) for t in tokens):
             primeira = grupo["linhas"][0]
             acessorio = 0 if quer_acessorio or categoria(primeira) in _CATEGORIAS_APARELHO else 1
             nome = normalizar(primeira.get("produto")).split()
             sobrando = sum(1 for p in nome if p not in tokens)  # "17e" conta como a mais em "iphone 17"
             menor_preco = min(float(l.get("preco_por") or l["preco_loja"]) for l in grupo["linhas"])
-            achados.append(((acessorio, sobrando, menor_preco, ordem), grupo))
-    achados.sort(key=lambda x: x[0])
+            if teto is not None and menor_preco > teto:
+                continue
+            # Com orcamento, produtos da campanha do site vem antes dos so de loja,
+            # e os sem pagina no site (modelos antigos, demos) por ultimo.
+            if any(l.get("preco_por") for l in grupo["linhas"]):
+                vitrine = 0
+            elif any(l.get("link") for l in grupo["linhas"]):
+                vitrine = 1
+            else:
+                vitrine = 2
+            demo = 1 if "demonstra" in normalizar(primeira.get("produto")) else 0
+            achados.append(((acessorio, sobrando, menor_preco, ordem, vitrine + demo), grupo))
+    if teto is not None:
+        # Com orcamento, o que interessa e o preco: mais barato primeiro (aparelhos antes).
+        achados.sort(key=lambda x: (x[0][0], x[0][4], x[0][2], x[0][3]))
+    else:
+        achados.sort(key=lambda x: x[0][:4])
     resultado = []
     for _, grupo in achados[inicio:]:
         item = produto_omnichat(grupo)
