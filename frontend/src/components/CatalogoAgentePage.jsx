@@ -376,8 +376,9 @@ function PainelTelevendas() {
                   </option>
                 ))}
               </select>
+              <span className="text-xs text-slate-400">a lista vem dos eventos da Omnichat</span>
             </label>
-            <label className="flex w-40 flex-col gap-1 text-sm text-slate-600">
+            <label className="flex w-52 flex-col gap-1 text-sm text-slate-600">
               Desligar com
               <input
                 type="number"
@@ -388,7 +389,7 @@ function PainelTelevendas() {
               />
               <span className="text-xs text-slate-400">clientes esperando ou mais</span>
             </label>
-            <label className="flex w-40 flex-col gap-1 text-sm text-slate-600">
+            <label className="flex w-52 flex-col gap-1 text-sm text-slate-600">
               Religar com
               <input
                 type="number"
