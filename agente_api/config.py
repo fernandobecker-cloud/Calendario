@@ -84,3 +84,15 @@ PLANILHA_URL = os.getenv(
 # ultima copia boa.
 PLANILHA_TTL_S = _int("PLANILHA_TTL_S", 60)
 PLANILHA_TIMEOUT_S = _float("PLANILHA_TIMEOUT_S", 20.0)
+
+# Fila do televendas (ver fila.py). A Omnichat manda os eventos de atendimento
+# para POST /omnichat/webhook com este token no header Authorization (Bearer).
+OMNI_WEBHOOK_TOKEN = os.getenv("OMNI_WEBHOOK_TOKEN", "").strip()
+# Modo, time do televendas e limites são escolhidos no portal e lidos daqui.
+TELEVENDAS_CONFIG_URL = os.getenv(
+    "AGENTE_TELEVENDAS_CONFIG_URL",
+    "https://calendario-39gp.onrender.com/api/agente-ia/televendas/config",
+).strip()
+TELEVENDAS_CONFIG_TTL_S = _int("TELEVENDAS_CONFIG_TTL_S", 30)
+# Espera mais longa que isso sai da conta (evento perdido não trava a fila).
+ESPERA_MAX_S = _int("FILA_ESPERA_MAX_MIN", 120) * 60

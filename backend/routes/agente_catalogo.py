@@ -23,7 +23,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
-from backend.services import agente_planilha, agente_site
+from backend.services import agente_planilha, agente_site, agente_televendas
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -202,3 +202,63 @@ async def subir_produtos_do_site(request: Request):
     except agente_planilha.PlanilhaErroBQ as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {**_resumo(feed), "agente": _status_do_agente()}
+
+
+
+# --- Fila do televendas -------------------------------------------------------
+
+
+def _token_do_agente(request: Request) -> None:
+    recebido = (request.headers.get("x-api-key") or "").strip()
+    if not AGENTE_API_TOKEN or not hmac.compare_digest(recebido.encode(), AGENTE_API_TOKEN.encode()):
+        raise HTTPException(status_code=401, detail="Token invalido.")
+
+
+def _fila_do_agente() -> dict | None:
+    """Situacao da fila contada pela API do agente (webhooks da Omnichat)."""
+    if not AGENTE_API_TOKEN:
+        return None
+    try:
+        resp = requests.get(f"{AGENTE_API_URL}/fila", headers={"x-api-key": AGENTE_API_TOKEN}, timeout=8)
+        return resp.json() if resp.status_code == 200 else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def _config_televendas() -> dict | None:
+    try:
+        return agente_televendas.carregar()
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/televendas")
+def ver_televendas(request: Request):
+    _exigir_admin(request)
+    return {"config": _config_televendas(), "fila": _fila_do_agente()}
+
+
+@router.put("/televendas")
+async def salvar_televendas(request: Request):
+    _exigir_admin(request)
+    try:
+        dados = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    try:
+        config = agente_televendas.salvar(dados if isinstance(dados, dict) else {}, request.state.auth_user.username)
+    except agente_televendas.ConfigInvalida as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"config": config, "fila": _fila_do_agente()}
+
+
+@router.get("/televendas/config")
+def config_televendas(request: Request):
+    """Para a API do agente. Sem Basic Auth: exige o AGENTE_API_TOKEN."""
+    _token_do_agente(request)
+    config = _config_televendas()
+    if not config:
+        raise HTTPException(status_code=404, detail="Televendas ainda nao configurado.")
+    return config

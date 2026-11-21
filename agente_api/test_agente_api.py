@@ -9,7 +9,9 @@ os.environ.setdefault("AGENTE_API_TOKEN", "segredo-teste")
 
 from fastapi import HTTPException  # noqa: E402
 
-from agente_api import config, conversao, main, oracle, planilha  # noqa: E402
+from agente_api import config, conversao, fila, main, oracle, planilha  # noqa: E402
+
+fila._baixar_config = lambda: {}  # os testes nao leem a configuracao do portal
 
 
 class RegrasDePagamento(unittest.TestCase):
@@ -103,6 +105,16 @@ class Endpoint(unittest.TestCase):
     def test_busca_texto(self):
         r = chamar(x_api_key="segredo-teste", size=5)
         self.assertEqual([p["objectId"] for p in r], ["100544PR"])
+
+    def test_busca_avisa_quando_televendas_indisponivel(self):
+        orig = fila.ler_config
+        fila.ler_config = lambda: {"modo": "indisponivel"}
+        try:
+            itens = chamar(x_api_key="segredo-teste")
+        finally:
+            fila.ler_config = orig
+        self.assertTrue(itens[0]["productDescription"].startswith("TELEVENDAS INDISPONÍVEL"))
+        self.assertFalse(chamar(x_api_key="segredo-teste")[0]["productDescription"].startswith("TELEVENDAS"))
 
     def test_token_na_url_e_bearer(self):
         self.assertEqual(len(chamar(token="segredo-teste")), 1)
@@ -266,6 +278,82 @@ class Planilha(unittest.TestCase):
             self.assertEqual(len(chamar(query="iphone", x_api_key="segredo-teste")), 2)
         finally:
             planilha._baixar_feed = orig
+
+
+class FilaDoTelevendas(unittest.TestCase):
+    TELEVENDAS = "T3l3v3nd4s"
+
+    def setUp(self):
+        fila._espera.clear()
+        fila._times.clear()
+        fila._traces.clear()
+        fila._estado["disponivel"] = True
+        self.cfg = {"modo": "automatico", "time_id": self.TELEVENDAS, "limite_desliga": 3, "limite_religa": 1}
+        self._orig = fila.ler_config
+        fila.ler_config = lambda: self.cfg
+        self.n = 0
+
+    def tearDown(self):
+        fila.ler_config = self._orig
+
+    def evento(self, tipo, chat, to_type=None, to_id=None, quando=None):
+        self.n += 1
+        payload = {"objectId": chat, "chatId": "55119" + chat,
+                   "timeStamp": quando or "2099-01-01T00:00:00.000Z"}
+        if to_type:
+            payload.update(toType=to_type, to={"id": to_id, "name": "Televendas" if to_id == self.TELEVENDAS else "Loja"})
+        return fila.registrar_evento({"type": tipo, "traceId": f"t{self.n}", "payload": payload})
+
+    def test_entra_e_sai_da_fila(self):
+        self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS)
+        self.evento("chat-routed", "b", "TEAM", self.TELEVENDAS)
+        self.evento("chat-routed", "c", "TEAM", "L0j4")  # outra fila nao conta
+        self.assertEqual(fila.situacao()["na_fila"], 2)
+        self.evento("chat-routed", "a", "USER", "vendedor1")  # foi atendido
+        self.evento("chat-finished", "b")
+        sit = fila.situacao()
+        self.assertEqual(sit["na_fila"], 0)
+        self.assertEqual({t["nome"] for t in sit["times"]}, {"Televendas", "Loja"})
+
+    def test_evento_repetido_conta_uma_vez(self):
+        evento = {"type": "chat-routed", "traceId": "x1",
+                  "payload": {"objectId": "a", "toType": "TEAM", "to": {"id": self.TELEVENDAS}}}
+        self.assertNotEqual(fila.registrar_evento(evento), "repetido")
+        self.assertEqual(fila.registrar_evento(dict(evento)), "repetido")
+
+    def test_limites_com_folga(self):
+        for chat in "abc":
+            self.evento("chat-routed", chat, "TEAM", self.TELEVENDAS)
+        self.assertFalse(fila.situacao()["disponivel"])  # 3 esperando: desliga
+        self.evento("chat-finished", "a")
+        self.assertFalse(fila.situacao()["disponivel"])  # 2: ainda acima do limite de religar
+        self.evento("chat-finished", "b")
+        self.assertTrue(fila.situacao()["disponivel"])   # 1: religa
+
+    def test_espera_antiga_expira(self):
+        self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS, quando="2020-01-01T00:00:00Z")
+        self.assertEqual(fila.situacao()["na_fila"], 0)
+
+    def test_modo_manual_e_sem_config(self):
+        self.cfg = {"modo": "indisponivel"}
+        self.assertFalse(fila.televendas_disponivel())
+        self.cfg = {"modo": "disponivel"}
+        self.assertTrue(fila.televendas_disponivel())
+        self.cfg = {}
+        self.assertTrue(fila.televendas_disponivel())
+        self.cfg = {"modo": "automatico"}  # sem time escolhido: disponivel
+        self.assertTrue(fila.televendas_disponivel())
+
+
+    def test_webhook_exige_token(self):
+        orig = config.OMNI_WEBHOOK_TOKEN
+        config.OMNI_WEBHOOK_TOKEN = "segredo-omni"
+        try:
+            with self.assertRaises(fila.WebhookNaoAutorizado):
+                fila.autorizar_webhook("Bearer errado", None)
+            fila.autorizar_webhook("Bearer segredo-omni", None)
+        finally:
+            config.OMNI_WEBHOOK_TOKEN = orig
 
 
 if __name__ == "__main__":

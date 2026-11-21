@@ -20,10 +20,10 @@ import logging
 import re
 import time
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from . import config, oracle, planilha
+from . import config, fila, oracle, planilha
 from .conversao import produto_omnichat
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -134,8 +134,46 @@ def buscar_produtos(
             "detail": "Catalogo da iPlace indisponivel no momento.",
             "motivo": str(exc),
         })
+    if resultado and not fila.televendas_disponivel():
+        for item in resultado:
+            item["productDescription"] = f"{fila.AVISO_INDISPONIVEL}\n\n{item.get('productDescription') or ''}".strip()
     log.info(
         "busca fonte=%s tipo=%s termo=%r from=%s size=%s -> %s produtos (%sms)",
         config.FONTE, tipo, termo, inicio, quantidade, len(resultado), int((time.monotonic() - comeco) * 1000),
     )
     return resultado
+
+
+@app.post("/omnichat/webhook")
+async def webhook_omnichat(
+    request: Request,
+    x_api_key: str | None = Header(None),
+    authorization: str | None = Header(None),
+):
+    """Eventos de atendimento da Omnichat (chat-routed, chat-finished) para a fila do televendas.
+    Responde rápido: a Omnichat espera no máximo 8 s e tenta só 3 vezes."""
+    try:
+        fila.autorizar_webhook(authorization, x_api_key)
+    except fila.WebhookNaoAutorizado as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    try:
+        evento = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    eventos = evento if isinstance(evento, list) else [evento]
+    for item in eventos:
+        if isinstance(item, dict):
+            feito = fila.registrar_evento(item)
+            log.info("webhook %s %s -> %s", item.get("type"), (item.get("payload") or {}).get("objectId"), feito)
+    return {"ok": True}
+
+
+@app.get("/fila")
+def ver_fila(
+    token: str | None = Query(None),
+    x_api_key: str | None = Header(None),
+    authorization: str | None = Header(None),
+):
+    """Situação da fila do televendas, para a aba do portal."""
+    _autorizar(x_api_key, authorization, token)
+    return fila.situacao()

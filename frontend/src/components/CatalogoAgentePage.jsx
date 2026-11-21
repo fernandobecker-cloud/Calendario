@@ -245,6 +245,196 @@ function PainelSite({ dados, setDados }) {
   )
 }
 
+const MODOS_TELEVENDAS = [
+  { valor: 'automatico', rotulo: 'Automático', ajuda: 'Segue a fila do time do televendas na Omnichat.' },
+  { valor: 'disponivel', rotulo: 'Forçar disponível', ajuda: 'A Ana sempre oferece o televendas.' },
+  { valor: 'indisponivel', rotulo: 'Forçar indisponível', ajuda: 'A Ana oferece só site ou loja física.' },
+]
+
+function PainelTelevendas() {
+  const [dados, setDados] = useState(null)
+  const [form, setForm] = useState({ modo: 'disponivel', time_id: '', limite_desliga: 15, limite_religa: 8 })
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [sucesso, setSucesso] = useState('')
+
+  const aplicar = useCallback((payload) => {
+    setDados(payload)
+    const c = payload?.config
+    if (c) {
+      setForm({
+        modo: c.modo || 'disponivel',
+        time_id: c.time_id || '',
+        limite_desliga: c.limite_desliga || 15,
+        limite_religa: c.limite_religa ?? 8,
+      })
+    }
+  }, [])
+
+  const carregar = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agente-ia/televendas')
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      aplicar(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao ler o televendas.')
+    }
+  }, [aplicar])
+
+  useEffect(() => {
+    carregar()
+    const id = setInterval(carregar, 30000)
+    return () => clearInterval(id)
+  }, [carregar])
+
+  const salvar = async (event) => {
+    event.preventDefault()
+    setSalvando(true)
+    setErro('')
+    setSucesso('')
+    try {
+      const time = dados?.fila?.times?.find((t) => t.id === form.time_id)
+      const res = await fetch('/api/agente-ia/televendas', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, time_nome: time?.nome || dados?.config?.time_nome || null }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      aplicar(payload)
+      setSucesso('Salvo. O agente passa a usar em até 30 segundos.')
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const fila = dados?.fila
+  const times = fila?.times || []
+  const configurado = dados?.config
+  const timeSalvo = configurado?.time_id
+  const opcoesTime = timeSalvo && !times.some((t) => t.id === timeSalvo)
+    ? [{ id: timeSalvo, nome: configurado.time_nome, na_fila: 0 }, ...times]
+    : times
+
+  return (
+    <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Televendas</h2>
+          <p className="mt-1 max-w-3xl text-sm text-slate-500">
+            Com o televendas indisponível, a Ana oferece só site ou loja física. No automático, a API do agente conta a
+            fila do time do televendas pelos webhooks da Omnichat.
+          </p>
+        </div>
+        {fila ? (
+          <span className={`rounded-full px-3 py-1 text-sm font-semibold ${fila.disponivel ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+            {fila.disponivel ? 'Ana oferece televendas' : 'Ana NÃO oferece televendas'}
+          </span>
+        ) : (
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">API do agente sem resposta</span>
+        )}
+      </div>
+
+      <form onSubmit={salvar} className="mt-4 space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {MODOS_TELEVENDAS.map((m) => (
+            <label
+              key={m.valor}
+              className={`cursor-pointer rounded-lg border px-4 py-2 text-sm ${form.modo === m.valor ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+              title={m.ajuda}
+            >
+              <input
+                type="radio"
+                name="modo-televendas"
+                value={m.valor}
+                checked={form.modo === m.valor}
+                onChange={() => setForm((f) => ({ ...f, modo: m.valor }))}
+                className="hidden"
+              />
+              {m.rotulo}
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400">{MODOS_TELEVENDAS.find((m) => m.valor === form.modo)?.ajuda}</p>
+
+        {form.modo === 'automatico' && (
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="flex min-w-[240px] flex-col gap-1 text-sm text-slate-600">
+              Time do televendas na Omnichat
+              <select
+                value={form.time_id}
+                onChange={(e) => setForm((f) => ({ ...f, time_id: e.target.value }))}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="">{opcoesTime.length ? 'Escolha o time' : 'Nenhum time apareceu nos webhooks ainda'}</option>
+                {opcoesTime.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nome || t.id} ({t.na_fila} na fila)
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex w-40 flex-col gap-1 text-sm text-slate-600">
+              Desligar com
+              <input
+                type="number"
+                min="1"
+                value={form.limite_desliga}
+                onChange={(e) => setForm((f) => ({ ...f, limite_desliga: e.target.value }))}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+              <span className="text-xs text-slate-400">clientes esperando ou mais</span>
+            </label>
+            <label className="flex w-40 flex-col gap-1 text-sm text-slate-600">
+              Religar com
+              <input
+                type="number"
+                min="0"
+                value={form.limite_religa}
+                onChange={(e) => setForm((f) => ({ ...f, limite_religa: e.target.value }))}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              />
+              <span className="text-xs text-slate-400">clientes esperando ou menos</span>
+            </label>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={salvando}
+          className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+        >
+          {salvando ? 'Salvando...' : 'Salvar'}
+        </button>
+      </form>
+
+      {fila && (
+        <p className="mt-4 text-sm text-slate-500">
+          {fila.config?.time_id ? (
+            <>
+              Fila agora: <strong className="text-slate-800">{fila.na_fila}</strong> cliente(s) esperando
+              {fila.na_fila > 0 && <> · o mais antigo há {fila.espera_mais_antiga_min} min</>} ·{' '}
+            </>
+          ) : null}
+          {fila.eventos_recebidos} evento(s) da Omnichat recebidos
+          {fila.ultimo_evento ? <> · último em {formatarData(fila.ultimo_evento)}</> : ' (webhook ainda não chegou)'} ·
+          contando desde {formatarData(fila.contando_desde)}
+        </p>
+      )}
+      {configurado?.alterado_por && (
+        <p className="mt-1 text-xs text-slate-400">
+          Alterado por {configurado.alterado_por} em {formatarData(configurado.alterado_em)}
+        </p>
+      )}
+      {sucesso && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{sucesso}</p>}
+      {erro && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{erro}</p>}
+    </section>
+  )
+}
+
 function PainelPlanilha() {
   const [dados, setDados] = useState(null)
   const [carregando, setCarregando] = useState(true)
@@ -501,6 +691,7 @@ export default function CatalogoAgentePage() {
         </p>
       </section>
 
+      <PainelTelevendas />
       <PainelPlanilha />
 
       <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">

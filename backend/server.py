@@ -379,9 +379,9 @@ async def basic_auth_middleware(request: Request, call_next: Any) -> Response:
     if not request.url.path.startswith("/api"):
         return await call_next(request)
 
-    # A API do agente de IA le a planilha da campanha por aqui com o proprio
-    # token (AGENTE_API_TOKEN), conferido na rota.
-    if request.url.path == "/api/agente-ia/planilha/feed":
+    # A API do agente de IA le a planilha da campanha e a configuracao do
+    # televendas por aqui com o proprio token (AGENTE_API_TOKEN), conferido na rota.
+    if request.url.path in ("/api/agente-ia/planilha/feed", "/api/agente-ia/televendas/config"):
         return await call_next(request)
 
     if not is_auth_enabled():
