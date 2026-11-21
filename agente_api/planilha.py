@@ -210,6 +210,23 @@ def precos(linha: dict) -> tuple[float, float]:
     return pix, float(cartao)
 
 
+_RE_PULSEIRA = re.compile(r"(pulseira\b.*)$", re.I)
+
+
+def _variacoes(linha: dict) -> list[dict]:
+    """Cor e capacidade; no Watch também a pulseira (cor e tamanho P/M ou M/G),
+    que muda o SKU e às vezes o preço."""
+    variacoes = [
+        {"key": rotulo, "value": linha.get(campo)}
+        for campo, rotulo in (("cor", "Cor"), ("capacidade", "Capacidade"))
+        if linha.get(campo)
+    ]
+    pulseira = _RE_PULSEIRA.search(str(linha.get("variante") or ""))
+    if pulseira:
+        variacoes.append({"key": "Pulseira", "value": pulseira.group(1).strip()})
+    return variacoes
+
+
 def _variante(linha: dict) -> dict:
     if so_loja(linha):
         return _variante_so_loja(linha)
@@ -217,11 +234,7 @@ def _variante(linha: dict) -> dict:
     estoque = linha.get("estoque")
     # Estoque em branco = o CRM nao controla: o agente considera disponivel.
     quantidade = int(estoque) if estoque is not None else 1
-    variacoes = [
-        {"key": rotulo, "value": linha.get(campo)}
-        for campo, rotulo in (("cor", "Cor"), ("capacidade", "Capacidade"))
-        if linha.get(campo)
-    ]
+    variacoes = _variacoes(linha)
     return {
         "objectId": str(linha["sku"]),
         "externalImageURL": linha.get("imagem") or None,
@@ -250,11 +263,7 @@ def _variante_so_loja(linha: dict) -> dict:
     estoque = linha.get("estoque")
     quantidade = int(estoque) if estoque is not None else 1
     loja = float(linha["preco_loja"])
-    variacoes = [
-        {"key": rotulo, "value": linha.get(campo)}
-        for campo, rotulo in (("cor", "Cor"), ("capacidade", "Capacidade"))
-        if linha.get(campo)
-    ]
+    variacoes = _variacoes(linha)
     variacoes.append({"key": "Preço", "value": "somente loja física"})
     return {
         "objectId": str(linha["sku"]),
