@@ -375,6 +375,33 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertEqual(len(enviados[0]["eventos"]), 1)
         self.assertEqual(fila._pendentes, [])
 
+    def test_api_da_omnichat_tira_da_fila_quando_assumido(self):
+        from agente_api import omni_interacoes as omni
+        chaves = (fila.config.OMNI_API_KEY, fila.config.OMNI_API_SECRET)
+        fila.config.OMNI_API_KEY, fila.config.OMNI_API_SECRET = "k", "s"
+        respostas = {"csrA": (404, None), "objA": (200, {
+            "objectId": "objA", "status": "CONTACTED", "contactedAt": {"__type": "Date", "iso": "2099-01-01T00:05:00Z"},
+            "origin": {"id": "20261123_WMKT_Whizz", "channel": "WHATSAPP", "type": "CAMPAIGN"}})}
+        orig_get = omni._get
+        omni._get = lambda i: respostas[i]
+        omni._acompanhando.clear(); omni._novos.clear(); omni._estado["campo_id"] = None
+        try:
+            fila.registrar_evento({"type": "chat-routed", "traceId": "o1", "payload": {
+                "objectId": "objA", "csrId": "csrA", "chatId": "5511900000001", "toType": "TEAM",
+                "to": {"id": self.TELEVENDAS, "name": "Televendas"}, "timeStamp": "2099-01-01T00:00:00Z"}})
+            self.assertEqual(fila.situacao()["na_fila"], 1)
+            guardados = []
+            omni._processar(omni._proxima_chave(), guardados.append, fila._tirar_da_fila)
+        finally:
+            omni._get = orig_get
+            fila.config.OMNI_API_KEY, fila.config.OMNI_API_SECRET = chaves
+        self.assertEqual(fila.situacao()["na_fila"], 0)
+        self.assertEqual(omni._estado["campo_id"], "objectId")
+        reg = guardados[0]
+        self.assertEqual((reg["tipo"], reg["origem_id"], reg["origem_tipo"]), ("omni-interacao", "20261123_WMKT_Whizz", "CAMPAIGN"))
+        self.assertEqual(reg["contatado_em"], "2099-01-01T00:05:00+00:00")
+        self.assertNotIn("5511900000001", str(reg))
+
     def test_portal_fora_guarda_os_eventos(self):
         fila._pendentes.clear()
         self.evento("chat-finished", "a")

@@ -102,3 +102,14 @@ FILA_EVENTOS_URL = os.getenv(
     "https://calendario-39gp.onrender.com/api/agente-ia/fila/eventos",
 ).strip()
 FILA_ENVIO_S = _int("FILA_ENVIO_S", 30)
+
+# API v1 da Omnichat (ver omni_interacoes.py): origem do atendimento (campanha x
+# orgânico) e o momento em que o vendedor assumiu, que o webhook não manda.
+# Sem as duas chaves, fica desligado. A Omnichat limita a 10 req/s somando todas
+# as integrações da loja; aqui fica bem abaixo disso.
+OMNI_API_URL = os.getenv("OMNI_API_URL", "https://api.omni.chat/v1").strip().rstrip("/")
+OMNI_API_KEY = os.getenv("OMNI_API_KEY", "").strip()
+OMNI_API_SECRET = os.getenv("OMNI_API_SECRET", "").strip()
+OMNI_API_RPS = _float("OMNI_API_RPS", 1.0)
+# A cada quanto reconsultar quem ainda espera na fila (para saber quando foi assumido).
+OMNI_RECONSULTA_S = _int("OMNI_RECONSULTA_S", 90)

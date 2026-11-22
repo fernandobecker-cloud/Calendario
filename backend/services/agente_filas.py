@@ -61,6 +61,15 @@ _SCHEMA = [
     bigquery.SchemaField("por_usuario_tipo", "STRING"),  # routedBy.userType: quem encaminhou (bot, usuário...)
     bigquery.SchemaField("rota_tipo", "STRING"),
     bigquery.SchemaField("origem", "STRING"),
+    # Registros "omni-interacao" (API v1 da Omnichat, consultada pela API do agente):
+    bigquery.SchemaField("interacao_status", "STRING"),
+    bigquery.SchemaField("contatado_em", "TIMESTAMP"),  # vendedor clicou em "Assumir atendimento"
+    bigquery.SchemaField("contatado_por", "STRING"),
+    bigquery.SchemaField("encaminhado_em", "TIMESTAMP"),
+    bigquery.SchemaField("origem_id", "STRING"),  # ex.: 20261123_WMKT_Whizz
+    bigquery.SchemaField("origem_canal", "STRING"),
+    bigquery.SchemaField("origem_tipo", "STRING"),
+    bigquery.SchemaField("origem_url", "STRING"),
 ]
 _CAMPOS = [c.name for c in _SCHEMA]
 
@@ -198,7 +207,22 @@ def _minutos(segundos: list[float]) -> float | None:
 
 def _novo_contador() -> dict[str, Any]:
     return {"na_fila": 0, "espera_mais_antiga_min": 0.0, "entraram_hoje": 0, "atendidos_hoje": 0,
-            "sem_atendimento_hoje": 0, "_esperas": [], "_duracoes": []}
+            "sem_atendimento_hoje": 0, "entraram_campanha": 0, "entraram_organico": 0,
+            "_esperas": [], "_duracoes": []}
+
+
+def rotulo_origem(e: dict[str, Any]) -> str:
+    """Origem do atendimento vinda da API da Omnichat, em texto (para o diagnóstico)."""
+    partes = [e.get("origem_tipo"), e.get("origem_canal"), e.get("origem_id"), e.get("origem_url")]
+    return " · ".join(str(p) for p in partes if p) or "(sem origem: orgânico)"
+
+
+def classe_origem(e: dict[str, Any]) -> str:
+    """campanha ou organico. Sem origem preenchida = orgânico (veio direto pelo WhatsApp)."""
+    texto = rotulo_origem(e).lower()
+    if "sem origem" in texto or "organ" in texto:
+        return "organico"
+    return "campanha"
 
 
 # Destinos que tiram o cliente da fila sem ser um vendedor pegando o atendimento.
@@ -217,6 +241,11 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
     Em `saidas` (opcional) fica a contagem de como cada um saiu da fila.
     """
     saidas = saidas if saidas is not None else {}
+    # Origem de cada atendimento (registros da API da Omnichat), pelo objectId do webhook.
+    origem_de: dict[str, str] = {}
+    for e in eventos:
+        if e.get("tipo") == "omni-interacao" and e.get("atendimento_id"):
+            origem_de[e["atendimento_id"]] = classe_origem(e)
     inicio_dia = agora.astimezone(FUSO).replace(hour=0, minute=0, second=0, microsecond=0)
     por_time: dict[str, dict[str, Any]] = {}
     nomes: dict[str, str] = {}
@@ -239,7 +268,11 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                     nomes[e["para_id"]] = e["para_nome"]
                 situacao[at] = {"time": e["para_id"], "fila": True, "desde": momento}
                 if hoje:
-                    time_de(e["para_id"])["entraram_hoje"] += 1
+                    cont = time_de(e["para_id"])
+                    cont["entraram_hoje"] += 1
+                    classe = origem_de.get(e.get("atendimento_id") or "")
+                    if classe:
+                        cont[f"entraram_{classe}"] += 1
             elif para and not any(b in para for b in _DESTINOS_BOT):
                 if atual and atual["fila"]:
                     saidas[f"atendido ({para})"] = saidas.get(f"atendido ({para})", 0) + 1
@@ -253,6 +286,15 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                 if atual["fila"]:
                     saidas[f"voltou para bot ({para or '-'})"] = saidas.get(f"voltou para bot ({para or '-'})", 0) + 1
                 situacao.pop(at, None)  # foi para um bot
+        elif e.get("tipo") == "omni-interacao":
+            # O vendedor assumiu (o webhook não avisa): momento = contatado_em.
+            if e.get("contatado_em") and atual and atual["fila"]:
+                saidas["atendido (assumiu, pela API)"] = saidas.get("atendido (assumiu, pela API)", 0) + 1
+                if hoje:
+                    cont = time_de(atual["time"])
+                    cont["atendidos_hoje"] += 1
+                    cont["_esperas"].append(max(0.0, (momento - atual["desde"]).total_seconds()))
+                situacao[at] = {"time": atual["time"], "fila": False, "desde": momento}
         elif e.get("tipo") == "chat-finished" and atual:
             if atual["fila"]:
                 saidas["encerrado na fila"] = saidas.get("encerrado na fila", 0) + 1
@@ -290,10 +332,11 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
 
 def _somar(partes: list[dict[str, Any]]) -> dict[str, Any]:
     total = {"na_fila": 0, "espera_mais_antiga_min": 0.0, "entraram_hoje": 0, "atendidos_hoje": 0,
-             "sem_atendimento_hoje": 0}
+             "sem_atendimento_hoje": 0, "entraram_campanha": 0, "entraram_organico": 0}
     esperas, duracoes = [], []
     for p in partes:
-        for k in ("na_fila", "entraram_hoje", "atendidos_hoje", "sem_atendimento_hoje"):
+        for k in ("na_fila", "entraram_hoje", "atendidos_hoje", "sem_atendimento_hoje",
+                  "entraram_campanha", "entraram_organico"):
             total[k] += p.get(k) or 0
         total["espera_mais_antiga_min"] = max(total["espera_mais_antiga_min"], p.get("espera_mais_antiga_min") or 0)
         if p.get("espera_media_min") is not None:
@@ -384,9 +427,12 @@ def diagnostico() -> dict[str, Any]:
     tipos: dict[str, int] = {}
     times: dict[str, dict[str, Any]] = {}
     encaminhou: dict[str, int] = {}
+    origens: dict[str, int] = {}
     saidas: dict[str, int] = {}
     calcular(eventos, datetime.now(timezone.utc), saidas)
     for e in eventos:
+        if e.get("tipo") == "omni-interacao" and e["momento"] >= inicio_dia:
+            origens[rotulo_origem(e)] = origens.get(rotulo_origem(e), 0) + 1
         chave = f"{e.get('tipo')} -> {e.get('para_tipo') or '-'}"
         tipos[chave] = tipos.get(chave, 0) + 1
         if (e.get("para_tipo") or "").upper() == "TEAM" and e.get("para_id"):
@@ -412,6 +458,8 @@ def diagnostico() -> dict[str, Any]:
         "ultimo": eventos[-1]["momento"].astimezone(FUSO).isoformat() if eventos else None,
         "por_tipo": dict(sorted(tipos.items(), key=lambda kv: -kv[1])),
         "ultimos_eventos_completos": list(reversed(_brutos)),
+        "origens_hoje": [{"origem": k, "classe": classe_origem({"origem_id": k} if "sem origem" not in k else {}),
+                          "atendimentos": v} for k, v in sorted(origens.items(), key=lambda kv: -kv[1])[:30]],
         "saidas_da_fila": dict(sorted(saidas.items(), key=lambda kv: -kv[1])),
         # Quem mandou o cliente para a fila das lojas hoje (para separar bot principal e Whizz).
         "encaminhado_para_lojas_por": [{"quem": k, "hoje": v}

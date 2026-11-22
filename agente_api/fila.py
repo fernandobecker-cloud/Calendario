@@ -37,7 +37,7 @@ from datetime import datetime
 
 import requests
 
-from . import config
+from . import config, omni_interacoes
 
 log = logging.getLogger("agente_api.fila")
 
@@ -107,9 +107,13 @@ def registrar_evento(evento: dict) -> str:
                 _times[time_id] = {"nome": destino.get("name") or _times.get(time_id, {}).get("nome"),
                                    "visto_em": time.time()}
                 _espera[chave] = {"time": time_id, "desde": _epoch(payload.get("timeStamp"))}
+                omni_interacoes.entrou(chave, payload.get("csrId"), payload.get("objectId"),
+                                       _conversa(payload.get("chatId")))
                 return f"entrou na fila {time_id}"
+            omni_interacoes.saiu(chave)
             return "saiu da fila" if _espera.pop(chave, None) else "ignorado"
         if tipo == "chat-finished":
+            omni_interacoes.saiu(chave)
             return "saiu da fila" if _espera.pop(chave, None) else "ignorado"
         return "ignorado"
 
@@ -187,6 +191,7 @@ def situacao() -> dict:
             "ultimo_evento": datetime.fromtimestamp(_estado["ultimo_evento"]).astimezone().isoformat()
             if _estado["ultimo_evento"] else None,
             "contando_desde": datetime.fromtimestamp(_estado["inicio"]).astimezone().isoformat(),
+            "omnichat_api": omni_interacoes.situacao(),
             "times": sorted(
                 ({"id": t, "nome": d["nome"], "na_fila": por_time.get(t, 0)} for t, d in _times.items()),
                 key=lambda t: (t["nome"] or "").lower(),
@@ -302,5 +307,20 @@ def _loop_de_envio() -> None:
             log.exception("erro no envio dos eventos da fila")
 
 
+def _guardar_registro(registro: dict) -> None:
+    """Registro pronto (ex.: detalhes do atendimento vindos da API da Omnichat) para o portal."""
+    with _lock:
+        _pendentes.append(registro)
+        if len(_pendentes) > _MAX_PENDENTES:
+            del _pendentes[: len(_pendentes) - _MAX_PENDENTES]
+
+
+def _tirar_da_fila(chave: str) -> None:
+    """O vendedor assumiu (visto pela API da Omnichat): sai da fila do televendas."""
+    with _lock:
+        _espera.pop(chave, None)
+
+
 def iniciar_envio() -> None:
     threading.Thread(target=_loop_de_envio, name="envio-fila", daemon=True).start()
+    omni_interacoes.iniciar(_guardar_registro, _tirar_da_fila)

@@ -27,13 +27,20 @@ function emAlerta(d) {
   return d.na_fila >= ALERTA_FILA || d.espera_mais_antiga_min >= ALERTA_ESPERA_MIN
 }
 
-function Numero({ rotulo, valor, destaque }) {
+function Numero({ rotulo, valor, destaque, detalhe }) {
   return (
     <div className="min-w-[110px] flex-1">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{rotulo}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${destaque ? 'text-rose-600' : 'text-slate-900'}`}>{valor}</p>
+      {detalhe && <p className="text-xs text-slate-500">{detalhe}</p>}
     </div>
   )
+}
+
+// Campanha x orgânico só aparece quando a API da Omnichat trouxe a origem.
+function origens(d) {
+  if (!d.entraram_campanha && !d.entraram_organico) return null
+  return `${d.entraram_campanha || 0} campanha · ${d.entraram_organico || 0} orgânico`
 }
 
 function Resumo({ titulo, subtitulo, dados }) {
@@ -48,7 +55,7 @@ function Resumo({ titulo, subtitulo, dados }) {
         <Numero rotulo="Na fila agora" valor={dados.na_fila} destaque={dados.na_fila >= ALERTA_FILA} />
         <Numero rotulo="Espera mais antiga" valor={dados.na_fila ? min(dados.espera_mais_antiga_min) : '–'}
           destaque={dados.espera_mais_antiga_min >= ALERTA_ESPERA_MIN} />
-        <Numero rotulo="Entraram hoje" valor={dados.entraram_hoje} />
+        <Numero rotulo="Entraram hoje" valor={dados.entraram_hoje} detalhe={origens(dados)} />
         <Numero rotulo="Atendidos hoje" valor={dados.atendidos_hoje} />
         <Numero rotulo="Espera média" valor={min(dados.espera_media_min)} />
         <Numero rotulo="Saíram sem atendimento" valor={dados.sem_atendimento_hoje} />
@@ -101,7 +108,10 @@ function Regional({ reg, aberta, alternar }) {
                   <td className={`px-3 py-2 text-right tabular-nums ${l.espera_mais_antiga_min >= ALERTA_ESPERA_MIN ? 'font-semibold text-rose-600' : ''}`}>
                     {l.na_fila ? min(l.espera_mais_antiga_min) : '–'}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{l.entraram_hoje}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {l.entraram_hoje}
+                    {l.entraram_campanha > 0 && <span className="block text-xs text-indigo-600">{l.entraram_campanha} campanha</span>}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">{l.atendidos_hoje}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{min(l.espera_media_min)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{l.sem_atendimento_hoje}</td>

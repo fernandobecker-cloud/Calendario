@@ -299,4 +299,4 @@ def painel_das_filas_admin(request: Request):
 @router.get("/fila/diagnostico")
 def diagnostico_das_filas(request: Request):
     _exigir_admin(request)
-    return agente_filas.diagnostico()
+    return {**agente_filas.diagnostico(), "omnichat_api": (_fila_do_agente() or {}).get("omnichat_api")}

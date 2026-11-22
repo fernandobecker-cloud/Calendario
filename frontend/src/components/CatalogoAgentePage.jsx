@@ -283,6 +283,31 @@ export function DiagnosticoFilas() {
           <p className="text-xs">
             {Object.entries(dados.por_tipo).map(([tipo, n]) => `${tipo}: ${n}`).join(' · ') || 'nenhum'}
           </p>
+          <p className="text-xs">
+            <span className="font-medium text-slate-700">API da Omnichat (origem e "assumir"): </span>
+            {!dados.omnichat_api ? 'sem resposta da API do agente'
+              : !dados.omnichat_api.ligado ? 'desligada (falta OMNI_API_KEY / OMNI_API_SECRET no agente-ia-api)'
+              : `ligada · ${dados.omnichat_api.consultas} consulta(s) · acompanhando ${dados.omnichat_api.acompanhando}`
+                + ` · id do atendimento: ${dados.omnichat_api.id_do_atendimento || 'ainda não descoberto'}`
+                + (dados.omnichat_api.erros ? ` · ${dados.omnichat_api.erros} erro(s), último: ${dados.omnichat_api.ultimo_erro}` : '')
+                + (dados.omnichat_api.pausado_ate ? ` · pausada até ${formatarData(dados.omnichat_api.pausado_ate)}` : '')}
+          </p>
+          {dados.origens_hoje?.length > 0 && (
+            <table className="w-full text-xs">
+              <thead className="text-left text-slate-500">
+                <tr><th className="py-1">Origem dos atendimentos hoje (API da Omnichat)</th><th>Conta como</th><th className="text-right">Atendimentos</th></tr>
+              </thead>
+              <tbody>
+                {dados.origens_hoje.map((o) => (
+                  <tr key={o.origem} className="border-t border-slate-100">
+                    <td className="py-1">{o.origem}</td>
+                    <td>{o.classe === 'campanha' ? 'Campanha' : 'Orgânico'}</td>
+                    <td className="text-right tabular-nums">{o.atendimentos}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {dados.saidas_da_fila && (
             <p className="text-xs">
               <span className="font-medium text-slate-700">Como saíram da fila: </span>
