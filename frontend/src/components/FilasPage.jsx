@@ -126,6 +126,115 @@ function Regional({ reg, aberta, alternar }) {
   )
 }
 
+function Campo({ rotulo, valor, onChange, sufixo }) {
+  return (
+    <label className="text-sm text-slate-600">
+      <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">{rotulo}</span>
+      <span className="mt-1 flex items-center gap-2">
+        <input type="number" min="0" value={valor} onChange={(e) => onChange(e.target.value)}
+          className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+        {sufixo && <span className="text-xs text-slate-500">{sufixo}</span>}
+      </span>
+    </label>
+  )
+}
+
+// Aba Filas (admin): regras dos avisos de fila alta no Teams.
+function AlertasTeams() {
+  const [dados, setDados] = useState(null)
+  const [form, setForm] = useState(null)
+  const [msg, setMsg] = useState({ erro: '', ok: '' })
+  const [ocupado, setOcupado] = useState(false)
+
+  const aplicar = (payload) => {
+    setDados(payload)
+    setForm({ ...payload.config })
+  }
+
+  const chamar = async (metodo, url, corpo) => {
+    setOcupado(true)
+    setMsg({ erro: '', ok: '' })
+    try {
+      const res = await fetch(url, {
+        method: metodo,
+        headers: corpo ? { 'Content-Type': 'application/json' } : undefined,
+        body: corpo ? JSON.stringify(corpo) : undefined,
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status}`)
+      return payload
+    } catch (err) {
+      setMsg({ erro: err instanceof Error ? err.message : 'Falhou.', ok: '' })
+      return null
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  useEffect(() => {
+    chamar('GET', '/api/agente-ia/fila/alertas').then((p) => p && aplicar(p))
+  }, [])
+
+  if (!form) return msg.erro ? <p className="text-sm text-rose-700">{msg.erro}</p> : null
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const salvar = async () => {
+    const p = await chamar('PUT', '/api/agente-ia/fila/alertas', form)
+    if (p) { aplicar(p); setMsg({ erro: '', ok: 'Alertas salvos.' }) }
+  }
+  const testar = async () => {
+    const p = await chamar('POST', '/api/agente-ia/fila/alertas/teste')
+    if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? `Teste enviado para: ${p.enviados.join(', ')}.` : '' })
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Alertas de fila alta no Teams</h2>
+          <p className="text-sm text-slate-500">
+            Canais configurados: {dados.canais.length ? dados.canais.join(', ') : 'nenhum (TEAMS_WEBHOOK_URL no Render do portal)'}
+            {dados.lojas_em_alerta.length > 0 && ` · em alerta agora: ${dados.lojas_em_alerta.join(', ')}`}
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+          <input type="checkbox" checked={!!form.ativo} onChange={(e) => set('ativo')(e.target.checked)} className="h-4 w-4" />
+          Alertas ligados
+        </label>
+      </div>
+      <div className="mt-4 flex flex-wrap items-end gap-5">
+        <Campo rotulo="Na fila" valor={form.limite_fila} onChange={set('limite_fila')} sufixo="ou mais clientes" />
+        <Campo rotulo="Ou espera" valor={form.limite_espera_min} onChange={set('limite_espera_min')} sufixo="min ou mais" />
+        <Campo rotulo="Repetir a cada" valor={form.intervalo_min} onChange={set('intervalo_min')} sufixo="min, se continuar" />
+        <Campo rotulo="Das" valor={form.hora_inicio} onChange={set('hora_inicio')} sufixo="h" />
+        <Campo rotulo="Até" valor={form.hora_fim} onChange={set('hora_fim')} sufixo="h" />
+        <div className="flex gap-2">
+          <button type="button" disabled={ocupado} onClick={salvar}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Salvar</button>
+          <button type="button" disabled={ocupado || !dados.canais.length} onClick={testar}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50">Enviar teste</button>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Use 0 para ignorar um dos limites. Um canal por regional é opcional (TEAMS_WEBHOOK_R1 a R7); sem ele, vai para o canal geral.
+      </p>
+      {msg.ok && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg.ok}</p>}
+      {msg.erro && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{msg.erro}</p>}
+      {dados.ultimo_erro && <p className="mt-2 text-xs text-rose-600">Último erro: {dados.ultimo_erro}</p>}
+      {dados.enviados.length > 0 && (
+        <details className="mt-3 text-xs text-slate-600">
+          <summary className="cursor-pointer">Últimos avisos enviados ({dados.enviados.length})</summary>
+          <ul className="mt-2 space-y-1">
+            {dados.enviados.map((e, i) => (
+              <li key={i}>{hora(e.em)} · {e.canal} · {e.lojas.join(', ')}{e.erro ? ` · erro: ${e.erro}` : ''}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  )
+}
+
 export default function FilasPage({ chave, admin = false }) {
   const [dados, setDados] = useState(null)
   const [erro, setErro] = useState('')
@@ -224,6 +333,7 @@ export default function FilasPage({ chave, admin = false }) {
               Fila = cliente encaminhado para o time da loja e ainda não pego por um vendedor. Espera = tempo entre entrar
               no time e ser pego. Esperas acima de 2 h saem da conta.
             </p>
+            {admin && <AlertasTeams />}
             {admin && <DiagnosticoFilas />}
           </>
         )}

@@ -85,6 +85,13 @@ app.include_router(agente_catalogo_router)
 app.include_router(filas_publico_router)
 
 
+@app.on_event("startup")
+def _iniciar_alertas_das_filas() -> None:
+    # Alertas de fila alta no Teams (ficam parados enquanto estiverem desligados na aba Filas).
+    from backend.services import filas_alertas
+    filas_alertas.iniciar()
+
+
 def is_single_auth_mode() -> bool:
     return AUTH_MODE in {"single", "simple"}
 

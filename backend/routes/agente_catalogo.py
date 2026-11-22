@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from backend.routes.filas_publico import chave_do_link
-from backend.services import agente_filas, agente_planilha, agente_site, agente_televendas
+from backend.services import agente_filas, agente_planilha, agente_site, agente_televendas, filas_alertas
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -294,6 +294,34 @@ def painel_das_filas_admin(request: Request):
     """Aba Filas do portal: o mesmo painel do link dos gerentes, com o televendas."""
     _exigir_admin(request)
     return {**agente_filas.painel(com_televendas=True), "link_filas": _link_filas(request)}
+
+
+@router.get("/fila/alertas")
+def ver_alertas(request: Request):
+    _exigir_admin(request)
+    return filas_alertas.situacao()
+
+
+@router.put("/fila/alertas")
+async def salvar_alertas(request: Request):
+    _exigir_admin(request)
+    try:
+        dados = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    try:
+        filas_alertas.salvar(dados if isinstance(dados, dict) else {}, request.state.auth_user.username)
+    except filas_alertas.ConfigInvalida as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return filas_alertas.situacao()
+
+
+@router.post("/fila/alertas/teste")
+def testar_alertas(request: Request):
+    _exigir_admin(request)
+    return filas_alertas.enviar_teste(request.state.auth_user.username)
 
 
 @router.get("/fila/diagnostico")
