@@ -289,6 +289,20 @@ export function DiagnosticoFilas() {
               {Object.entries(dados.saidas_da_fila).map(([como, n]) => `${como}: ${n}`).join(' · ') || 'nenhum ainda'}
             </p>
           )}
+          {dados.ultimos_eventos_completos?.length > 0 && (
+            <details className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
+              <summary className="cursor-pointer font-medium text-slate-700">
+                Últimos {dados.ultimos_eventos_completos.length} eventos completos (sem telefone)
+              </summary>
+              <div className="mt-2 max-h-[480px] space-y-2 overflow-auto">
+                {dados.ultimos_eventos_completos.map((b, i) => (
+                  <pre key={i} className="whitespace-pre-wrap break-all rounded bg-white p-2 text-[11px] text-slate-700">
+                    {formatarData(b.recebido_em)} · {JSON.stringify(b.evento, null, 2)}
+                  </pre>
+                ))}
+              </div>
+            </details>
+          )}
           {dados.encaminhado_para_lojas_por?.length > 0 && (
             <table className="w-full text-xs">
               <thead className="text-left text-slate-500">

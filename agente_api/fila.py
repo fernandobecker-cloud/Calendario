@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -216,6 +217,19 @@ def _pessoa(dado) -> tuple[str | None, str | None]:
     return (str(dado["id"]) if dado.get("id") else None), dado.get("name")
 
 
+_CAMPOS_TELEFONE = {"chatid", "phone", "telefone", "number", "msisdn", "waid"}
+
+
+def _sem_telefone(dado):
+    if isinstance(dado, dict):
+        return {k: ("***" if str(k).lower() in _CAMPOS_TELEFONE else _sem_telefone(v)) for k, v in dado.items()}
+    if isinstance(dado, list):
+        return [_sem_telefone(v) for v in dado]
+    if isinstance(dado, str) and re.fullmatch(r"\+?\d{10,15}", dado.strip()):
+        return "***"
+    return dado
+
+
 def _conversa(chat_id) -> str | None:
     """Código da conversa a partir do telefone, sem dar para voltar ao número."""
     if not chat_id:
@@ -247,6 +261,9 @@ def _guardar_para_envio(evento: dict, trace: str) -> None:
         "origem": evento.get("origin"),
         "motivo_encerramento": payload.get("closingReason"),
         "plataforma": payload.get("platform"),
+        # Evento completo sem o telefone: o portal guarda só os últimos em memória
+        # (diagnóstico), para descobrir campos novos. Não vai para o BigQuery.
+        "bruto": _sem_telefone(evento),
     })
     if len(_pendentes) > _MAX_PENDENTES:
         del _pendentes[: len(_pendentes) - _MAX_PENDENTES]

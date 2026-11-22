@@ -21,6 +21,7 @@ import logging
 import re
 import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -64,6 +65,8 @@ _SCHEMA = [
 _CAMPOS = [c.name for c in _SCHEMA]
 
 _lock = threading.Lock()
+# Últimos eventos completos (sem telefone) para o diagnóstico; só em memória.
+_brutos: deque = deque(maxlen=40)
 _estado: dict[str, Any] = {"carregado": False, "tentou_em": -1e9, "tabela_ok": False, "eventos": [], "traces": set()}
 
 
@@ -155,6 +158,8 @@ def receber(eventos: list[dict[str, Any]]) -> dict[str, int]:
         for bruto in eventos:
             if not isinstance(bruto, dict) or not bruto.get("trace_id"):
                 continue
+            if isinstance(bruto.get("bruto"), dict):
+                _brutos.append({"recebido_em": agora.astimezone(FUSO).isoformat(), "evento": bruto["bruto"]})
             momento = _momento(bruto.get("momento")) or agora
             evento = {c: (str(bruto[c]) if bruto.get(c) is not None else None) for c in _CAMPOS}
             evento.update(momento=momento, recebido_em=agora)
@@ -406,6 +411,7 @@ def diagnostico() -> dict[str, Any]:
         "primeiro": eventos[0]["momento"].astimezone(FUSO).isoformat() if eventos else None,
         "ultimo": eventos[-1]["momento"].astimezone(FUSO).isoformat() if eventos else None,
         "por_tipo": dict(sorted(tipos.items(), key=lambda kv: -kv[1])),
+        "ultimos_eventos_completos": list(reversed(_brutos)),
         "saidas_da_fila": dict(sorted(saidas.items(), key=lambda kv: -kv[1])),
         # Quem mandou o cliente para a fila das lojas hoje (para separar bot principal e Whizz).
         "encaminhado_para_lojas_por": [{"quem": k, "hoje": v}

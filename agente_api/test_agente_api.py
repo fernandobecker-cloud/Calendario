@@ -360,6 +360,7 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertEqual((registro["por_nome"], registro["por_usuario_tipo"], registro["rota_tipo"]),
                          ("Whizz", "BOT", "TEAM"))
         self.assertEqual(len(registro["conversa_id"]), 20)
+        self.assertEqual(registro["bruto"]["payload"]["chatId"], "***")
         enviados = []
 
         class Resp:
