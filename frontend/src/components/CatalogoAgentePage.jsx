@@ -251,6 +251,58 @@ const MODOS_TELEVENDAS = [
   { valor: 'indisponivel', rotulo: 'Forçar indisponível', ajuda: 'A Ana oferece só site ou loja física.' },
 ]
 
+function DiagnosticoFilas() {
+  const [dados, setDados] = useState(null)
+  const [erro, setErro] = useState('')
+
+  const carregar = async () => {
+    setErro('')
+    try {
+      const res = await fetch('/api/agente-ia/fila/diagnostico')
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      setDados(payload)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao ler o diagnóstico.')
+    }
+  }
+
+  return (
+    <details className="mt-3 text-sm" onToggle={(e) => e.target.open && !dados && carregar()}>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Diagnóstico das filas (o que chegou da Omnichat)
+      </summary>
+      {erro && <p className="mt-2 text-rose-700">{erro}</p>}
+      {dados && (
+        <div className="mt-2 space-y-3 text-slate-600">
+          <p>
+            {dados.eventos_em_memoria} evento(s) nas últimas 26 h
+            {dados.primeiro && <> · de {formatarData(dados.primeiro)} a {formatarData(dados.ultimo)}</>} ·{' '}
+            <button type="button" onClick={carregar} className="text-indigo-700 underline">atualizar</button>
+          </p>
+          <p className="text-xs">
+            {Object.entries(dados.por_tipo).map(([tipo, n]) => `${tipo}: ${n}`).join(' · ') || 'nenhum'}
+          </p>
+          <table className="w-full text-xs">
+            <thead className="text-left text-slate-500">
+              <tr><th className="py-1">Time na Omnichat</th><th>No painel como</th><th className="text-right">Eventos (hoje)</th></tr>
+            </thead>
+            <tbody>
+              {dados.times.map((t) => (
+                <tr key={t.id} className="border-t border-slate-100">
+                  <td className="py-1">{t.nome || t.id}</td>
+                  <td className={t.classificacao === 'Fora do painel' ? 'text-slate-400' : 'text-slate-800'}>{t.classificacao}</td>
+                  <td className="text-right tabular-nums">{t.eventos} ({t.hoje})</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </details>
+  )
+}
+
 function PainelTelevendas() {
   const [dados, setDados] = useState(null)
   const [form, setForm] = useState({ modo: 'disponivel', time_id: '', limite_desliga: 15, limite_religa: 8 })
@@ -446,6 +498,7 @@ function PainelTelevendas() {
           <span className="text-slate-500">crie a variável FILAS_LINK_CHAVE no serviço do portal no Render para gerar o link.</span>
         )}
       </div>
+      <DiagnosticoFilas />
       {configurado?.alterado_por && (
         <p className="mt-1 text-xs text-slate-400">
           Alterado por {configurado.alterado_por} em {formatarData(configurado.alterado_em)}

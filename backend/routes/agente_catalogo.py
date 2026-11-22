@@ -287,3 +287,9 @@ async def receber_eventos_da_fila(request: Request):
     if not isinstance(eventos, list):
         raise HTTPException(status_code=400, detail="Esperava {\"eventos\": [...]}.")
     return agente_filas.receber(eventos)
+
+
+@router.get("/fila/diagnostico")
+def diagnostico_das_filas(request: Request):
+    _exigir_admin(request)
+    return agente_filas.diagnostico()

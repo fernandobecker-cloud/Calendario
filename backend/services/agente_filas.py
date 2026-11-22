@@ -320,3 +320,44 @@ def painel() -> dict[str, Any]:
         "regionais": lista,
         "total_lojas": _somar([r["total"] for r in lista]),
     }
+
+
+def diagnostico() -> dict[str, Any]:
+    """Para o admin: o que chegou nas últimas horas e como cada time foi classificado."""
+    with _lock:
+        try:
+            _carregar_recentes()
+        except PlanilhaErroBQ as exc:
+            log.warning("filas: %s", exc)
+        eventos = list(_estado["eventos"])
+    inicio_dia = datetime.now(FUSO).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        televendas_id = (agente_televendas.carregar() or {}).get("time_id")
+    except PlanilhaErroBQ:
+        televendas_id = None
+    mapa = carregar_mapa()
+    tipos: dict[str, int] = {}
+    times: dict[str, dict[str, Any]] = {}
+    for e in eventos:
+        chave = f"{e.get('tipo')} -> {e.get('para_tipo') or '-'}"
+        tipos[chave] = tipos.get(chave, 0) + 1
+        if (e.get("para_tipo") or "").upper() == "TEAM" and e.get("para_id"):
+            t = times.setdefault(e["para_id"], {"id": e["para_id"], "nome": None, "eventos": 0, "hoje": 0})
+            t["nome"] = e.get("para_nome") or t["nome"]
+            t["eventos"] += 1
+            t["hoje"] += 1 if e["momento"] >= inicio_dia else 0
+    for t in times.values():
+        filial = filial_do_time(t["nome"])
+        if t["id"] == televendas_id:
+            t["classificacao"] = "Televendas"
+        elif filial in mapa:
+            t["classificacao"] = f"Loja {filial} ({mapa[filial].regional})"
+        else:
+            t["classificacao"] = "Fora do painel"
+    return {
+        "eventos_em_memoria": len(eventos),
+        "primeiro": eventos[0]["momento"].astimezone(FUSO).isoformat() if eventos else None,
+        "ultimo": eventos[-1]["momento"].astimezone(FUSO).isoformat() if eventos else None,
+        "por_tipo": dict(sorted(tipos.items(), key=lambda kv: -kv[1])),
+        "times": sorted(times.values(), key=lambda t: (t["classificacao"] == "Fora do painel", t["nome"] or "")),
+    }
