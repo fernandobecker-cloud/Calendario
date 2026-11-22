@@ -289,6 +289,13 @@ async def receber_eventos_da_fila(request: Request):
     return agente_filas.receber(eventos)
 
 
+@router.get("/fila/painel")
+def painel_das_filas_admin(request: Request):
+    """Aba Filas do portal: o mesmo painel do link dos gerentes, com o televendas."""
+    _exigir_admin(request)
+    return {**agente_filas.painel(com_televendas=True), "link_filas": _link_filas(request)}
+
+
 @router.get("/fila/diagnostico")
 def diagnostico_das_filas(request: Request):
     _exigir_admin(request)

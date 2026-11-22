@@ -251,7 +251,7 @@ const MODOS_TELEVENDAS = [
   { valor: 'indisponivel', rotulo: 'Forçar indisponível', ajuda: 'A Ana oferece só site ou loja física.' },
 ]
 
-function DiagnosticoFilas() {
+export function DiagnosticoFilas() {
   const [dados, setDados] = useState(null)
   const [erro, setErro] = useState('')
 
@@ -283,6 +283,27 @@ function DiagnosticoFilas() {
           <p className="text-xs">
             {Object.entries(dados.por_tipo).map(([tipo, n]) => `${tipo}: ${n}`).join(' · ') || 'nenhum'}
           </p>
+          {dados.saidas_da_fila && (
+            <p className="text-xs">
+              <span className="font-medium text-slate-700">Como saíram da fila: </span>
+              {Object.entries(dados.saidas_da_fila).map(([como, n]) => `${como}: ${n}`).join(' · ') || 'nenhum ainda'}
+            </p>
+          )}
+          {dados.encaminhado_para_lojas_por?.length > 0 && (
+            <table className="w-full text-xs">
+              <thead className="text-left text-slate-500">
+                <tr><th className="py-1">Quem encaminhou para as lojas hoje</th><th className="text-right">Atendimentos</th></tr>
+              </thead>
+              <tbody>
+                {dados.encaminhado_para_lojas_por.map((q) => (
+                  <tr key={q.quem} className="border-t border-slate-100">
+                    <td className="py-1">{q.quem}</td>
+                    <td className="text-right tabular-nums">{q.hoje}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           <table className="w-full text-xs">
             <thead className="text-left text-slate-500">
               <tr><th className="py-1">Time na Omnichat</th><th>No painel como</th><th className="text-right">Eventos (hoje)</th></tr>

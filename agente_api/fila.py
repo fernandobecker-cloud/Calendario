@@ -26,6 +26,7 @@ Limites conhecidos:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import threading
@@ -83,8 +84,10 @@ def registrar_evento(evento: dict) -> str:
     """Aplica um evento do webhook. Devolve o que foi feito (para o log)."""
     tipo = evento.get("type")
     payload = evento.get("payload") or {}
-    chave = str(payload.get("objectId") or payload.get("chatId") or "")
-    trace = f"{evento.get('traceId')}:{tipo}:{chave}"
+    # O telefone (chatId) é o que liga a entrada na fila à saída: o objectId pode
+    # mudar quando o vendedor pega o atendimento. Fica só em memória, nunca é enviado.
+    chave = str(payload.get("chatId") or payload.get("objectId") or "")
+    trace = f"{evento.get('traceId')}:{tipo}:{payload.get('objectId') or chave}"
     with _lock:
         if trace in _traces:
             return "repetido"
@@ -213,22 +216,35 @@ def _pessoa(dado) -> tuple[str | None, str | None]:
     return (str(dado["id"]) if dado.get("id") else None), dado.get("name")
 
 
+def _conversa(chat_id) -> str | None:
+    """Código da conversa a partir do telefone, sem dar para voltar ao número."""
+    if not chat_id:
+        return None
+    segredo = (config.TOKEN or config.OMNI_WEBHOOK_TOKEN or "agente").encode()
+    return hmac.new(segredo, str(chat_id).encode(), hashlib.sha256).hexdigest()[:20]
+
+
 def _guardar_para_envio(evento: dict, trace: str) -> None:
     """Registro enxuto do evento, sem o telefone do cliente (chatId)."""
     payload = evento.get("payload") or {}
     para_id, para_nome = _pessoa(payload.get("to"))
-    por_id, por_nome = _pessoa(payload.get("finishedBy") or payload.get("routedBy"))
+    por = payload.get("finishedBy") or payload.get("routedBy")
+    por_id, por_nome = _pessoa(por)
     _pendentes.append({
         "trace_id": trace,
         "tipo": evento.get("type"),
         "momento": payload.get("timeStamp") or datetime.now().astimezone().isoformat(),
         "atendimento_id": str(payload.get("objectId") or "") or None,
+        "conversa_id": _conversa(payload.get("chatId")),
         "para_tipo": payload.get("toType"),
         "para_id": para_id,
         "para_nome": para_nome,
         "de_tipo": payload.get("fromType"),
         "por_id": por_id,
         "por_nome": por_nome,
+        "por_usuario_tipo": por.get("userType") if isinstance(por, dict) else None,
+        "rota_tipo": payload.get("routeType"),
+        "origem": evento.get("origin"),
         "motivo_encerramento": payload.get("closingReason"),
         "plataforma": payload.get("platform"),
     })

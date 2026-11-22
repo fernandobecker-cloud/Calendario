@@ -12,6 +12,7 @@ import ResultadosNpiPage from './components/ResultadosNpiPage'
 import ReceitaPosDisparoPage from './components/ReceitaPosDisparoPage'
 import SacUltimosDisparosPage from './components/SacUltimosDisparosPage'
 import CatalogoAgentePage from './components/CatalogoAgentePage'
+import FilasPage from './components/FilasPage'
 import LoginPage from './components/LoginPage'
 
 const ALL_TABS = [
@@ -26,6 +27,7 @@ const ALL_TABS = [
   { to: '/emarsys', label: 'Emarsys', key: 'emarsys' },
   { to: '/receita-pos-disparo', label: 'Receita Pós-Disparo', key: 'receita-pos-disparo' },
   { to: '/catalogo-agente', label: 'Catálogo do Agente', key: 'catalogo-agente' },
+  { to: '/filas-atendimento', label: 'Filas', key: 'filas' },
 ]
 
 // 14 min 30 s — desloga antes dos 15 min do Render free entrar em sleep
@@ -41,7 +43,7 @@ function TopNavigation({ currentRole, viewerTabs, currentUsername, onLogout }) {
     if (currentRole === 'sac') return tab.key === 'sac-disparos'
     if (tab.key === 'sac-disparos') return currentRole === 'admin'
     if (currentRole === 'comercial') return tab.key === 'resultado-geral' || tab.key === 'resultados-npi'
-    if (tab.key === 'adm' || tab.key === 'mapa' || tab.key === 'emarsys' || tab.key === 'receita-pos-disparo' || tab.key === 'catalogo-agente') return currentRole === 'admin'
+    if (tab.key === 'adm' || tab.key === 'mapa' || tab.key === 'emarsys' || tab.key === 'receita-pos-disparo' || tab.key === 'catalogo-agente' || tab.key === 'filas') return currentRole === 'admin'
     if (tab.key === 'auditoria') return currentUsername === 'crmiplaceadm'
     if (currentRole === 'admin') return true
     if (viewerTabs && viewerTabs[tab.key] === false) return false
@@ -226,6 +228,7 @@ export default function AppRouter() {
                 <Route path="/emarsys" element={currentRole === 'admin' ? <EmarsysPage /> : <Navigate to={defaultRoute} replace />} />
                 <Route path="/receita-pos-disparo" element={currentRole === 'admin' ? <ReceitaPosDisparoPage /> : <Navigate to={defaultRoute} replace />} />
                 <Route path="/catalogo-agente" element={currentRole === 'admin' ? <CatalogoAgentePage /> : <Navigate to={defaultRoute} replace />} />
+                <Route path="/filas-atendimento" element={currentRole === 'admin' ? <FilasPage admin /> : <Navigate to={defaultRoute} replace />} />
                 <Route path="*" element={<Navigate to={defaultRoute} replace />} />
               </>
             )

@@ -309,7 +309,9 @@ class FilaDoTelevendas(unittest.TestCase):
         self.evento("chat-routed", "b", "TEAM", self.TELEVENDAS)
         self.evento("chat-routed", "c", "TEAM", "L0j4")  # outra fila nao conta
         self.assertEqual(fila.situacao()["na_fila"], 2)
-        self.evento("chat-routed", "a", "USER", "vendedor1")  # foi atendido
+        self.n += 1  # o vendedor pega com outro objectId: casa pelo telefone
+        fila.registrar_evento({"type": "chat-routed", "traceId": f"t{self.n}", "payload": {
+            "objectId": "outro", "chatId": "55119a", "toType": "USER", "to": {"id": "vendedor1"}}})
         self.evento("chat-finished", "b")
         sit = fila.situacao()
         self.assertEqual(sit["na_fila"], 0)
@@ -349,11 +351,15 @@ class FilaDoTelevendas(unittest.TestCase):
         fila._pendentes.clear()
         fila.registrar_evento({"type": "chat-routed", "traceId": "z1", "payload": {
             "objectId": "Qw3", "chatId": "5511999990000", "timeStamp": "2026-11-27T12:00:00Z",
+            "routedBy": {"id": "B1", "name": "Whizz", "userType": "BOT"}, "routeType": "TEAM",
             "toType": "TEAM", "to": {"id": "T1", "name": "AT638 | FORTALEZA"}}})
         self.assertEqual(len(fila._pendentes), 1)
         registro = fila._pendentes[0]
         self.assertNotIn("5511999990000", str(registro))
         self.assertEqual((registro["para_nome"], registro["atendimento_id"]), ("AT638 | FORTALEZA", "Qw3"))
+        self.assertEqual((registro["por_nome"], registro["por_usuario_tipo"], registro["rota_tipo"]),
+                         ("Whizz", "BOT", "TEAM"))
+        self.assertEqual(len(registro["conversa_id"]), 20)
         enviados = []
 
         class Resp:

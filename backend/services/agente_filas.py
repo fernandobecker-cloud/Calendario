@@ -55,6 +55,11 @@ _SCHEMA = [
     bigquery.SchemaField("motivo_encerramento", "STRING"),
     bigquery.SchemaField("plataforma", "STRING"),
     bigquery.SchemaField("recebido_em", "TIMESTAMP"),
+    # Colunas novas (a tabela ganha as que faltarem no primeiro uso):
+    bigquery.SchemaField("conversa_id", "STRING"),  # hash do telefone, liga entrada e saída da fila
+    bigquery.SchemaField("por_usuario_tipo", "STRING"),  # routedBy.userType: quem encaminhou (bot, usuário...)
+    bigquery.SchemaField("rota_tipo", "STRING"),
+    bigquery.SchemaField("origem", "STRING"),
 ]
 _CAMPOS = [c.name for c in _SCHEMA]
 
@@ -83,7 +88,13 @@ def _garantir_tabela() -> None:
         return
     tabela = bigquery.Table(_tabela_id(), schema=_SCHEMA)
     tabela.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="momento")
-    _cliente().create_table(tabela, exists_ok=True, timeout=_TIMEOUT_S)
+    cliente = _cliente()
+    tabela = cliente.create_table(tabela, exists_ok=True, timeout=_TIMEOUT_S)
+    existentes = {c.name for c in tabela.schema}
+    faltando = [c for c in _SCHEMA if c.name not in existentes]
+    if faltando:
+        tabela.schema = list(tabela.schema) + faltando
+        cliente.update_table(tabela, ["schema"], timeout=_TIMEOUT_S)
     _estado["tabela_ok"] = True
 
 
@@ -92,6 +103,13 @@ def _carregar_recentes() -> None:
     if _estado["carregado"] or time.monotonic() - _estado["tentou_em"] < 300:
         return
     _estado["tentou_em"] = time.monotonic()
+    try:
+        _garantir_tabela()  # as colunas novas precisam existir antes do SELECT
+    except PlanilhaErroBQ:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("filas: nao consegui conferir a tabela no BigQuery: %s", exc)
+        return
     desde = datetime.now(timezone.utc) - timedelta(hours=_JANELA_H)
     sql = (
         f"SELECT {', '.join(_CAMPOS)} FROM `{_tabela_id()}` "
@@ -178,13 +196,22 @@ def _novo_contador() -> dict[str, Any]:
             "sem_atendimento_hoje": 0, "_esperas": [], "_duracoes": []}
 
 
-def calcular(eventos: list[dict[str, Any]], agora: datetime) -> dict[str, dict[str, Any]]:
+# Destinos que tiram o cliente da fila sem ser um vendedor pegando o atendimento.
+_DESTINOS_BOT = ("BOT", "FLOW", "CHATBOT", "BOTFLOW")
+
+
+def calcular(eventos: list[dict[str, Any]], agora: datetime,
+             saidas: dict[str, int] | None = None) -> dict[str, dict[str, Any]]:
     """Repassa os eventos em ordem e devolve os números de cada time (por id do time).
 
     Um atendimento roteado para um TIME entra na fila daquele time; quando vai
-    para um atendente (USER), sai da fila e conta como atendido (espera = tempo
-    entre os dois); encerrado ainda na fila conta como "saiu sem atendimento".
+    para um atendente (USER ou outro destino que não seja bot), sai da fila e
+    conta como atendido (espera = tempo entre os dois); encerrado ainda na fila
+    conta como "saiu sem atendimento". O atendimento é seguido pela conversa
+    (hash do telefone), porque o objectId pode mudar quando o vendedor pega.
+    Em `saidas` (opcional) fica a contagem de como cada um saiu da fila.
     """
+    saidas = saidas if saidas is not None else {}
     inicio_dia = agora.astimezone(FUSO).replace(hour=0, minute=0, second=0, microsecond=0)
     por_time: dict[str, dict[str, Any]] = {}
     nomes: dict[str, str] = {}
@@ -194,7 +221,7 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime) -> dict[str, dict[s
         return por_time.setdefault(time_id, _novo_contador())
 
     for e in eventos:
-        at = e.get("atendimento_id")
+        at = e.get("conversa_id") or e.get("atendimento_id")
         if not at:
             continue
         momento = e["momento"]
@@ -208,8 +235,9 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime) -> dict[str, dict[s
                 situacao[at] = {"time": e["para_id"], "fila": True, "desde": momento}
                 if hoje:
                     time_de(e["para_id"])["entraram_hoje"] += 1
-            elif para == "USER":
+            elif para and not any(b in para for b in _DESTINOS_BOT):
                 if atual and atual["fila"]:
+                    saidas[f"atendido ({para})"] = saidas.get(f"atendido ({para})", 0) + 1
                     if hoje:
                         cont = time_de(atual["time"])
                         cont["atendidos_hoje"] += 1
@@ -217,8 +245,12 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime) -> dict[str, dict[s
                     situacao[at] = {"time": atual["time"], "fila": False, "desde": momento}
                 # Já com atendente e indo para outro atendente: segue o mesmo atendimento.
             elif atual:
-                situacao.pop(at, None)  # foi para um bot ou outro destino
+                if atual["fila"]:
+                    saidas[f"voltou para bot ({para or '-'})"] = saidas.get(f"voltou para bot ({para or '-'})", 0) + 1
+                situacao.pop(at, None)  # foi para um bot
         elif e.get("tipo") == "chat-finished" and atual:
+            if atual["fila"]:
+                saidas["encerrado na fila"] = saidas.get("encerrado na fila", 0) + 1
             if hoje:
                 cont = time_de(atual["time"])
                 if atual["fila"]:
@@ -229,6 +261,8 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime) -> dict[str, dict[s
 
     limite = agora - timedelta(hours=ESPERA_MAX_H)
     for s in situacao.values():
+        if s["fila"] and s["desde"] < limite:
+            saidas[f"expirou (+{ESPERA_MAX_H}h sem evento)"] = saidas.get(f"expirou (+{ESPERA_MAX_H}h sem evento)", 0) + 1
         if s["fila"] and s["desde"] >= limite:
             cont = time_de(s["time"])
             cont["na_fila"] += 1
@@ -267,7 +301,13 @@ def _somar(partes: list[dict[str, Any]]) -> dict[str, Any]:
     return total
 
 
-def painel() -> dict[str, Any]:
+def _nome_loja(descricao: str) -> str:
+    nome = re.sub(r"^\s*IPLACE\s*-\s*", "", descricao or "", flags=re.I).strip()
+    return re.sub(r"\s*-\s*", " - ", nome)
+
+
+def painel(com_televendas: bool = True) -> dict[str, Any]:
+    """Números por loja e regional. O link dos gerentes chama sem o televendas."""
     agora = datetime.now(timezone.utc)
     with _lock:
         try:
@@ -282,7 +322,7 @@ def painel() -> dict[str, Any]:
     except PlanilhaErroBQ:
         televendas_id = None
     televendas = None
-    if televendas_id:
+    if televendas_id and com_televendas:
         dados = por_time.get(televendas_id)
         televendas = {**_somar([dados] if dados else []), "nome": "Televendas"}
 
@@ -296,16 +336,14 @@ def painel() -> dict[str, Any]:
     regionais: dict[str, dict[str, Any]] = {}
     for filial, loja in mapa.items():
         times = por_filial.get(filial, [])
-        nome_omni = next((t["nome"] for t in times if t.get("nome")), None)
         linha = {
             "filial": filial,
-            "loja": (nome_omni.split("|", 1)[1].strip() if nome_omni and "|" in nome_omni else None)
-            or loja.descricao.replace("IPLACE -", "").replace("IPLACE-", "").strip(),
+            "loja": _nome_loja(loja.descricao),  # nome do SAP, o mesmo do resto do portal
             "na_omnichat": bool(times),
             **_somar(times),
         }
         reg = regionais.setdefault(loja.regional or "Sem regional", {
-            "regional": loja.regional or "Sem regional", "gerente": loja.gerente_regional, "lojas": []})
+            "regional": loja.regional or "Sem regional", "lojas": []})
         reg["lojas"].append(linha)
     lista = []
     for reg in sorted(regionais.values(), key=lambda r: r["regional"]):
@@ -313,13 +351,15 @@ def painel() -> dict[str, Any]:
         reg["total"] = _somar(reg["lojas"])
         lista.append(reg)
     ultimo = eventos[-1]["recebido_em"] if eventos else None
-    return {
+    resposta = {
         "atualizado_em": agora.astimezone(FUSO).isoformat(),
         "ultimo_evento_em": ultimo.astimezone(FUSO).isoformat() if isinstance(ultimo, datetime) else None,
-        "televendas": televendas,
         "regionais": lista,
         "total_lojas": _somar([r["total"] for r in lista]),
     }
+    if com_televendas:
+        resposta["televendas"] = televendas
+    return resposta
 
 
 def diagnostico() -> dict[str, Any]:
@@ -338,6 +378,9 @@ def diagnostico() -> dict[str, Any]:
     mapa = carregar_mapa()
     tipos: dict[str, int] = {}
     times: dict[str, dict[str, Any]] = {}
+    encaminhou: dict[str, int] = {}
+    saidas: dict[str, int] = {}
+    calcular(eventos, datetime.now(timezone.utc), saidas)
     for e in eventos:
         chave = f"{e.get('tipo')} -> {e.get('para_tipo') or '-'}"
         tipos[chave] = tipos.get(chave, 0) + 1
@@ -346,6 +389,10 @@ def diagnostico() -> dict[str, Any]:
             t["nome"] = e.get("para_nome") or t["nome"]
             t["eventos"] += 1
             t["hoje"] += 1 if e["momento"] >= inicio_dia else 0
+            if e["momento"] >= inicio_dia and filial_do_time(e.get("para_nome")) in mapa and e["para_id"] != televendas_id:
+                quem = (f"{e.get('por_nome') or '(sem nome)'} · tipo {e.get('por_usuario_tipo') or '-'}"
+                        f" · rota {e.get('rota_tipo') or '-'} · vinha de {e.get('de_tipo') or '-'}")
+                encaminhou[quem] = encaminhou.get(quem, 0) + 1
     for t in times.values():
         filial = filial_do_time(t["nome"])
         if t["id"] == televendas_id:
@@ -359,5 +406,9 @@ def diagnostico() -> dict[str, Any]:
         "primeiro": eventos[0]["momento"].astimezone(FUSO).isoformat() if eventos else None,
         "ultimo": eventos[-1]["momento"].astimezone(FUSO).isoformat() if eventos else None,
         "por_tipo": dict(sorted(tipos.items(), key=lambda kv: -kv[1])),
+        "saidas_da_fila": dict(sorted(saidas.items(), key=lambda kv: -kv[1])),
+        # Quem mandou o cliente para a fila das lojas hoje (para separar bot principal e Whizz).
+        "encaminhado_para_lojas_por": [{"quem": k, "hoje": v}
+                                       for k, v in sorted(encaminhou.items(), key=lambda kv: -kv[1])[:30]],
         "times": sorted(times.values(), key=lambda t: (t["classificacao"] == "Fora do painel", t["nome"] or "")),
     }

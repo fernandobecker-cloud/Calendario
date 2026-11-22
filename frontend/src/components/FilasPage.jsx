@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
+import { DiagnosticoFilas } from './CatalogoAgentePage'
 
-// Painel das filas de atendimento na Omnichat (lojas por regional + televendas).
-// Aberto por link com chave, sem login: /filas/<chave>. Atualiza sozinho.
+// Painel das filas de atendimento na Omnichat, lojas por regional.
+// - Link dos gerentes, sem login (/filas/<chave>): só as lojas.
+// - Aba Filas do portal (admin): o mesmo painel com o televendas e o diagnóstico.
+// Atualiza sozinho.
 
 const ATUALIZA_MS = 30000
 // Destaque: fila ou espera acima disso pede atenção do gerente.
@@ -61,7 +64,7 @@ function Regional({ reg, aberta, alternar }) {
       <button type="button" onClick={alternar} className="flex w-full flex-wrap items-center justify-between gap-3 p-5 text-left">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">
-            {reg.regional} <span className="font-normal text-slate-500">· {reg.gerente || 'sem gerente'}</span>
+            {reg.regional}
           </h2>
           <p className="text-sm text-slate-500">{reg.lojas.length} lojas</p>
         </div>
@@ -91,8 +94,8 @@ function Regional({ reg, aberta, alternar }) {
               {reg.lojas.map((l) => (
                 <tr key={l.filial} className={`border-t border-slate-100 ${emAlerta(l) ? 'bg-rose-50' : ''} ${l.na_omnichat ? '' : 'text-slate-400'}`}>
                   <td className="px-4 py-2">
+                    <span className="mr-2 inline-block w-9 tabular-nums text-slate-500">{l.filial}</span>
                     <span className="font-medium text-slate-800">{l.loja}</span>
-                    <span className="ml-2 text-xs text-slate-400">{l.filial}</span>
                   </td>
                   <td className={`px-3 py-2 text-right tabular-nums font-semibold ${l.na_fila >= ALERTA_FILA ? 'text-rose-600' : ''}`}>{l.na_fila}</td>
                   <td className={`px-3 py-2 text-right tabular-nums ${l.espera_mais_antiga_min >= ALERTA_ESPERA_MIN ? 'font-semibold text-rose-600' : ''}`}>
@@ -113,14 +116,15 @@ function Regional({ reg, aberta, alternar }) {
   )
 }
 
-export default function FilasPage({ chave }) {
+export default function FilasPage({ chave, admin = false }) {
   const [dados, setDados] = useState(null)
   const [erro, setErro] = useState('')
   const [abertas, setAbertas] = useState({})
 
   const carregar = useCallback(async () => {
     try {
-      const res = await fetch(`/api/publico/filas?chave=${encodeURIComponent(chave)}`)
+      const url = admin ? '/api/agente-ia/fila/painel' : `/api/publico/filas?chave=${encodeURIComponent(chave)}`
+      const res = await fetch(url)
       const payload = await res.json().catch(() => null)
       if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status}`)
       setDados(payload)
@@ -128,10 +132,10 @@ export default function FilasPage({ chave }) {
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não consegui atualizar o painel.')
     }
-  }, [chave])
+  }, [chave, admin])
 
   useEffect(() => {
-    document.title = 'Filas de atendimento · iPlace'
+    if (!admin) document.title = 'Filas de atendimento · iPlace'
     carregar()
     const id = setInterval(carregar, ATUALIZA_MS)
     return () => clearInterval(id)
@@ -140,13 +144,13 @@ export default function FilasPage({ chave }) {
   const todasAbertas = dados && dados.regionais.every((r) => abertas[r.regional] !== false)
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-6">
+    <div className={admin ? '' : 'min-h-screen bg-slate-50'}>
+      <div className={`mx-auto max-w-7xl space-y-5 ${admin ? 'px-4 py-8 md:px-6 lg:px-8' : 'px-4 py-6 md:px-6'}`}>
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Filas de atendimento</h1>
             <p className="text-sm text-slate-500">
-              Lojas e televendas na Omnichat · atualiza sozinho a cada 30 s · números de hoje
+              {admin ? 'Lojas e televendas' : 'Lojas'} na Omnichat · atualiza sozinho a cada 30 s · números de hoje
             </p>
           </div>
           <div className="text-right text-sm text-slate-500">
@@ -164,15 +168,21 @@ export default function FilasPage({ chave }) {
 
         {dados && (
           <>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {dados.televendas ? (
+            {admin && dados.link_filas && (
+              <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                Link dos gerentes (só lojas, sem o televendas):{' '}
+                <a href={dados.link_filas} target="_blank" rel="noreferrer" className="break-all text-indigo-700 underline">{dados.link_filas}</a>
+              </p>
+            )}
+            <div className={`grid gap-4 ${'televendas' in dados ? 'lg:grid-cols-2' : ''}`}>
+              {'televendas' in dados && (dados.televendas ? (
                 <Resumo titulo="Televendas" dados={dados.televendas} />
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
                   <h2 className="text-lg font-semibold text-slate-900">Televendas</h2>
-                  <p className="mt-2">Aparece aqui quando o CRM escolher o time do televendas no portal.</p>
+                  <p className="mt-2">Escolha o time do televendas na aba Catálogo do Agente (painel Televendas).</p>
                 </div>
-              )}
+              ))}
               <Resumo titulo="Todas as lojas" subtitulo={`${dados.regionais.length} regionais`} dados={dados.total_lojas} />
             </div>
 
@@ -204,6 +214,7 @@ export default function FilasPage({ chave }) {
               Fila = cliente encaminhado para o time da loja e ainda não pego por um vendedor. Espera = tempo entre entrar
               no time e ser pego. Esperas acima de 2 h saem da conta.
             </p>
+            {admin && <DiagnosticoFilas />}
           </>
         )}
       </div>
