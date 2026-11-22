@@ -23,7 +23,8 @@ import requests
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
-from backend.services import agente_planilha, agente_site, agente_televendas
+from backend.routes.filas_publico import chave_do_link
+from backend.services import agente_filas, agente_planilha, agente_site, agente_televendas
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -232,10 +233,20 @@ def _config_televendas() -> dict | None:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+def _link_filas(request: Request) -> str | None:
+    chave = chave_do_link()
+    if not chave:
+        return None
+    base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and "localhost" not in base and "127.0.0.1" not in base:
+        base = "https://" + base[len("http://"):]  # atras do proxy da Render
+    return f"{base}/filas/{chave}"
+
+
 @router.get("/televendas")
 def ver_televendas(request: Request):
     _exigir_admin(request)
-    return {"config": _config_televendas(), "fila": _fila_do_agente()}
+    return {"config": _config_televendas(), "fila": _fila_do_agente(), "link_filas": _link_filas(request)}
 
 
 @router.put("/televendas")
@@ -251,7 +262,7 @@ async def salvar_televendas(request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except agente_planilha.PlanilhaErroBQ as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"config": config, "fila": _fila_do_agente()}
+    return {"config": config, "fila": _fila_do_agente(), "link_filas": _link_filas(request)}
 
 
 @router.get("/televendas/config")
@@ -262,3 +273,17 @@ def config_televendas(request: Request):
     if not config:
         raise HTTPException(status_code=404, detail="Televendas ainda nao configurado.")
     return config
+
+
+@router.post("/fila/eventos")
+async def receber_eventos_da_fila(request: Request):
+    """Para a API do agente: lote de eventos de atendimento da Omnichat."""
+    _token_do_agente(request)
+    try:
+        corpo = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    eventos = corpo.get("eventos") if isinstance(corpo, dict) else None
+    if not isinstance(eventos, list):
+        raise HTTPException(status_code=400, detail="Esperava {\"eventos\": [...]}.")
+    return agente_filas.receber(eventos)

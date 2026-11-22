@@ -48,6 +48,7 @@ from backend.routes.emarsys_segments import router as emarsys_segments_router
 from backend.routes.npi_resultados import router as npi_resultados_router
 from backend.routes.relatorio_apple import router as relatorio_apple_router
 from backend.routes.agente_catalogo import router as agente_catalogo_router
+from backend.routes.filas_publico import router as filas_publico_router
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
@@ -81,6 +82,7 @@ app.include_router(emarsys_segments_router)
 app.include_router(npi_resultados_router)
 app.include_router(relatorio_apple_router)
 app.include_router(agente_catalogo_router)
+app.include_router(filas_publico_router)
 
 
 def is_single_auth_mode() -> bool:
@@ -380,8 +382,14 @@ async def basic_auth_middleware(request: Request, call_next: Any) -> Response:
         return await call_next(request)
 
     # A API do agente de IA le a planilha da campanha e a configuracao do
-    # televendas por aqui com o proprio token (AGENTE_API_TOKEN), conferido na rota.
-    if request.url.path in ("/api/agente-ia/planilha/feed", "/api/agente-ia/televendas/config"):
+    # televendas e manda os eventos das filas por aqui com o proprio token
+    # (AGENTE_API_TOKEN), conferido na rota.
+    if request.url.path in ("/api/agente-ia/planilha/feed", "/api/agente-ia/televendas/config",
+                            "/api/agente-ia/fila/eventos"):
+        return await call_next(request)
+
+    # Painel das filas por link, sem login: a chave do link e conferida na rota.
+    if request.url.path.startswith("/api/publico/"):
         return await call_next(request)
 
     if not is_auth_enabled():

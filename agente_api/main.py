@@ -31,6 +31,19 @@ log = logging.getLogger("agente_api")
 
 app = FastAPI(title="API do agente de IA (Omnichat)", docs_url=None, redoc_url=None, openapi_url=None)
 
+
+
+@app.on_event("startup")
+def _iniciar() -> None:
+    fila.iniciar_envio()
+
+
+@app.on_event("shutdown")
+def _encerrar() -> None:
+    # Deploy: manda o que estiver no buffer antes de desligar.
+    fila.enviar_pendentes()
+
+
 _RE_ID_PRODUTO_NA_URL = re.compile(r"/([0-9]+PR)\b", re.I)
 
 

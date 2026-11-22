@@ -345,6 +345,43 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertTrue(fila.televendas_disponivel())
 
 
+    def test_eventos_vao_ao_portal_sem_telefone(self):
+        fila._pendentes.clear()
+        fila.registrar_evento({"type": "chat-routed", "traceId": "z1", "payload": {
+            "objectId": "Qw3", "chatId": "5511999990000", "timeStamp": "2026-11-27T12:00:00Z",
+            "toType": "TEAM", "to": {"id": "T1", "name": "AT638 | FORTALEZA"}}})
+        self.assertEqual(len(fila._pendentes), 1)
+        registro = fila._pendentes[0]
+        self.assertNotIn("5511999990000", str(registro))
+        self.assertEqual((registro["para_nome"], registro["atendimento_id"]), ("AT638 | FORTALEZA", "Qw3"))
+        enviados = []
+
+        class Resp:
+            def raise_for_status(self):
+                pass
+        orig = fila.requests.post
+        fila.requests.post = lambda url, json, headers, timeout: enviados.append(json) or Resp()
+        try:
+            self.assertEqual(fila.enviar_pendentes(), 1)
+        finally:
+            fila.requests.post = orig
+        self.assertEqual(len(enviados[0]["eventos"]), 1)
+        self.assertEqual(fila._pendentes, [])
+
+    def test_portal_fora_guarda_os_eventos(self):
+        fila._pendentes.clear()
+        self.evento("chat-finished", "a")
+        orig = fila.requests.post
+
+        def falha(*a, **k):
+            raise fila.requests.ConnectionError("fora")
+        fila.requests.post = falha
+        try:
+            self.assertEqual(fila.enviar_pendentes(), 0)
+        finally:
+            fila.requests.post = orig
+        self.assertEqual(len(fila._pendentes), 1)
+
     def test_webhook_exige_token(self):
         orig = config.OMNI_WEBHOOK_TOKEN
         config.OMNI_WEBHOOK_TOKEN = "segredo-omni"

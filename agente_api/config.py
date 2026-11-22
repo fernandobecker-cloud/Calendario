@@ -96,3 +96,9 @@ TELEVENDAS_CONFIG_URL = os.getenv(
 TELEVENDAS_CONFIG_TTL_S = _int("TELEVENDAS_CONFIG_TTL_S", 30)
 # Espera mais longa que isso sai da conta (evento perdido não trava a fila).
 ESPERA_MAX_S = _int("FILA_ESPERA_MAX_MIN", 120) * 60
+# Os eventos vão para o portal (histórico no BigQuery e painel das filas por loja).
+FILA_EVENTOS_URL = os.getenv(
+    "AGENTE_FILA_EVENTOS_URL",
+    "https://calendario-39gp.onrender.com/api/agente-ia/fila/eventos",
+).strip()
+FILA_ENVIO_S = _int("FILA_ENVIO_S", 30)

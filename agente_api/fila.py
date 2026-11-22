@@ -93,6 +93,7 @@ def registrar_evento(evento: dict) -> str:
             _traces.popitem(last=False)
         _estado["eventos"] += 1
         _estado["ultimo_evento"] = time.time()
+        _guardar_para_envio(evento, trace)
         if not chave:
             return "sem id"
         if tipo == "chat-routed":
@@ -195,3 +196,78 @@ def televendas_disponivel() -> bool:
     except Exception:  # noqa: BLE001 - a busca de produtos nunca pode cair por causa da fila
         log.exception("erro ao calcular a fila do televendas")
         return True
+
+
+
+# --- Envio dos eventos para o portal (histórico no BigQuery e painel das filas) ---
+# O portal grava e monta o painel por loja/regional. Aqui só fica um buffer:
+# se o portal estiver fora, os eventos esperam (até _MAX_PENDENTES) e vão depois.
+
+_pendentes: list[dict] = []
+_MAX_PENDENTES = 50000
+_envio_lock = threading.Lock()
+
+
+def _pessoa(dado) -> tuple[str | None, str | None]:
+    dado = dado if isinstance(dado, dict) else {}
+    return (str(dado["id"]) if dado.get("id") else None), dado.get("name")
+
+
+def _guardar_para_envio(evento: dict, trace: str) -> None:
+    """Registro enxuto do evento, sem o telefone do cliente (chatId)."""
+    payload = evento.get("payload") or {}
+    para_id, para_nome = _pessoa(payload.get("to"))
+    por_id, por_nome = _pessoa(payload.get("finishedBy") or payload.get("routedBy"))
+    _pendentes.append({
+        "trace_id": trace,
+        "tipo": evento.get("type"),
+        "momento": payload.get("timeStamp") or datetime.now().astimezone().isoformat(),
+        "atendimento_id": str(payload.get("objectId") or "") or None,
+        "para_tipo": payload.get("toType"),
+        "para_id": para_id,
+        "para_nome": para_nome,
+        "de_tipo": payload.get("fromType"),
+        "por_id": por_id,
+        "por_nome": por_nome,
+        "motivo_encerramento": payload.get("closingReason"),
+        "plataforma": payload.get("platform"),
+    })
+    if len(_pendentes) > _MAX_PENDENTES:
+        del _pendentes[: len(_pendentes) - _MAX_PENDENTES]
+
+
+def enviar_pendentes() -> int:
+    """Manda o buffer ao portal. Devolve quantos foram enviados (0 se falhou)."""
+    with _envio_lock:
+        with _lock:
+            lote = _pendentes[:2000]
+        if not lote or not config.FILA_EVENTOS_URL:
+            return 0
+        try:
+            resp = requests.post(
+                config.FILA_EVENTOS_URL,
+                json={"eventos": lote},
+                headers={"x-api-key": config.TOKEN, "User-Agent": config.USER_AGENT},
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            log.warning("nao consegui enviar %s eventos da fila ao portal: %s", len(lote), exc)
+            return 0
+        with _lock:
+            del _pendentes[: len(lote)]
+        return len(lote)
+
+
+def _loop_de_envio() -> None:
+    while True:
+        time.sleep(config.FILA_ENVIO_S)
+        try:
+            while enviar_pendentes() >= 2000:
+                pass
+        except Exception:  # noqa: BLE001 - a thread de envio nao pode morrer
+            log.exception("erro no envio dos eventos da fila")
+
+
+def iniciar_envio() -> None:
+    threading.Thread(target=_loop_de_envio, name="envio-fila", daemon=True).start()

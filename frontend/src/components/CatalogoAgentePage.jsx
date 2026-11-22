@@ -425,6 +425,27 @@ function PainelTelevendas() {
           contando desde {formatarData(fila.contando_desde)}
         </p>
       )}
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <strong className="text-slate-800">Painel das filas para os gerentes</strong> (lojas por regional e televendas, sem login):{' '}
+        {dados?.link_filas ? (
+          <>
+            <a href={dados.link_filas} target="_blank" rel="noreferrer" className="font-medium text-indigo-700 underline">
+              abrir
+            </a>
+            {' · '}
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(dados.link_filas)}
+              className="font-medium text-indigo-700 underline"
+            >
+              copiar link
+            </button>
+            <span className="text-slate-400"> · para cortar o acesso, troque FILAS_LINK_CHAVE no Render.</span>
+          </>
+        ) : (
+          <span className="text-slate-500">crie a variável FILAS_LINK_CHAVE no serviço do portal no Render para gerar o link.</span>
+        )}
+      </div>
       {configurado?.alterado_por && (
         <p className="mt-1 text-xs text-slate-400">
           Alterado por {configurado.alterado_por} em {formatarData(configurado.alterado_em)}
