@@ -412,8 +412,7 @@ function PainelTelevendas() {
         </div>
         <p className="text-xs text-slate-400">{MODOS_TELEVENDAS.find((m) => m.valor === form.modo)?.ajuda}</p>
 
-        {form.modo === 'automatico' && (
-          <div className="flex flex-wrap items-start gap-4">
+        <div className="flex flex-wrap items-start gap-4">
             <label className="flex min-w-[240px] flex-col gap-1 text-sm text-slate-600">
               Time do televendas na Omnichat
               <select
@@ -428,8 +427,10 @@ function PainelTelevendas() {
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-slate-400">a lista vem dos eventos da Omnichat</span>
+              <span className="text-xs text-slate-400">a lista vem dos eventos da Omnichat · usado também no painel das filas</span>
             </label>
+            {form.modo === 'automatico' && (
+            <>
             <label className="flex w-52 flex-col gap-1 text-sm text-slate-600">
               Desligar com
               <input
@@ -452,8 +453,9 @@ function PainelTelevendas() {
               />
               <span className="text-xs text-slate-400">clientes esperando ou menos</span>
             </label>
+            </>
+            )}
           </div>
-        )}
 
         <button
           type="submit"

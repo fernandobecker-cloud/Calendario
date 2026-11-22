@@ -165,7 +165,14 @@ export default function FilasPage({ chave }) {
         {dados && (
           <>
             <div className="grid gap-4 lg:grid-cols-2">
-              {dados.televendas && <Resumo titulo="Televendas" dados={dados.televendas} />}
+              {dados.televendas ? (
+                <Resumo titulo="Televendas" dados={dados.televendas} />
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
+                  <h2 className="text-lg font-semibold text-slate-900">Televendas</h2>
+                  <p className="mt-2">Aparece aqui quando o CRM escolher o time do televendas no portal.</p>
+                </div>
+              )}
               <Resumo titulo="Todas as lojas" subtitulo={`${dados.regionais.length} regionais`} dados={dados.total_lojas} />
             </div>
 
