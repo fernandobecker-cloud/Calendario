@@ -13,7 +13,8 @@ Regras:
     (item só de loja). Item que não está ativo no site entra como só loja, com a descrição do
     comercial como nome e sem link. Sem preço nenhum vai para o CSV de "fora".
   - Nome do produto, agrupamento (produto_id), link, imagem, cor e capacidade vêm do site.
-  - Preço do site (preco_por = Pix, preco_de = Pix antes do período) e estoque vêm do comercial.
+  - Preço do site (preco_por = Pix, preco_de = Pix antes do período, preco_cartao = coluna 10x)
+    e estoque vêm do comercial.
   - Preço e condição de loja vêm da tabela de varejo, quando o SKU está nela.
 
 Uso:
@@ -43,7 +44,7 @@ TEXTO_DEMO = (
     "não um aparelho novo. Nunca apresente como versão ou cor diferente do produto novo."
 )
 COLUNAS = ["produto_id", "produto", "sku", "variante", "cor", "capacidade", "preco_de", "preco_por",
-           "preco_loja", "condicao_loja", "estoque", "categoria", "link", "imagem", "descricao", "ativo"]
+           "preco_cartao", "preco_loja", "condicao_loja", "estoque", "categoria", "link", "imagem", "descricao", "ativo"]
 
 
 def _norm(t: str) -> str:
@@ -148,6 +149,7 @@ def main() -> None:
             "capacidade": cap,
             "preco_de": "",
             "preco_por": "",
+            "preco_cartao": "",
             "preco_loja": "",
             "condicao_loja": "",
             "estoque": "",
@@ -166,6 +168,10 @@ def main() -> None:
             por, antes = _num(_col(l_site, "preco final pix", "preco final")), _num(_col(l_site, "pix antes"))
             linha["preco_por"] = _fmt(por)
             linha["preco_de"] = _fmt(antes) if antes and por and antes > por else ""
+            # Coluna 10x do comercial = preço no cartão (base do 21x a 1,05% a.m.).
+            # Sem ela, o agente usa Pix / 0,9, que difere alguns centavos em parte dos SKUs.
+            cartao = _num(_col(l_site, "10x"))
+            linha["preco_cartao"] = _fmt(cartao) if cartao and por and cartao >= por else ""
             if _col(l_site, "volume estoque"):
                 linha["estoque"] = str(int(_num(_col(l_site, "volume estoque")) or 0))
         if l_var and _num(_col(l_var, "pix")):
