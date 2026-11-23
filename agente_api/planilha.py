@@ -414,7 +414,10 @@ def buscar_texto(termo: str, inicio: int, quantidade: int) -> list[dict]:
         # Com orcamento, o que interessa e o preco: mais barato primeiro (aparelhos antes).
         achados.sort(key=lambda x: (x[0][0], x[0][4], x[0][2], x[0][3]))
     else:
-        achados.sort(key=lambda x: x[0][:4])
+        # Sem orcamento: aparelhos, depois produtos da campanha do site antes dos so de loja
+        # (com size=10, "iphone" cortava os Pro Max e mostrava o 16 Pro so de loja),
+        # depois o nome mais curto e o menor preco.
+        achados.sort(key=lambda x: (x[0][0], min(x[0][4], 1), x[0][1], x[0][2], x[0][3]))
     resultado = []
     for _, grupo in achados[inicio:]:
         item = produto_omnichat(grupo)

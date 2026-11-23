@@ -64,6 +64,20 @@ def opcoes_de_pagamento(
             "interest": juros if n > 1 else 0,
             "totalWithInterest": arredondar(parcela * n),
         })
+    # Sem juros (site: 10x no preco do cartao). So na regra padrao do site: se a planilha
+    # mandar parcelas/juros proprios para o SKU, vale so o que ela mandou.
+    sj = config.CARTAO_SEM_JUROS_PARCELAS if parcelas is None and juros_mensal_pct is None else 0
+    while sj > 1 and truncar(preco_venda / sj) < config.PARCELA_MINIMA:
+        sj -= 1
+    if sj > 1 and sj != n:
+        opcoes.append({
+            "name": "Cartão de crédito sem juros",
+            "oneTimePayment": arredondar(preco_venda),
+            "maxInstallments": sj,
+            "installmentPrice": truncar(preco_venda / sj),
+            "interest": 0,
+            "totalWithInterest": arredondar(preco_venda),
+        })
     pix = arredondar(preco_pix if preco_pix is not None else preco_venda * (1 - config.PIX_DESCONTO))
     opcoes.append({
         "name": "Pix",

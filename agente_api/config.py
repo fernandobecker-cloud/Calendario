@@ -50,6 +50,8 @@ CARTAO_MAX_PARCELAS = _int("CARTAO_MAX_PARCELAS", 21)
 CARTAO_JUROS_MENSAL_PCT = _float("CARTAO_JUROS_MENSAL_PCT", 1.05)
 # Valor minimo de cada parcela; abaixo disso o numero de parcelas diminui.
 PARCELA_MINIMA = _float("PARCELA_MINIMA", 5.0)
+# Site: o preco no cartao sai em ate 10x sem juros (alem do 21x com juros). 0 = desliga.
+CARTAO_SEM_JUROS_PARCELAS = _int("CARTAO_SEM_JUROS_PARCELAS", 10)
 
 # Cache em memoria das respostas do site. Preco/estoque atualizam em ate TTL.
 CACHE_TTL_S = _int("CACHE_TTL_S", 120)

@@ -25,7 +25,7 @@ class RegrasDePagamento(unittest.TestCase):
 
     def test_bate_com_o_site(self):
         for venda, pix, parcela in self.CASOS_DO_SITE:
-            cartao, opcao_pix = conversao.opcoes_de_pagamento(venda)
+            cartao, sem_juros, opcao_pix = conversao.opcoes_de_pagamento(venda)
             self.assertEqual(opcao_pix["oneTimePayment"], pix, venda)
             self.assertEqual(cartao["maxInstallments"], 21)
             self.assertEqual(cartao["installmentPrice"], parcela, venda)
@@ -163,7 +163,7 @@ class Planilha(unittest.TestCase):
         pro = r[1]
         self.assertEqual(pro["objectId"], "100544PR")
         self.assertEqual(pro["mainVariant"]["objectId"], "100072474")
-        cartao, pix = pro["mainVariant"]["installmentOptions"]
+        cartao, sem_juros, pix = pro["mainVariant"]["installmentOptions"]
         self.assertEqual(pro["mainVariant"]["salePrice"], 9829.0)  # preco grande do site = Pix
         self.assertEqual((cartao["oneTimePayment"], cartao["installmentPrice"], pix["oneTimePayment"]),
                          (10921.11, 582.20, 9829.0))
@@ -183,6 +183,27 @@ class Planilha(unittest.TestCase):
         self.assertEqual(chamar(query="airpods", x_api_key="segredo-teste"), [])
         r = chamar(query="laranja cosmico", x_api_key="segredo-teste")
         self.assertEqual(r[0]["objectId"], "100544PR")
+
+    def test_dez_vezes_sem_juros(self):
+        cartao, sem_juros, pix = conversao.opcoes_de_pagamento(5998.89, preco_pix=5399.0)
+        self.assertEqual((sem_juros["maxInstallments"], sem_juros["installmentPrice"], sem_juros["interest"]),
+                         (10, 599.88, 0))
+        self.assertEqual(cartao["maxInstallments"], 21)
+
+    def test_iphone_traz_pro_max_entre_os_10(self):
+        linhas = [{"produto": n, "produto_id": n, "sku": str(i), "preco_por": p, "link": "x", "categoria": "IPHONE"}
+                  for i, (n, p) in enumerate([("iPhone 16e", 2999), ("iPhone 17", 5399), ("iPhone 17 Pro", 7999),
+                                              ("iPhone 17 Pro Max", 8759)])]
+        linhas.append({"produto": "iPhone 16 Pro", "produto_id": "L", "sku": "9", "preco_loja": 6159.12,
+                       "link": "x", "categoria": "IPHONE"})
+        orig = planilha.carregar_feed
+        planilha.carregar_feed = lambda *a, **k: {"linhas": linhas}
+        try:
+            nomes = [r["name"] for r in planilha.buscar_texto("iphone", 0, 4)]
+        finally:
+            planilha.carregar_feed = orig
+        self.assertIn("iPhone 17 Pro Max", nomes)
+        self.assertNotIn("iPhone 16 Pro", nomes)
 
     def test_item_so_de_loja(self):
         grupo = {"chave": "W", "linhas": [
@@ -224,7 +245,7 @@ class Planilha(unittest.TestCase):
     def test_regra_do_site_pix_e_cartao(self):
         # Paginas do site em 17/11/2026: (preco no Pix, parcelas, valor da parcela)
         for pix, n, parcela in [(5399.0, 21, 319.80), (99.0, 21, 5.86), (69.0, 16, None)]:
-            cartao, opcao_pix = planilha.produto_omnichat(
+            cartao, _sem_juros, opcao_pix = planilha.produto_omnichat(
                 {"chave": "x", "linhas": [{"produto": "X", "sku": "1", "preco_por": pix, "ativo": True}]}
             )["mainVariant"]["installmentOptions"]
             self.assertEqual(opcao_pix["oneTimePayment"], pix)
