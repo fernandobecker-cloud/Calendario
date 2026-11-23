@@ -18,6 +18,7 @@ painel Televendas. Assistência e outros times ficam de fora.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -76,6 +77,13 @@ _SCHEMA = [
 ]
 # Quem respondeu a uma campanha e caiu na fila de uma loja até este tempo depois conta como campanha.
 CAMPANHA_JANELA_H = 24
+# Só conta como campanha (marketing) a que tem este trecho no nome, ex.: 20261123_WMKT_Whizz.
+# Mensagens automáticas (lembrete de agenda, aprovação, aniversário) contam como orgânico.
+CAMPANHA_PADRAO = os.getenv("FILAS_PADRAO_CAMPANHA", "WMKT").strip().upper()
+
+
+def eh_marketing(nome: Any) -> bool:
+    return bool(CAMPANHA_PADRAO) and CAMPANHA_PADRAO in str(nome or "").upper()
 _CAMPOS = [c.name for c in _SCHEMA]
 
 _lock = threading.Lock()
@@ -259,7 +267,7 @@ def rotulo_origem(e: dict[str, Any]) -> str:
 def classe_origem(e: dict[str, Any]) -> str:
     """campanha ou organico. Sem origem preenchida = orgânico (veio direto pelo WhatsApp)."""
     texto = rotulo_origem(e).lower()
-    if "sem origem" in texto or "organ" in texto:
+    if "sem origem" in texto or "organ" in texto or not eh_marketing(texto):
         return "organico"
     return "campanha"
 
@@ -305,7 +313,9 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
         hoje = momento >= inicio_dia
         atual = situacao.get(at)
         if e.get("tipo") == "message-replies":
-            respondeu[at] = (momento, e.get("campanha_nome") or e.get("campanha_id") or "(campanha sem nome)")
+            nome = e.get("campanha_nome") or e.get("campanha_id") or "(campanha sem nome)"
+            if eh_marketing(nome):  # resposta a mensagem automática não marca como campanha
+                respondeu[at] = (momento, nome)
             continue
         if e.get("tipo") == "chat-routed":
             para = (e.get("para_tipo") or "").upper()
