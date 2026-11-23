@@ -37,10 +37,11 @@ function Numero({ rotulo, valor, destaque, detalhe }) {
   )
 }
 
-// Campanha x orgânico só aparece quando a API da Omnichat trouxe a origem.
+// Mkt = respondeu a uma campanha com WMKT no nome; orgânico = o resto (bot principal,
+// mensagens automáticas). Só aparece quando a Omnichat manda o evento "Resposta de campanha".
 function origens(d) {
   if (!d.entraram_campanha && !d.entraram_organico) return null
-  return `${d.entraram_campanha || 0} campanha · ${d.entraram_organico || 0} orgânico`
+  return `${d.entraram_campanha || 0} mkt · ${d.entraram_organico || 0} orgânico`
 }
 
 function Resumo({ titulo, subtitulo, dados }) {
@@ -110,7 +111,7 @@ function Regional({ reg, aberta, alternar }) {
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {l.entraram_hoje}
-                    {l.entraram_campanha > 0 && <span className="block text-xs text-indigo-600">{l.entraram_campanha} campanha</span>}
+                    {origens(l) && <span className="block whitespace-nowrap text-xs text-indigo-600">{origens(l)}</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{l.atendidos_hoje}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{min(l.espera_media_min)}</td>
@@ -330,7 +331,7 @@ export default function FilasPage({ chave, admin = false }) {
 
             {Object.keys(dados.total_lojas.campanhas || {}).length > 0 && (
               <p className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-                <span className="font-medium">Vieram de campanha hoje: </span>
+                <span className="font-medium">Vieram de campanhas de mkt hoje: </span>
                 {Object.entries(dados.total_lojas.campanhas).sort((a, b) => b[1] - a[1])
                   .map(([nome, n]) => `${nome} (${n})`).join(' · ')}
               </p>
