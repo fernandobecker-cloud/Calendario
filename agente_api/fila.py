@@ -43,9 +43,10 @@ log = logging.getLogger("agente_api.fila")
 
 MODOS = ("automatico", "disponivel", "indisponivel")
 AVISO_INDISPONIVEL = (
-    "TELEVENDAS INDISPONÍVEL NO MOMENTO (alta demanda): ao perguntar o canal de compra, ofereça "
-    "somente SITE ou LOJA FÍSICA. Se o cliente pedir televendas, explique que o televendas está "
-    "com alta demanda agora e sugira o site (envie o link) ou a loja física."
+    "TELEVENDAS / VENDEDOR ON-LINE INDISPONÍVEL NO MOMENTO (alta demanda): ao perguntar o canal de "
+    "compra, ofereça somente SITE ou LOJA FÍSICA; não ofereça vendedor on-line nem televendas. Se o "
+    "cliente pedir vendedor on-line ou televendas, explique que estão com alta demanda agora e sugira "
+    "o site (envie o link) ou a loja física."
 )
 
 _lock = threading.Lock()
