@@ -295,7 +295,7 @@ export function DiagnosticoFilas() {
           {dados.origens_hoje?.length > 0 && (
             <table className="w-full text-xs">
               <thead className="text-left text-slate-500">
-                <tr><th className="py-1">Origem dos atendimentos hoje (API da Omnichat)</th><th>Conta como</th><th className="text-right">Atendimentos</th></tr>
+                <tr><th className="py-1">Respostas a campanhas hoje (webhook "Resposta de campanha")</th><th>Conta como</th><th className="text-right">Respostas</th></tr>
               </thead>
               <tbody>
                 {dados.origens_hoje.map((o) => (
