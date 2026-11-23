@@ -113,7 +113,7 @@ class Endpoint(unittest.TestCase):
             itens = chamar(x_api_key="segredo-teste")
         finally:
             fila.ler_config = orig
-        self.assertTrue(itens[0]["productDescription"].startswith("TELEVENDAS INDISPONÍVEL"))
+        self.assertTrue(itens[0]["productDescription"].startswith("TELEVENDAS / VENDEDOR ON-LINE INDISPONÍVEL"))
         self.assertFalse(chamar(x_api_key="segredo-teste")[0]["productDescription"].startswith("TELEVENDAS"))
 
     def test_token_na_url_e_bearer(self):
