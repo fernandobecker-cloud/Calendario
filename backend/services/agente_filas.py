@@ -304,10 +304,13 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                 if atual["fila"]:
                     saidas[f"voltou para bot ({para or '-'})"] = saidas.get(f"voltou para bot ({para or '-'})", 0) + 1
                 situacao.pop(at, None)  # foi para um bot
-        elif e.get("tipo") == "omni-interacao":
-            # O vendedor assumiu (o webhook não avisa): momento = contatado_em.
-            if e.get("contatado_em") and atual and atual["fila"]:
-                saidas["atendido (assumiu, pela API)"] = saidas.get("atendido (assumiu, pela API)", 0) + 1
+        elif e.get("tipo") in ("omni-interacao", "primeira-resposta"):
+            # O vendedor assumiu (o webhook não avisa o clique): primeira mensagem dele
+            # (message-sent) ou contactedAt da API da Omnichat.
+            pela_api = e.get("tipo") == "omni-interacao"
+            if (e.get("contatado_em") or not pela_api) and atual and atual["fila"]:
+                como = "atendido (assumiu, pela API)" if pela_api else "atendido (primeira mensagem do vendedor)"
+                saidas[como] = saidas.get(como, 0) + 1
                 if hoje:
                     cont = time_de(atual["time"])
                     cont["atendidos_hoje"] += 1

@@ -54,6 +54,10 @@ _espera: dict[str, dict] = {}
 # id do time -> {"nome", "visto_em"}: para o portal mostrar a lista e o CRM escolher o televendas
 _times: dict[str, dict] = {}
 _traces: OrderedDict[str, None] = OrderedDict()
+# Conversas cuja primeira resposta de vendedor já foi repassada (chave -> epoch), para
+# repassar só a primeira das muitas mensagens enviadas (message-sent).
+_respondidos: OrderedDict[str, float] = OrderedDict()
+_RESPONDIDO_TTL_S = 2 * 3600
 _MAX_TRACES = 20000
 _estado = {"disponivel": True, "eventos": 0, "ultimo_evento": None, "inicio": time.time()}
 _config = {"lido_em": 0.0, "dados": None}
@@ -91,6 +95,8 @@ def registrar_evento(evento: dict) -> str:
     mensagem = payload.get("message") if isinstance(payload.get("message"), dict) else {}
     chave = str(payload.get("chatId") or contato.get("phoneNumber") or payload.get("objectId") or "")
     trace = f"{evento.get('traceId')}:{tipo}:{payload.get('objectId') or mensagem.get('id') or chave}"
+    if tipo == "message-sent":
+        return _mensagem_enviada(payload, chave, trace)
     with _lock:
         if trace in _traces:
             return "repetido"
@@ -109,6 +115,7 @@ def registrar_evento(evento: dict) -> str:
                 _times[time_id] = {"nome": destino.get("name") or _times.get(time_id, {}).get("nome"),
                                    "visto_em": time.time()}
                 _espera[chave] = {"time": time_id, "desde": _epoch(payload.get("timeStamp"))}
+                _respondidos.pop(chave, None)
                 omni_interacoes.entrou(chave, payload.get("csrId"), payload.get("objectId"),
                                        _conversa(payload.get("chatId")))
                 return f"entrou na fila {time_id}"
@@ -118,6 +125,50 @@ def registrar_evento(evento: dict) -> str:
             omni_interacoes.saiu(chave)
             return "saiu da fila" if _espera.pop(chave, None) else "ignorado"
         return "ignorado"
+
+
+def _mensagem_enviada(payload: dict, chave: str, trace: str) -> str:
+    """message-sent chega a cada mensagem (bot e vendedor). Só interessa a primeira
+    mensagem de um vendedor depois que o cliente entrou na fila: é quando ele foi
+    atendido (o clique em "Assumir" não gera evento). Texto, nome e telefone do
+    cliente são descartados aqui."""
+    remetente = payload.get("from") if isinstance(payload.get("from"), dict) else {}
+    if str(remetente.get("userType") or "").upper() != "USER" or not chave:
+        return "ignorado"
+    agora = time.time()
+    with _lock:
+        recente = _respondidos.get(chave)
+        if chave not in _espera and recente and agora - recente < _RESPONDIDO_TTL_S:
+            return "ignorado"  # já respondida
+        if trace in _traces:
+            return "repetido"
+        _traces[trace] = None
+        if len(_traces) > _MAX_TRACES:
+            _traces.popitem(last=False)
+        _respondidos.pop(chave, None)
+        _respondidos[chave] = agora
+        while len(_respondidos) > _MAX_TRACES:
+            _respondidos.popitem(last=False)
+        estava = _espera.pop(chave, None)
+        _estado["eventos"] += 1
+        _estado["ultimo_evento"] = agora
+        mensagem = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+        _pendentes.append({
+            "trace_id": trace,
+            "tipo": "primeira-resposta",
+            "momento": mensagem.get("createdAt") or payload.get("timeStamp") or datetime.now().astimezone().isoformat(),
+            "atendimento_id": str(payload.get("objectId") or "") or None,
+            "conversa_id": _conversa(payload.get("chatId")),
+            "para_id": str(payload.get("teamId") or "") or None,
+            "por_id": str(remetente.get("id") or "") or None,
+            "por_nome": remetente.get("name"),
+            "por_usuario_tipo": "USER",
+            "plataforma": payload.get("platform"),
+        })
+        if len(_pendentes) > _MAX_PENDENTES:
+            del _pendentes[: len(_pendentes) - _MAX_PENDENTES]
+    omni_interacoes.saiu(chave)
+    return "atendido (primeira resposta)" if estava else "primeira resposta"
 
 
 def _limpar_expirados(agora: float) -> None:

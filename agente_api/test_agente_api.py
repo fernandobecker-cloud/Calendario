@@ -414,6 +414,28 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertTrue(reg["momento"].startswith("2026-"))
         self.assertNotIn("5511999990000", str(reg))
 
+    def test_primeira_mensagem_do_vendedor_tira_da_fila(self):
+        fila._pendentes.clear()
+        self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS)
+        self.assertEqual(fila.situacao()["na_fila"], 1)
+
+        def enviada(n, tipo_remetente):
+            return fila.registrar_evento({"type": "message-sent", "traceId": f"m{n}", "payload": {
+                "objectId": "a", "chatId": "55119a", "teamId": self.TELEVENDAS,
+                "from": {"id": "u1", "name": "Ana", "userType": tipo_remetente},
+                "customer": {"name": "Maria Lima"}, "phone": {"number": "999990000"},
+                "message": {"id": f"msg{n}", "text": "Segredo do cliente", "createdAt": "2099-01-01T00:03:00Z"}}})
+        self.assertEqual(enviada(1, "BOT"), "ignorado")  # bot nao conta
+        self.assertEqual(fila.situacao()["na_fila"], 1)
+        self.assertEqual(enviada(2, "USER"), "atendido (primeira resposta)")
+        self.assertEqual(fila.situacao()["na_fila"], 0)
+        self.assertEqual(enviada(3, "USER"), "ignorado")  # as seguintes nao vao ao portal
+        enviados = [p for p in fila._pendentes if p["tipo"] == "primeira-resposta"]
+        self.assertEqual(len(enviados), 1)
+        self.assertEqual(enviados[0]["momento"], "2099-01-01T00:03:00Z")
+        for proibido in ("Segredo", "Maria", "999990000", "55119a"):
+            self.assertNotIn(proibido, str(enviados[0]))
+
     def test_portal_fora_guarda_os_eventos(self):
         fila._pendentes.clear()
         self.evento("chat-finished", "a")
