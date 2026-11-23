@@ -402,6 +402,18 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertEqual(reg["contatado_em"], "2099-01-01T00:05:00+00:00")
         self.assertNotIn("5511900000001", str(reg))
 
+    def test_resposta_de_campanha_vai_sem_telefone(self):
+        fila._pendentes.clear()
+        fila.registrar_evento({"origin": "campaign", "type": "message-replies", "traceId": "c1", "payload": {
+            "campaign": {"id": "C1", "name": "20261123_WMKT_Whizz"}, "dispatch": {"id": "D1"},
+            "message": {"id": "M1", "text": "Quero saber mais"}, "contact": {"phoneNumber": "5511999990000"},
+            "timestamp": 1791902525120}})
+        reg = fila._pendentes[0]
+        self.assertEqual((reg["campanha_nome"], reg["campanha_id"]), ("20261123_WMKT_Whizz", "C1"))
+        self.assertEqual(reg["conversa_id"], fila._conversa("5511999990000"))
+        self.assertTrue(reg["momento"].startswith("2026-"))
+        self.assertNotIn("5511999990000", str(reg))
+
     def test_portal_fora_guarda_os_eventos(self):
         fila._pendentes.clear()
         self.evento("chat-finished", "a")

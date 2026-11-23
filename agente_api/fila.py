@@ -33,7 +33,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -87,8 +87,10 @@ def registrar_evento(evento: dict) -> str:
     payload = evento.get("payload") or {}
     # O telefone (chatId) é o que liga a entrada na fila à saída: o objectId pode
     # mudar quando o vendedor pega o atendimento. Fica só em memória, nunca é enviado.
-    chave = str(payload.get("chatId") or payload.get("objectId") or "")
-    trace = f"{evento.get('traceId')}:{tipo}:{payload.get('objectId') or chave}"
+    contato = payload.get("contact") if isinstance(payload.get("contact"), dict) else {}
+    mensagem = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    chave = str(payload.get("chatId") or contato.get("phoneNumber") or payload.get("objectId") or "")
+    trace = f"{evento.get('traceId')}:{tipo}:{payload.get('objectId') or mensagem.get('id') or chave}"
     with _lock:
         if trace in _traces:
             return "repetido"
@@ -222,7 +224,7 @@ def _pessoa(dado) -> tuple[str | None, str | None]:
     return (str(dado["id"]) if dado.get("id") else None), dado.get("name")
 
 
-_CAMPOS_TELEFONE = {"chatid", "phone", "telefone", "number", "msisdn", "waid"}
+_CAMPOS_TELEFONE = {"chatid", "phone", "phonenumber", "telefone", "number", "msisdn", "waid"}
 
 
 def _sem_telefone(dado):
@@ -249,12 +251,20 @@ def _guardar_para_envio(evento: dict, trace: str) -> None:
     para_id, para_nome = _pessoa(payload.get("to"))
     por = payload.get("finishedBy") or payload.get("routedBy")
     por_id, por_nome = _pessoa(por)
+    # Resposta de campanha (message-replies): campanha + telefone, sem chatId/objectId.
+    contato = payload.get("contact") if isinstance(payload.get("contact"), dict) else {}
+    campanha = payload.get("campaign") if isinstance(payload.get("campaign"), dict) else {}
+    momento = payload.get("timeStamp")
+    if not momento and isinstance(payload.get("timestamp"), (int, float)):
+        momento = datetime.fromtimestamp(payload["timestamp"] / 1000, timezone.utc).isoformat()
     _pendentes.append({
         "trace_id": trace,
         "tipo": evento.get("type"),
-        "momento": payload.get("timeStamp") or datetime.now().astimezone().isoformat(),
+        "momento": momento or datetime.now().astimezone().isoformat(),
         "atendimento_id": str(payload.get("objectId") or "") or None,
-        "conversa_id": _conversa(payload.get("chatId")),
+        "conversa_id": _conversa(payload.get("chatId") or contato.get("phoneNumber")),
+        "campanha_id": str(campanha.get("id") or "") or None,
+        "campanha_nome": campanha.get("name"),
         "para_tipo": payload.get("toType"),
         "para_id": para_id,
         "para_nome": para_nome,

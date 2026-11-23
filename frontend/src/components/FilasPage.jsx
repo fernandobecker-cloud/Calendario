@@ -305,6 +305,14 @@ export default function FilasPage({ chave, admin = false }) {
               <Resumo titulo="Todas as lojas" subtitulo={`${dados.regionais.length} regionais`} dados={dados.total_lojas} />
             </div>
 
+            {Object.keys(dados.total_lojas.campanhas || {}).length > 0 && (
+              <p className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                <span className="font-medium">Vieram de campanha hoje: </span>
+                {Object.entries(dados.total_lojas.campanhas).sort((a, b) => b[1] - a[1])
+                  .map(([nome, n]) => `${nome} (${n})`).join(' · ')}
+              </p>
+            )}
+
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500">
                 Em vermelho: {ALERTA_FILA} ou mais clientes na fila, ou alguém esperando há {ALERTA_ESPERA_MIN} min ou mais.

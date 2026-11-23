@@ -70,7 +70,12 @@ _SCHEMA = [
     bigquery.SchemaField("origem_canal", "STRING"),
     bigquery.SchemaField("origem_tipo", "STRING"),
     bigquery.SchemaField("origem_url", "STRING"),
+    # Resposta de campanha (webhook message-replies):
+    bigquery.SchemaField("campanha_id", "STRING"),
+    bigquery.SchemaField("campanha_nome", "STRING"),
 ]
+# Quem respondeu a uma campanha e caiu na fila de uma loja até este tempo depois conta como campanha.
+CAMPANHA_JANELA_H = 24
 _CAMPOS = [c.name for c in _SCHEMA]
 
 _lock = threading.Lock()
@@ -208,7 +213,7 @@ def _minutos(segundos: list[float]) -> float | None:
 def _novo_contador() -> dict[str, Any]:
     return {"na_fila": 0, "espera_mais_antiga_min": 0.0, "entraram_hoje": 0, "atendidos_hoje": 0,
             "sem_atendimento_hoje": 0, "entraram_campanha": 0, "entraram_organico": 0,
-            "_esperas": [], "_duracoes": []}
+            "campanhas": {}, "_esperas": [], "_duracoes": []}
 
 
 def rotulo_origem(e: dict[str, Any]) -> str:
@@ -246,6 +251,10 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
     for e in eventos:
         if e.get("tipo") == "omni-interacao" and e.get("atendimento_id"):
             origem_de[e["atendimento_id"]] = classe_origem(e)
+    # Respostas de campanha (message-replies) por conversa: só classifica quando o evento está ligado.
+    com_respostas = any(e.get("tipo") == "message-replies" for e in eventos)
+    respondeu: dict[str, tuple[datetime, str]] = {}
+    janela = timedelta(hours=CAMPANHA_JANELA_H)
     inicio_dia = agora.astimezone(FUSO).replace(hour=0, minute=0, second=0, microsecond=0)
     por_time: dict[str, dict[str, Any]] = {}
     nomes: dict[str, str] = {}
@@ -261,6 +270,9 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
         momento = e["momento"]
         hoje = momento >= inicio_dia
         atual = situacao.get(at)
+        if e.get("tipo") == "message-replies":
+            respondeu[at] = (momento, e.get("campanha_nome") or e.get("campanha_id") or "(campanha sem nome)")
+            continue
         if e.get("tipo") == "chat-routed":
             para = (e.get("para_tipo") or "").upper()
             if para == "TEAM" and e.get("para_id"):
@@ -271,6 +283,12 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                     cont = time_de(e["para_id"])
                     cont["entraram_hoje"] += 1
                     classe = origem_de.get(e.get("atendimento_id") or "")
+                    resposta = respondeu.get(at)
+                    if resposta and timedelta(0) <= momento - resposta[0] <= janela:
+                        classe = "campanha"
+                        cont["campanhas"][resposta[1]] = cont["campanhas"].get(resposta[1], 0) + 1
+                    elif not classe and com_respostas:
+                        classe = "organico"
                     if classe:
                         cont[f"entraram_{classe}"] += 1
             elif para and not any(b in para for b in _DESTINOS_BOT):
@@ -332,12 +350,14 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
 
 def _somar(partes: list[dict[str, Any]]) -> dict[str, Any]:
     total = {"na_fila": 0, "espera_mais_antiga_min": 0.0, "entraram_hoje": 0, "atendidos_hoje": 0,
-             "sem_atendimento_hoje": 0, "entraram_campanha": 0, "entraram_organico": 0}
+             "sem_atendimento_hoje": 0, "entraram_campanha": 0, "entraram_organico": 0, "campanhas": {}}
     esperas, duracoes = [], []
     for p in partes:
         for k in ("na_fila", "entraram_hoje", "atendidos_hoje", "sem_atendimento_hoje",
                   "entraram_campanha", "entraram_organico"):
             total[k] += p.get(k) or 0
+        for nome, n in (p.get("campanhas") or {}).items():
+            total["campanhas"][nome] = total["campanhas"].get(nome, 0) + n
         total["espera_mais_antiga_min"] = max(total["espera_mais_antiga_min"], p.get("espera_mais_antiga_min") or 0)
         if p.get("espera_media_min") is not None:
             esperas.append((p["espera_media_min"], p.get("atendidos_hoje") or 0))
@@ -431,6 +451,9 @@ def diagnostico() -> dict[str, Any]:
     saidas: dict[str, int] = {}
     calcular(eventos, datetime.now(timezone.utc), saidas)
     for e in eventos:
+        if e.get("tipo") == "message-replies" and e["momento"] >= inicio_dia:
+            rot = f"Resposta de campanha: {e.get('campanha_nome') or e.get('campanha_id') or '(sem nome)'}"
+            origens[rot] = origens.get(rot, 0) + 1
         if e.get("tipo") == "omni-interacao" and e["momento"] >= inicio_dia:
             origens[rotulo_origem(e)] = origens.get(rotulo_origem(e), 0) + 1
         chave = f"{e.get('tipo')} -> {e.get('para_tipo') or '-'}"
