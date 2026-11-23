@@ -540,7 +540,7 @@ function PainelTelevendas() {
         </p>
       )}
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        <strong className="text-slate-800">Painel das filas para os gerentes</strong> (lojas por regional e televendas, sem login):{' '}
+        <strong className="text-slate-800">Painel das filas para os gerentes</strong> (só as lojas, por regional, sem login; o televendas fica na aba Filas):{' '}
         {dados?.link_filas ? (
           <>
             <a href={dados.link_filas} target="_blank" rel="noreferrer" className="font-medium text-indigo-700 underline">
