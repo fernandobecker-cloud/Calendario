@@ -81,7 +81,8 @@ _CAMPOS = [c.name for c in _SCHEMA]
 _lock = threading.Lock()
 # Últimos eventos completos (sem telefone) para o diagnóstico; só em memória.
 _brutos: deque = deque(maxlen=40)
-_estado: dict[str, Any] = {"carregado": False, "tentou_em": -1e9, "tabela_ok": False, "eventos": [], "traces": set()}
+_TABELA_CORTE = "agente_filas_corte"  # uma linha: o painel ignora eventos antes disso ("zerar")
+_estado: dict[str, Any] = {"corte": None, "carregado": False, "tentou_em": -1e9, "tabela_ok": False, "eventos": [], "traces": set()}
 
 
 def _tabela_id() -> str:
@@ -127,7 +128,18 @@ def _carregar_recentes() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("filas: nao consegui conferir a tabela no BigQuery: %s", exc)
         return
+    try:
+        linhas_corte = list(_cliente().list_rows(f"{_PROJECT_ID}.{_DATASET}.{_TABELA_CORTE}", timeout=_TIMEOUT_S))
+        if linhas_corte:
+            _estado["corte"] = _momento(linhas_corte[0]["desde"])
+    except NotFound:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("filas: nao consegui ler o corte do painel: %s", exc)
+        return
     desde = datetime.now(timezone.utc) - timedelta(hours=_JANELA_H)
+    if _estado["corte"] and _estado["corte"] > desde:
+        desde = _estado["corte"]
     sql = (
         f"SELECT {', '.join(_CAMPOS)} FROM `{_tabela_id()}` "
         "WHERE momento >= @desde ORDER BY momento"
@@ -175,6 +187,8 @@ def receber(eventos: list[dict[str, Any]]) -> dict[str, int]:
             if isinstance(bruto.get("bruto"), dict):
                 _brutos.append({"recebido_em": agora.astimezone(FUSO).isoformat(), "evento": bruto["bruto"]})
             momento = _momento(bruto.get("momento")) or agora
+            if _estado["corte"] and momento < _estado["corte"]:
+                continue  # chegou atrasado, de antes do "zerar"
             evento = {c: (str(bruto[c]) if bruto.get(c) is not None else None) for c in _CAMPOS}
             evento.update(momento=momento, recebido_em=agora)
             if evento["trace_id"] in _estado["traces"]:
@@ -196,6 +210,26 @@ def receber(eventos: list[dict[str, Any]]) -> dict[str, int]:
         except Exception as exc:  # noqa: BLE001 - o painel segue em memória mesmo sem gravar
             log.warning("filas: nao consegui gravar %s evento(s) no BigQuery: %s", len(novos), exc)
     return {"recebidos": len(eventos), "novos": len(novos)}
+
+
+def zerar(usuario: str) -> datetime:
+    """Painel recomeça agora: grava o corte e limpa a memória. O histórico no BigQuery fica."""
+    corte = datetime.now(timezone.utc).replace(microsecond=0)
+    job = bigquery.LoadJobConfig(
+        schema=[bigquery.SchemaField("desde", "TIMESTAMP"), bigquery.SchemaField("por", "STRING")],
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+    try:
+        _cliente().load_table_from_json([{"desde": corte.isoformat(), "por": usuario}],
+                                        f"{_tabela_id().rsplit('.', 1)[0]}.{_TABELA_CORTE}",
+                                        job_config=job).result(timeout=_TIMEOUT_S)
+    except PlanilhaErroBQ:
+        raise
+    except Exception as exc:
+        raise PlanilhaErroBQ(f"Falha ao gravar o corte do painel no BigQuery: {exc}") from exc
+    with _lock:
+        _estado.update(corte=corte, eventos=[], traces=set(), carregado=True)
+        _brutos.clear()
+    return corte
 
 
 # --- Painel ---------------------------------------------------------------------
@@ -423,6 +457,7 @@ def painel(com_televendas: bool = True) -> dict[str, Any]:
         lista.append(reg)
     ultimo = eventos[-1]["recebido_em"] if eventos else None
     resposta = {
+        "contando_desde": _estado["corte"].astimezone(FUSO).isoformat() if _estado["corte"] else None,
         "atualizado_em": agora.astimezone(FUSO).isoformat(),
         "ultimo_evento_em": ultimo.astimezone(FUSO).isoformat() if isinstance(ultimo, datetime) else None,
         "regionais": lista,

@@ -260,6 +260,20 @@ export default function FilasPage({ chave, admin = false }) {
     return () => clearInterval(id)
   }, [carregar])
 
+  const zerar = async () => {
+    if (!window.confirm('Zerar o painel das filas e começar a contar a partir de agora?\n\n'
+      + 'Vale para a aba Filas, o link dos gerentes e a fila do televendas da Ana. O histórico no BigQuery é mantido.')) return
+    try {
+      const res = await fetch('/api/agente-ia/fila/zerar', { method: 'POST' })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status}`)
+      if (!payload.agente_zerado) setErro('Painel zerado, mas a API do agente não respondeu: a fila do televendas recomeça só no próximo reinício dela.')
+      carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não consegui zerar.')
+    }
+  }
+
   const todasAbertas = dados && dados.regionais.every((r) => abertas[r.regional] !== false)
 
   return (
@@ -275,6 +289,15 @@ export default function FilasPage({ chave, admin = false }) {
           <div className="text-right text-sm text-slate-500">
             {dados && <p>Atualizado às {hora(dados.atualizado_em)}</p>}
             {dados?.ultimo_evento_em && <p className="text-xs">Último evento da Omnichat às {hora(dados.ultimo_evento_em)}</p>}
+            {dados?.contando_desde && (
+              <p className="text-xs">Contando desde {new Date(dados.contando_desde).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>
+            )}
+            {admin && (
+              <button type="button" onClick={zerar}
+                className="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-100">
+                Zerar e começar agora
+              </button>
+            )}
           </div>
         </header>
 

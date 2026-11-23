@@ -296,6 +296,24 @@ def painel_das_filas_admin(request: Request):
     return {**agente_filas.painel(com_televendas=True), "link_filas": _link_filas(request)}
 
 
+@router.post("/fila/zerar")
+def zerar_filas(request: Request):
+    """Painel das filas recomeça agora (lojas e a fila do televendas na API do agente)."""
+    _exigir_admin(request)
+    try:
+        corte = agente_filas.zerar(request.state.auth_user.username)
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    agente_ok = False
+    if AGENTE_API_TOKEN:
+        try:
+            resp = requests.post(f"{AGENTE_API_URL}/fila/zerar", headers={"x-api-key": AGENTE_API_TOKEN}, timeout=10)
+            agente_ok = resp.status_code == 200
+        except requests.RequestException:
+            pass
+    return {"desde": corte.isoformat(), "agente_zerado": agente_ok}
+
+
 @router.get("/fila/alertas")
 def ver_alertas(request: Request):
     _exigir_admin(request)

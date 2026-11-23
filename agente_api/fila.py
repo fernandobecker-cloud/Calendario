@@ -176,6 +176,16 @@ def _limpar_expirados(agora: float) -> None:
         del _espera[chave]
 
 
+def zerar() -> None:
+    """Recomeça a contagem (pedido do portal). Os times conhecidos continuam na lista."""
+    with _lock:
+        _espera.clear()
+        _respondidos.clear()
+    with omni_interacoes._lock:
+        omni_interacoes._acompanhando.clear()
+        omni_interacoes._novos.clear()
+
+
 def _baixar_config() -> dict | None:
     try:
         resp = requests.get(

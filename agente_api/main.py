@@ -196,6 +196,18 @@ async def webhook_omnichat(
     return {"ok": True}
 
 
+@app.post("/fila/zerar")
+def zerar_fila(
+    token: str | None = Query(None),
+    x_api_key: str | None = Header(None),
+    authorization: str | None = Header(None),
+):
+    """O portal zerou o painel das filas: recomeça a contagem do televendas também."""
+    _autorizar(x_api_key, authorization, token)
+    fila.zerar()
+    return {"ok": True}
+
+
 @app.get("/fila")
 def ver_fila(
     token: str | None = Query(None),
