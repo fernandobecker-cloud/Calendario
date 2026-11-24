@@ -244,7 +244,7 @@ function AlertasTeams() {
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50">Testar marcação</button>
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        Use 0 para ignorar um dos limites. O alerta de uma loja vai para o canal da regional dela (TEAMS_WEBHOOK_R1 a R7); regional sem canal próprio cai no canal geral.
+        Use 0 para ignorar um dos limites. O alerta de uma loja vai para o canal da regional dela (TEAMS_WEBHOOK_R1 a R7); regional sem canal próprio cai no canal geral. O horário (Das/Até) também vale para a espera: quem entra na fila fora dele conta espera só a partir da abertura.
       </p>
       {msg.ok && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg.ok}</p>}
       {msg.erro && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{msg.erro}</p>}

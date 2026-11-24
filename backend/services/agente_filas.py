@@ -276,8 +276,25 @@ def classe_origem(e: dict[str, Any]) -> str:
 _DESTINOS_BOT = ("BOT", "FLOW", "CHATBOT", "BOTFLOW")
 
 
+def inicio_da_espera(desde: datetime, horario: tuple[int, int] | None) -> datetime:
+    """Quem entra na fila fora do horário das lojas (antes da abertura ou depois do
+    fechamento) só começa a contar espera na abertura seguinte. Sem horário, conta
+    desde a entrada."""
+    if not horario:
+        return desde
+    abre, fecha = horario
+    local = desde.astimezone(FUSO)
+    abertura = local.replace(hour=abre, minute=0, second=0, microsecond=0)
+    if local.hour < abre:
+        return abertura
+    if local.hour >= fecha:
+        return abertura + timedelta(days=1)
+    return desde
+
+
 def calcular(eventos: list[dict[str, Any]], agora: datetime,
-             saidas: dict[str, int] | None = None) -> dict[str, dict[str, Any]]:
+             saidas: dict[str, int] | None = None,
+             horario: tuple[int, int] | None = None) -> dict[str, dict[str, Any]]:
     """Repassa os eventos em ordem e devolve os números de cada time (por id do time).
 
     Um atendimento roteado para um TIME entra na fila daquele time; quando vai
@@ -286,6 +303,8 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
     conta como "saiu sem atendimento". O atendimento é seguido pela conversa
     (hash do telefone), porque o objectId pode mudar quando o vendedor pega.
     Em `saidas` (opcional) fica a contagem de como cada um saiu da fila.
+    Com `horario` (abre, fecha), a espera de quem entrou fora dele conta a partir
+    da abertura (ver inicio_da_espera).
     """
     saidas = saidas if saidas is not None else {}
     # Origem de cada atendimento (registros da API da Omnichat), pelo objectId do webhook.
@@ -341,7 +360,8 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                     if hoje:
                         cont = time_de(atual["time"])
                         cont["atendidos_hoje"] += 1
-                        cont["_esperas"].append((momento - atual["desde"]).total_seconds())
+                        cont["_esperas"].append(max(0.0, (momento - inicio_da_espera(atual["desde"], horario))
+                                                    .total_seconds()))
                     situacao[at] = {"time": atual["time"], "fila": False, "desde": momento}
                 # Já com atendente e indo para outro atendente: segue o mesmo atendimento.
             elif atual:
@@ -358,7 +378,8 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                 if hoje:
                     cont = time_de(atual["time"])
                     cont["atendidos_hoje"] += 1
-                    cont["_esperas"].append(max(0.0, (momento - atual["desde"]).total_seconds()))
+                    cont["_esperas"].append(max(0.0, (momento - inicio_da_espera(atual["desde"], horario))
+                                                .total_seconds()))
                 situacao[at] = {"time": atual["time"], "fila": False, "desde": momento}
         elif e.get("tipo") == "chat-finished" and atual:
             if atual["fila"]:
@@ -373,13 +394,15 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
 
     limite = agora - timedelta(hours=ESPERA_MAX_H)
     for s in situacao.values():
+        # Fora do horário a espera fica parada, então o prazo para expirar também.
+        s["desde"] = inicio_da_espera(s["desde"], horario)
         if s["fila"] and s["desde"] < limite:
             saidas[f"expirou (+{ESPERA_MAX_H}h sem evento)"] = saidas.get(f"expirou (+{ESPERA_MAX_H}h sem evento)", 0) + 1
         if s["fila"] and s["desde"] >= limite:
             cont = time_de(s["time"])
             cont["na_fila"] += 1
             cont["espera_mais_antiga_min"] = max(cont["espera_mais_antiga_min"],
-                                                 round((agora - s["desde"]).total_seconds() / 60, 1))
+                                                 round(max(0.0, (agora - s["desde"]).total_seconds()) / 60, 1))
     resultado = {}
     for time_id, cont in por_time.items():
         resultado[time_id] = {
@@ -421,6 +444,17 @@ def _nome_loja(descricao: str) -> str:
     return re.sub(r"\s*-\s*", " - ", nome)
 
 
+def _horario_lojas() -> tuple[int, int] | None:
+    """Horário das lojas = horário dos alertas da aba Filas (Das ... Até ...)."""
+    from backend.services import filas_alertas  # importa aqui: filas_alertas importa este módulo
+    try:
+        cfg = filas_alertas.carregar()
+        return int(cfg["hora_inicio"]), int(cfg["hora_fim"])
+    except Exception as exc:  # noqa: BLE001 - sem o horário, conta desde a entrada
+        log.warning("filas: sem o horário das lojas: %s", exc)
+        return None
+
+
 def painel(com_televendas: bool = True) -> dict[str, Any]:
     """Números por loja e regional. O link dos gerentes chama sem o televendas."""
     agora = datetime.now(timezone.utc)
@@ -430,7 +464,7 @@ def painel(com_televendas: bool = True) -> dict[str, Any]:
         except PlanilhaErroBQ as exc:
             log.warning("filas: %s", exc)
         eventos = list(_estado["eventos"])
-    por_time = calcular(eventos, agora)
+    por_time = calcular(eventos, agora, horario=_horario_lojas())
 
     try:
         televendas_id = (agente_televendas.carregar() or {}).get("time_id")
