@@ -726,7 +726,10 @@ function AjustePontual({ dados, setDados }) {
             </button>
           </div>
           <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-            <input type="checkbox" checked={limparCartao} onChange={(e) => setLimparCartao(e.target.checked)} />
+            <input type="checkbox" checked={limparCartao} onChange={(e) => {
+              setLimparCartao(e.target.checked)
+              if (e.target.checked) setValores((v) => ({ ...v, preco_cartao: '' }))
+            }} />
             Preço cartão em branco (o agente calcula Pix ÷ 0,9, como no site)
           </label>
           {cartaoAntigo && (
