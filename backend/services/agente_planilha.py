@@ -7,6 +7,10 @@ validadas pelo endpoint /api/agente-ia/planilha/feed.
 
 Gravacao = load job WRITE_TRUNCATE e leitura = list_rows: nenhum dos dois
 cobra query no BigQuery (a cota do projeto e de ~30 GiB/dia).
+
+Ajuste pontual (ajustar): troca preco/estoque/ativo de alguns SKUs sem subir a
+planilha toda - regrava a tabela com as mesmas linhas e guarda o que mudou em
+agente_planilha_ajustes. Subir uma planilha nova substitui tudo, ajustes inclusive.
 """
 
 from __future__ import annotations
@@ -283,9 +287,10 @@ def _cliente() -> bigquery.Client:
         raise PlanilhaErroBQ("Falha ao autenticar no BigQuery") from exc
 
 
-def salvar(linhas: list[dict[str, Any]], arquivo: str, usuario: str) -> dict[str, Any]:
-    agora = datetime.now(timezone.utc).replace(microsecond=0)
-    registros = [{**l, "arquivo": arquivo, "carregado_por": usuario, "carregado_em": agora.isoformat()} for l in linhas]
+def salvar(linhas: list[dict[str, Any]], arquivo: str, usuario: str,
+           carregado_em: str | None = None) -> dict[str, Any]:
+    agora = carregado_em or datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    registros = [{**l, "arquivo": arquivo, "carregado_por": usuario, "carregado_em": agora} for l in linhas]
     config = bigquery.LoadJobConfig(schema=_SCHEMA, write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
     try:
         _cliente().load_table_from_json(registros, _tabela_id(), job_config=config).result(timeout=_TIMEOUT_S)
@@ -334,3 +339,106 @@ def carregar(forcar: bool = False) -> dict[str, Any] | None:
             }
         _cache.update(feed=feed, lido_em=time.monotonic())
         return feed
+
+
+# --- Ajuste pontual de SKUs -------------------------------------------------------
+
+EDITAVEIS = ("preco_de", "preco_por", "preco_pix", "preco_cartao", "preco_loja", "estoque", "ativo")
+_TABELA_AJUSTES = "agente_planilha_ajustes"
+_SCHEMA_AJUSTES = [
+    bigquery.SchemaField("em", "TIMESTAMP"),
+    bigquery.SchemaField("usuario", "STRING"),
+    bigquery.SchemaField("sku", "STRING"),
+    bigquery.SchemaField("produto", "STRING"),
+    bigquery.SchemaField("campo", "STRING"),
+    bigquery.SchemaField("antes", "STRING"),
+    bigquery.SchemaField("depois", "STRING"),
+]
+_lock_ajuste = threading.Lock()
+
+
+def _texto(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "S" if v else "N"
+    return f"{v:.2f}" if isinstance(v, float) else str(v)
+
+
+def ajustar(skus: list[str], campos: dict[str, Any], usuario: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Aplica `campos` (só EDITAVEIS; "" ou None = em branco) nos SKUs e regrava a
+    planilha. Devolve (planilha, ajustes feitos). Levanta PlanilhaInvalida."""
+    skus = [str(s).strip() for s in skus if str(s).strip()]
+    if not skus:
+        raise PlanilhaInvalida(["Escolha pelo menos um SKU."])
+    novos: dict[str, Any] = {}
+    erros: list[str] = []
+    for nome, valor in campos.items():
+        if nome not in EDITAVEIS:
+            erros.append(f"O campo {nome} não pode ser alterado por aqui.")
+            continue
+        try:
+            if nome == "ativo":
+                novos[nome] = valor if isinstance(valor, bool) else _converter(nome, "bool", str(valor or ""))
+            else:
+                novos[nome] = _converter(nome, COLUNAS[nome][0], "" if valor is None else str(valor))
+        except (ValueError, OverflowError):
+            erros.append(f"{nome}: valor inválido \"{valor}\".")
+    if not novos and not erros:
+        erros.append("Nada para alterar.")
+    if erros:
+        raise PlanilhaInvalida(erros)
+
+    with _lock_ajuste:
+        feed = carregar(forcar=True)
+        if not feed:
+            raise PlanilhaInvalida(["Nenhuma planilha carregada."])
+        linhas = [dict(l) for l in feed["linhas"]]
+        por_sku = {str(l.get("sku")): l for l in linhas}
+        faltando = [s for s in skus if s not in por_sku]
+        if faltando:
+            raise PlanilhaInvalida([f"SKU não está na planilha: {', '.join(faltando)}."])
+        agora = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        ajustes: list[dict[str, Any]] = []
+        for sku in skus:
+            linha = por_sku[sku]
+            for nome, valor in novos.items():
+                if linha.get(nome) != valor:
+                    ajustes.append({"em": agora, "usuario": usuario, "sku": sku, "produto": " ".join(
+                        str(x) for x in (linha.get("produto"), linha.get("variante")) if x),
+                        "campo": nome, "antes": _texto(linha.get(nome)), "depois": _texto(valor)})
+                    linha[nome] = valor
+            if linha.get("preco_por") is not None and linha["preco_por"] <= 0:
+                erros.append(f"SKU {sku}: preco_por precisa ser maior que zero.")
+            if linha.get("preco_por") is None and not linha.get("preco_loja"):
+                erros.append(f"SKU {sku}: precisa de preco_por (site) ou preco_loja.")
+            if linha.get("estoque") is not None and linha["estoque"] < 0:
+                erros.append(f"SKU {sku}: estoque não pode ser negativo.")
+        if erros:
+            raise PlanilhaInvalida(erros)
+        if not ajustes:
+            return feed, []
+        planilha = salvar(linhas, feed.get("arquivo") or "", feed.get("carregado_por") or usuario,
+                          feed.get("carregado_em"))
+    try:
+        job = bigquery.LoadJobConfig(schema=_SCHEMA_AJUSTES, write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+        _cliente().load_table_from_json(ajustes, f"{_PROJECT_ID}.{_DATASET}.{_TABELA_AJUSTES}",
+                                        job_config=job).result(timeout=_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 - o ajuste já valeu; só o histórico falhou
+        import logging
+        logging.getLogger(__name__).exception("planilha: falha ao gravar o histórico de ajustes")
+    return planilha, ajustes
+
+
+def ajustes_recentes(desde: str | None, limite: int = 200) -> list[dict[str, Any]]:
+    """Ajustes feitos depois da planilha atual (desde = carregado_em dela), mais novos primeiro."""
+    try:
+        linhas = [{k: _valor(v) for k, v in row.items()} for row in _cliente().list_rows(
+            f"{_PROJECT_ID}.{_DATASET}.{_TABELA_AJUSTES}", timeout=_TIMEOUT_S)]
+    except NotFound:
+        return []
+    corte = datetime.fromisoformat(desde) if desde else None
+    if corte:
+        linhas = [l for l in linhas if l.get("em") and datetime.fromisoformat(l["em"]) >= corte]
+    linhas.sort(key=lambda l: l.get("em") or "", reverse=True)
+    return linhas[:limite]

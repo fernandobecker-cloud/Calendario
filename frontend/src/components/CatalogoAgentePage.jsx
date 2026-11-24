@@ -572,6 +572,195 @@ function PainelTelevendas() {
   )
 }
 
+const CAMPOS_AJUSTE = [
+  ['preco_de', 'Preço "de"'],
+  ['preco_por', 'Preço Pix (por)'],
+  ['preco_cartao', 'Preço cartão'],
+  ['preco_loja', 'Preço loja'],
+  ['estoque', 'Estoque'],
+]
+const NOMES_CAMPO = { preco_de: 'de', preco_por: 'Pix', preco_pix: 'Pix', preco_cartao: 'cartão', preco_loja: 'loja', estoque: 'estoque', ativo: 'ativo' }
+
+function semAcento(texto) {
+  return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+// Ajuste pontual de preço/estoque de alguns SKUs, sem subir a planilha toda.
+function AjustePontual({ dados, setDados }) {
+  const [busca, setBusca] = useState('')
+  const [marcados, setMarcados] = useState([])
+  const [valores, setValores] = useState({})
+  const [limparCartao, setLimparCartao] = useState(false)
+  const [ativo, setAtivo] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [msg, setMsg] = useState({ ok: '', erro: '', erros: [] })
+
+  const linhas = dados?.planilha?.linhas || []
+  const termos = semAcento(busca).split(/\s+/).filter(Boolean)
+  const achados = termos.length
+    ? linhas.filter((l) => {
+      const alvo = semAcento(`${l.sku} ${l.produto} ${l.variante || ''} ${l.capacidade || ''} ${l.cor || ''}`)
+      return termos.every((t) => alvo.includes(t))
+    })
+    : []
+  const visiveis = achados.slice(0, 40)
+  const selecionadas = linhas.filter((l) => marcados.includes(String(l.sku)))
+  const alternar = (sku) => setMarcados((m) => (m.includes(sku) ? m.filter((x) => x !== sku) : [...m, sku]))
+  const todosVisiveis = visiveis.length > 0 && visiveis.every((l) => marcados.includes(String(l.sku)))
+
+  const campos = {}
+  CAMPOS_AJUSTE.forEach(([k]) => { if (String(valores[k] ?? '').trim()) campos[k] = valores[k] })
+  if (limparCartao) campos.preco_cartao = ''
+  if (ativo) campos.ativo = ativo === 'S'
+  const cartaoAntigo = campos.preco_por && !('preco_cartao' in campos)
+    && selecionadas.some((l) => l.preco_cartao != null)
+
+  const aplicar = async () => {
+    setEnviando(true)
+    setMsg({ ok: '', erro: '', erros: [] })
+    try {
+      const res = await fetch('/api/agente-ia/planilha/skus', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus: marcados, campos }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        const d = payload?.detail
+        if (d && Array.isArray(d.erros)) { setMsg({ ok: '', erro: d.mensagem, erros: d.erros }); return }
+        throw new Error(extrairDetalheErro(payload) || `HTTP ${res.status}`)
+      }
+      setDados((atual) => ({ ...atual, ...payload }))
+      const n = new Set((payload.feitos || []).map((f) => f.sku)).size
+      setMsg({ ok: n ? `${n} SKU(s) alterado(s). O agente passa a usar em até 2 minutos.` : 'Nada mudou: os valores já eram esses.', erro: '', erros: [] })
+      setValores({})
+      setLimparCartao(false)
+      setAtivo('')
+    } catch (err) {
+      setMsg({ ok: '', erro: err instanceof Error ? err.message : 'Falhou.', erros: [] })
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  if (!linhas.length) return null
+  const ajustes = dados?.ajustes || []
+  return (
+    <details className="mt-4 rounded-xl border border-slate-200 p-4 text-sm" open={marcados.length > 0 || undefined}>
+      <summary className="cursor-pointer font-semibold text-slate-800">
+        Ajuste pontual de preço / estoque{ajustes.length > 0 && ` · ${ajustes.length} ajuste(s) desde a planilha atual`}
+      </summary>
+      <p className="mt-2 text-xs text-slate-500">
+        Busque pelo SKU ou pelo nome (ex.: "17 pro max 256"), marque os SKUs e preencha só o que muda; campo vazio fica como
+        está. Subir uma planilha nova substitui tudo, inclusive estes ajustes: leve-os para a planilha antes.
+      </p>
+      <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="SKU ou nome do produto"
+        className="mt-3 w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+      {termos.length > 0 && (
+        <div className="mt-2 max-h-72 overflow-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 text-left font-semibold text-slate-500">
+                <th className="px-2 py-1.5">
+                  <input type="checkbox" checked={todosVisiveis} onChange={() => setMarcados((m) => (todosVisiveis
+                    ? m.filter((x) => !visiveis.some((l) => String(l.sku) === x))
+                    : [...new Set([...m, ...visiveis.map((l) => String(l.sku))])]))} />
+                </th>
+                <th className="px-2 py-1.5">SKU</th>
+                <th className="px-2 py-1.5">Produto</th>
+                <th className="px-2 py-1.5 text-right">De</th>
+                <th className="px-2 py-1.5 text-right">Pix</th>
+                <th className="px-2 py-1.5 text-right">Cartão</th>
+                <th className="px-2 py-1.5 text-right">Loja</th>
+                <th className="px-2 py-1.5 text-right">Estoque</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visiveis.map((l) => (
+                <tr key={l.sku} onClick={() => alternar(String(l.sku))}
+                  className={`cursor-pointer border-b border-slate-100 ${marcados.includes(String(l.sku)) ? 'bg-indigo-50' : ''} ${l.ativo === false ? 'text-slate-400 line-through' : ''}`}>
+                  <td className="px-2 py-1.5"><input type="checkbox" readOnly checked={marcados.includes(String(l.sku))} /></td>
+                  <td className="px-2 py-1.5">{l.sku}</td>
+                  <td className="px-2 py-1.5">{l.produto} {l.variante || [l.capacidade, l.cor].filter(Boolean).join(' ')}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_de)}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_pix ?? l.preco_por)}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right">{l.preco_cartao != null ? moeda(l.preco_cartao) : 'Pix ÷ 0,9'}</td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right">{moeda(l.preco_loja)}</td>
+                  <td className="px-2 py-1.5 text-right">{l.estoque ?? 'disponível'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1 text-xs text-slate-400">
+            {achados.length} encontrado(s){achados.length > visiveis.length && `, mostrando ${visiveis.length}: refine a busca`}
+          </p>
+        </div>
+      )}
+      {marcados.length > 0 && (
+        <div className="mt-3 rounded-lg bg-slate-50 p-3">
+          <p className="text-xs text-slate-600">
+            {marcados.length} SKU(s) marcado(s): {marcados.join(', ')}{' '}
+            <button type="button" onClick={() => setMarcados([])} className="text-indigo-600 hover:underline">limpar</button>
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            {CAMPOS_AJUSTE.map(([k, rotulo]) => (
+              <label key={k} className="text-xs text-slate-600">
+                {rotulo}
+                <input value={valores[k] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [k]: e.target.value }))}
+                  disabled={k === 'preco_cartao' && limparCartao} placeholder={k === 'estoque' ? '0 = esgotado' : 'R$'}
+                  className="mt-1 block w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-100" />
+              </label>
+            ))}
+            <label className="text-xs text-slate-600">
+              Ativo
+              <select value={ativo} onChange={(e) => setAtivo(e.target.value)}
+                className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+                <option value="">manter</option>
+                <option value="S">sim</option>
+                <option value="N">não (tira do agente)</option>
+              </select>
+            </label>
+            <button type="button" disabled={enviando || !Object.keys(campos).length} onClick={aplicar}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {enviando ? 'Aplicando...' : `Aplicar em ${marcados.length} SKU(s)`}
+            </button>
+          </div>
+          <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={limparCartao} onChange={(e) => setLimparCartao(e.target.checked)} />
+            Preço cartão em branco (o agente calcula Pix ÷ 0,9, como no site)
+          </label>
+          {cartaoAntigo && (
+            <p className="mt-2 text-xs text-amber-700">
+              Atenção: você mudou o Pix, mas o preço no cartão (base do parcelamento) continua o antigo. Preencha o novo
+              preço no cartão ou marque a opção acima.
+            </p>
+          )}
+        </div>
+      )}
+      {msg.ok && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{msg.ok}</p>}
+      {msg.erro && (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <p>{msg.erro}</p>
+          {msg.erros.length > 0 && <ul className="mt-1 list-disc pl-5">{msg.erros.map((e) => <li key={e}>{e}</li>)}</ul>}
+        </div>
+      )}
+      {ajustes.length > 0 && (
+        <details className="mt-3 text-xs text-slate-600">
+          <summary className="cursor-pointer">Ajustes desde a planilha atual ({ajustes.length})</summary>
+          <ul className="mt-2 space-y-1">
+            {ajustes.map((a, i) => (
+              <li key={i}>
+                {formatarData(a.em)} · {a.usuario} · {a.sku} {a.produto} · {NOMES_CAMPO[a.campo] || a.campo}:{' '}
+                {a.antes || 'vazio'} → {a.depois || 'vazio'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </details>
+  )
+}
+
 function PainelPlanilha() {
   const [dados, setDados] = useState(null)
   const [carregando, setCarregando] = useState(true)
@@ -719,6 +908,8 @@ function PainelPlanilha() {
           <ul className="mt-2 list-disc pl-5">{avisos.map((a) => <li key={a}>{a}</li>)}</ul>
         </div>
       )}
+
+      <AjustePontual dados={dados} setDados={setDados} />
 
       <PainelSite dados={dados} setDados={setDados} />
 

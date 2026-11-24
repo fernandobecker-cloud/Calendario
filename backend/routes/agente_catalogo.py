@@ -127,7 +127,35 @@ def ver_planilha(request: Request):
         feed = agente_planilha.carregar()
     except agente_planilha.PlanilhaErroBQ as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {**_resumo(feed), "agente": _status_do_agente()}
+    return {**_resumo(feed), "agente": _status_do_agente(), "ajustes": _ajustes(feed)}
+
+
+def _ajustes(feed: dict | None) -> list:
+    if not feed:
+        return []
+    try:
+        return agente_planilha.ajustes_recentes(feed.get("carregado_em"))
+    except Exception:  # noqa: BLE001 - histórico é só informativo
+        return []
+
+
+@router.put("/planilha/skus")
+async def ajustar_skus(request: Request):
+    """Ajuste pontual de preço/estoque/ativo de alguns SKUs, sem subir a planilha toda."""
+    _exigir_admin(request)
+    try:
+        dados = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    dados = dados if isinstance(dados, dict) else {}
+    try:
+        feed, feitos = agente_planilha.ajustar(list(dados.get("skus") or []), dict(dados.get("campos") or {}),
+                                               request.state.auth_user.username)
+    except agente_planilha.PlanilhaInvalida as exc:
+        raise HTTPException(status_code=400, detail={"mensagem": "Ajuste não aplicado.", "erros": exc.erros}) from exc
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**_resumo(feed), "feitos": feitos, "ajustes": _ajustes(feed)}
 
 
 @router.get("/planilha/modelo")
