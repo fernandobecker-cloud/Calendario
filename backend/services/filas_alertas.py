@@ -8,6 +8,10 @@ do portal, porque quem tem a URL consegue postar no canal:
     TEAMS_WEBHOOK_URL       canal geral (recebe tudo que não tiver canal próprio)
     TEAMS_WEBHOOK_R1 ... R7 canal de cada regional (opcional)
 
+Opcional (status_hora): no começo de cada hora, dentro do horário, o canal geral
+recebe um status de todas as regionais (fila agora, entradas, atendidos, mkt x
+orgânico e lojas em alerta), mesmo que nenhuma loja esteja em alerta.
+
 As regras (ligado, limites, intervalo, horário) são editadas na aba Filas e
 gravadas numa tabela de uma linha no BigQuery (portal_crm.filas_alertas).
 
@@ -42,7 +46,7 @@ _CACHE_TTL_S = 300
 _CICLO_S = 60
 
 PADRAO = {"ativo": False, "limite_fila": 8, "limite_espera_min": 20, "intervalo_min": 30,
-          "hora_inicio": 10, "hora_fim": 22}
+          "hora_inicio": 10, "hora_fim": 22, "status_hora": False}
 
 _SCHEMA = (
     bigquery.SchemaField("ativo", "BOOLEAN"),
@@ -51,6 +55,7 @@ _SCHEMA = (
     bigquery.SchemaField("intervalo_min", "INTEGER"),
     bigquery.SchemaField("hora_inicio", "INTEGER"),
     bigquery.SchemaField("hora_fim", "INTEGER"),
+    bigquery.SchemaField("status_hora", "BOOLEAN"),
     bigquery.SchemaField("alterado_por", "STRING"),
     bigquery.SchemaField("alterado_em", "TIMESTAMP"),
 )
@@ -60,7 +65,7 @@ _cache: dict[str, Any] = {"lido_em": 0.0, "dados": None}
 # filial -> {"em_alerta": bool, "avisado_em": epoch}
 _lojas: dict[str, dict[str, Any]] = {}
 _enviados: deque = deque(maxlen=50)
-_estado = {"iniciado": False, "ultimo_ciclo": None, "ultimo_erro": None}
+_estado = {"iniciado": False, "ultimo_ciclo": None, "ultimo_erro": None, "status_enviado": None}
 
 
 class ConfigInvalida(ValueError):
@@ -95,6 +100,7 @@ def validar(dados: dict[str, Any]) -> dict[str, Any]:
             "intervalo_min": int(dados.get("intervalo_min") or 0),
             "hora_inicio": int(dados.get("hora_inicio") if dados.get("hora_inicio") is not None else 0),
             "hora_fim": int(dados.get("hora_fim") if dados.get("hora_fim") is not None else 24),
+            "status_hora": bool(dados.get("status_hora")),
         }
     except (TypeError, ValueError) as exc:
         raise ConfigInvalida("Os campos precisam ser números inteiros.") from exc
@@ -125,20 +131,20 @@ def salvar(dados: dict[str, Any], usuario: str) -> dict[str, Any]:
 def carregar() -> dict[str, Any]:
     with _lock:
         if _cache["lido_em"] and time.monotonic() - _cache["lido_em"] < _CACHE_TTL_S:
-            return _cache["dados"] or dict(PADRAO)
+            return {**PADRAO, **_cache["dados"]} if _cache["dados"] else dict(PADRAO)
         try:
             linhas = list(_cliente().list_rows(_tabela_id(), timeout=_TIMEOUT_S))
         except NotFound:
             linhas = []
         except Exception as exc:  # noqa: BLE001
             if _cache["lido_em"]:
-                return _cache["dados"] or dict(PADRAO)
+                return {**PADRAO, **_cache["dados"]} if _cache["dados"] else dict(PADRAO)
             raise PlanilhaErroBQ(f"Falha ao ler os alertas no BigQuery: {exc}") from exc
         dados = None
         if linhas:
             dados = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in linhas[0].items()}
         _cache.update(dados=dados, lido_em=time.monotonic())
-        return dados or dict(PADRAO)
+        return {**PADRAO, **dados} if dados else dict(PADRAO)
 
 
 # --- Cartão do Teams ------------------------------------------------------------
@@ -191,6 +197,79 @@ def enviar_teste(usuario: str) -> dict[str, Any]:
         erro = _postar(url, cartao)
         (erros.append(f"{nome}: {erro}") if erro else enviados.append(nome))
     return {"enviados": enviados, "erros": erros}
+
+
+# --- Status geral de hora em hora (canal geral) ---------------------------------
+
+
+def _gerentes() -> dict[str, str]:
+    """Regional -> primeiro nome do gerente regional (do mapa de lojas)."""
+    try:
+        mapa = agente_filas.carregar_mapa()
+    except Exception:  # noqa: BLE001 - o status sai sem o nome
+        return {}
+    saida = {}
+    for loja in mapa.values():
+        if loja.regional and loja.gerente_regional and loja.regional not in saida:
+            saida[loja.regional] = loja.gerente_regional.split()[0].title()
+    return saida
+
+
+def _resumo(t: dict[str, Any]) -> str:
+    espera = f" (maior espera {_min(t.get('espera_mais_antiga_min'))})" if t["na_fila"] else ""
+    return (f"{t['na_fila']} na fila agora{espera} · hoje "
+            f"{t['entraram_hoje']} entraram ({t['entraram_campanha']} mkt · {t['entraram_organico']} orgânico), "
+            f"{t['atendidos_hoje']} atendidos, espera média {_min(t.get('espera_media_min'))}")
+
+
+def montar_status(painel: dict[str, Any], cfg: dict[str, Any], agora: datetime) -> tuple[str, list[str]]:
+    gerentes = _gerentes()
+    titulo = f"📊 Status das filas às {agora.astimezone(agente_filas.FUSO):%H:%M}"
+    linhas = [f"**Todas as lojas:** {_resumo(painel['total_lojas'])}"]
+    alerta = []
+    for reg in painel.get("regionais", []):
+        nome = reg["regional"] + (f" ({gerentes[reg['regional']]})" if reg["regional"] in gerentes else "")
+        linhas.append(f"**{nome}:** {_resumo(reg['total'])}")
+        alerta += [(reg["regional"], l) for l in reg["lojas"] if _em_alerta(l, cfg)]
+    if alerta:
+        alerta.sort(key=lambda x: (-x[1]["na_fila"], -(x[1].get("espera_mais_antiga_min") or 0)))
+        lojas = "; ".join(f"{l['filial']} {l['loja']} ({reg}): {l['na_fila']} na fila, "
+                          f"{_min(l.get('espera_mais_antiga_min'))}" for reg, l in alerta[:8])
+        mais = f" e mais {len(alerta) - 8}" if len(alerta) > 8 else ""
+        linhas.append(f"⚠️ **Em alerta agora ({len(alerta)}):** {lojas}{mais}")
+    else:
+        linhas.append("✅ Nenhuma loja acima do limite agora.")
+    return titulo, linhas
+
+
+def enviar_status(painel: dict[str, Any] | None = None, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    url = canais().get("geral")
+    if not url:
+        return {"enviados": [], "erros": ["Canal geral não configurado (TEAMS_WEBHOOK_URL)."]}
+    cfg = cfg or carregar()
+    painel = painel or agente_filas.painel(com_televendas=False)
+    titulo, linhas = montar_status(painel, cfg, datetime.now(timezone.utc))
+    erro = _postar(url, _cartao(titulo, linhas, _link()))
+    _enviados.appendleft({"em": datetime.now(agente_filas.FUSO).isoformat(timespec="seconds"), "canal": "geral",
+                          "lojas": ["status geral"], "erro": erro})
+    if erro:
+        _estado["ultimo_erro"] = erro
+        log.warning("status: %s", erro)
+        return {"enviados": [], "erros": [f"geral: {erro}"]}
+    return {"enviados": ["geral"], "erros": []}
+
+
+def status_devido(cfg: dict[str, Any], agora: datetime) -> str | None:
+    """Chave da hora (ex. "2026-11-27 14") se o status desta hora ainda não saiu.
+    Vai nos primeiros minutos de cada hora cheia, depois do início e até o fim do
+    horário (com 10h-22h: 11h, 12h, ..., 22h - o das 22h fecha o dia)."""
+    if not cfg.get("status_hora"):
+        return None
+    local = agora.astimezone(agente_filas.FUSO)
+    if local.minute >= 5 or not int(cfg["hora_inicio"]) < local.hour <= int(cfg["hora_fim"]):
+        return None
+    chave = local.strftime("%Y-%m-%d %H")
+    return None if chave == _estado["status_enviado"] else chave
 
 
 # --- Verificação periódica --------------------------------------------------------
@@ -258,11 +337,16 @@ def ciclo() -> None:
     cfg = carregar()
     agora = datetime.now(timezone.utc)
     _estado["ultimo_ciclo"] = agora.astimezone(agente_filas.FUSO).isoformat(timespec="seconds")
-    if not cfg.get("ativo") or not _dentro_do_horario(cfg, agora):
-        return
-    avisar = verificar(cfg, agente_filas.painel(com_televendas=False), time.time())
-    if avisar:
-        _enviar(avisar, cfg)
+    painel = None
+    if cfg.get("ativo") and _dentro_do_horario(cfg, agora):
+        painel = agente_filas.painel(com_televendas=False)
+        avisar = verificar(cfg, painel, time.time())
+        if avisar:
+            _enviar(avisar, cfg)
+    chave = status_devido(cfg, agora)
+    if chave:
+        _estado["status_enviado"] = chave  # marca antes: se falhar, não repete a cada minuto
+        enviar_status(painel, cfg)
 
 
 def _loop() -> None:

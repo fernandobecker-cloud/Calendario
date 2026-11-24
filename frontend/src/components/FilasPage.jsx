@@ -187,6 +187,10 @@ function AlertasTeams() {
     const p = await chamar('POST', '/api/agente-ia/fila/alertas/teste')
     if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? `Teste enviado para: ${p.enviados.join(', ')}.` : '' })
   }
+  const statusAgora = async () => {
+    const p = await chamar('POST', '/api/agente-ia/fila/alertas/status')
+    if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? 'Status enviado para o canal geral.' : '' })
+  }
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -216,8 +220,16 @@ function AlertasTeams() {
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50">Enviar teste</button>
         </div>
       </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-slate-800">
+          <input type="checkbox" checked={!!form.status_hora} onChange={(e) => set('status_hora')(e.target.checked)} className="h-4 w-4" />
+          Status geral de hora em hora no canal geral (no horário acima; salve para valer)
+        </label>
+        <button type="button" disabled={ocupado || !dados.canais.includes('geral')} onClick={statusAgora}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50">Enviar status agora</button>
+      </div>
       <p className="mt-2 text-xs text-slate-500">
-        Use 0 para ignorar um dos limites. Um canal por regional é opcional (TEAMS_WEBHOOK_R1 a R7); sem ele, vai para o canal geral.
+        Use 0 para ignorar um dos limites. O alerta de uma loja vai para o canal da regional dela (TEAMS_WEBHOOK_R1 a R7); regional sem canal próprio cai no canal geral.
       </p>
       {msg.ok && <p className="mt-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg.ok}</p>}
       {msg.erro && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{msg.erro}</p>}
