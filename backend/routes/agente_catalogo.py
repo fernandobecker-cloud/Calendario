@@ -342,6 +342,12 @@ def testar_alertas(request: Request):
     return filas_alertas.enviar_teste(request.state.auth_user.username)
 
 
+@router.post("/fila/alertas/teste-marcacao/{filial}")
+def testar_marcacao(filial: str, request: Request):
+    _exigir_admin(request)
+    return filas_alertas.testar_marcacao(filial, request.state.auth_user.username)
+
+
 @router.post("/fila/alertas/status")
 def enviar_status_agora(request: Request):
     _exigir_admin(request)

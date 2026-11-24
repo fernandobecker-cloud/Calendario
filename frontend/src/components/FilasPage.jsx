@@ -146,6 +146,7 @@ function AlertasTeams() {
   const [form, setForm] = useState(null)
   const [msg, setMsg] = useState({ erro: '', ok: '' })
   const [ocupado, setOcupado] = useState(false)
+  const [filialTeste, setFilialTeste] = useState('')
 
   const aplicar = (payload) => {
     setDados(payload)
@@ -187,6 +188,10 @@ function AlertasTeams() {
     const p = await chamar('POST', '/api/agente-ia/fila/alertas/teste')
     if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? `Teste enviado para: ${p.enviados.join(', ')}.` : '' })
   }
+  const testarMarcacao = async () => {
+    const p = await chamar('POST', `/api/agente-ia/fila/alertas/teste-marcacao/${encodeURIComponent(filialTeste.trim())}`)
+    if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? `Teste de marcação enviado para o canal ${p.enviados[0]}.` : '' })
+  }
   const statusAgora = async () => {
     const p = await chamar('POST', '/api/agente-ia/fila/alertas/status')
     if (p) setMsg({ erro: p.erros.join(' · '), ok: p.enviados.length ? 'Status enviado para o canal geral.' : '' })
@@ -227,6 +232,16 @@ function AlertasTeams() {
         </label>
         <button type="button" disabled={ocupado || !dados.canais.includes('geral')} onClick={statusAgora}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50">Enviar status agora</button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-slate-800">
+          <input type="checkbox" checked={!!form.marcar_gerentes} onChange={(e) => set('marcar_gerentes')(e.target.checked)} className="h-4 w-4" />
+          Marcar (@) gerente e subgerente da loja no alerta (gerente{'{filial}'}@ e subgerente{'{filial}'}@iplace.com.br)
+        </label>
+        <input value={filialTeste} onChange={(e) => setFilialTeste(e.target.value)} placeholder="nº da filial"
+          className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+        <button type="button" disabled={ocupado || !filialTeste.trim() || !dados.canais.length} onClick={testarMarcacao}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 disabled:opacity-50">Testar marcação</button>
       </div>
       <p className="mt-2 text-xs text-slate-500">
         Use 0 para ignorar um dos limites. O alerta de uma loja vai para o canal da regional dela (TEAMS_WEBHOOK_R1 a R7); regional sem canal próprio cai no canal geral.

@@ -12,6 +12,9 @@ Opcional (status_hora): no começo de cada hora, dentro do horário, o canal ger
 recebe um status de todas as regionais (fila agora, entradas, atendidos, mkt x
 orgânico e lojas em alerta), mesmo que nenhuma loja esteja em alerta.
 
+Opcional (marcar_gerentes): o alerta de cada loja marca (@) o gerente e o
+subgerente dela no Teams, pelo e-mail padrão gerente{filial}@ / subgerente{filial}@.
+
 As regras (ligado, limites, intervalo, horário) são editadas na aba Filas e
 gravadas numa tabela de uma linha no BigQuery (portal_crm.filas_alertas).
 
@@ -46,7 +49,8 @@ _CACHE_TTL_S = 300
 _CICLO_S = 60
 
 PADRAO = {"ativo": False, "limite_fila": 8, "limite_espera_min": 20, "intervalo_min": 30,
-          "hora_inicio": 10, "hora_fim": 22, "status_hora": False}
+          "hora_inicio": 10, "hora_fim": 22, "status_hora": False,
+          "marcar_gerentes": False}
 
 _SCHEMA = (
     bigquery.SchemaField("ativo", "BOOLEAN"),
@@ -56,6 +60,7 @@ _SCHEMA = (
     bigquery.SchemaField("hora_inicio", "INTEGER"),
     bigquery.SchemaField("hora_fim", "INTEGER"),
     bigquery.SchemaField("status_hora", "BOOLEAN"),
+    bigquery.SchemaField("marcar_gerentes", "BOOLEAN"),
     bigquery.SchemaField("alterado_por", "STRING"),
     bigquery.SchemaField("alterado_em", "TIMESTAMP"),
 )
@@ -101,6 +106,7 @@ def validar(dados: dict[str, Any]) -> dict[str, Any]:
             "hora_inicio": int(dados.get("hora_inicio") if dados.get("hora_inicio") is not None else 0),
             "hora_fim": int(dados.get("hora_fim") if dados.get("hora_fim") is not None else 24),
             "status_hora": bool(dados.get("status_hora")),
+            "marcar_gerentes": bool(dados.get("marcar_gerentes")),
         }
     except (TypeError, ValueError) as exc:
         raise ConfigInvalida("Os campos precisam ser números inteiros.") from exc
@@ -150,12 +156,28 @@ def carregar() -> dict[str, Any]:
 # --- Cartão do Teams ------------------------------------------------------------
 
 
-def _cartao(titulo: str, linhas: list[str], link: str | None) -> dict[str, Any]:
+def _mencoes(filial: str) -> tuple[str, list[dict[str, Any]]]:
+    """Texto com @gerente e @subgerente da loja e as entidades que o Teams pede para marcar."""
+    loja = agente_filas.carregar_mapa().get(filial)
+    if not loja:
+        return "", []
+    texto, entidades = [], []
+    for cargo, email in (("Gerente", loja.email_gerente), ("Subgerente", loja.email_subgerente)):
+        marca = f"<at>{cargo} {filial}</at>"
+        texto.append(marca)
+        entidades.append({"type": "mention", "text": marca, "mentioned": {"id": email, "name": f"{cargo} {filial}"}})
+    return " ".join(texto), entidades
+
+
+def _cartao(titulo: str, linhas: list[str], link: str | None,
+            mencoes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     corpo: list[dict[str, Any]] = [{"type": "TextBlock", "text": titulo, "weight": "Bolder", "size": "Medium",
                                     "wrap": True}]
     corpo += [{"type": "TextBlock", "text": l, "wrap": True, "spacing": "Small"} for l in linhas]
     conteudo: dict[str, Any] = {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                                 "type": "AdaptiveCard", "version": "1.4", "body": corpo}
+    if mencoes:
+        conteudo["msteams"] = {"entities": mencoes}
     if link:
         conteudo["actions"] = [{"type": "Action.OpenUrl", "title": "Abrir o painel das filas", "url": link}]
     return {"type": "message", "attachments": [
@@ -272,6 +294,24 @@ def status_devido(cfg: dict[str, Any], agora: datetime) -> str | None:
     return None if chave == _estado["status_enviado"] else chave
 
 
+def testar_marcacao(filial: str, usuario: str) -> dict[str, Any]:
+    """Posta no canal da regional da loja um cartão marcando o gerente e o subgerente dela."""
+    loja = agente_filas.carregar_mapa().get(str(filial).strip())
+    if not loja:
+        return {"enviados": [], "erros": [f"Loja {filial} não está no mapa de lojas."]}
+    destinos = canais()
+    canal = loja.regional if loja.regional in destinos else "geral"
+    if canal not in destinos:
+        return {"enviados": [], "erros": ["Nenhum canal configurado para essa loja."]}
+    marca, entidades = _mencoes(loja.filial)
+    cartao = _cartao(f"✅ Teste de marcação ({loja.filial} {agente_filas._nome_loja(loja.descricao)})",
+                     [f"{marca}: teste dos alertas de fila enviado pelo portal do CRM por {usuario}. "
+                      "Se o seu nome apareceu marcado, os avisos de fila alta da loja vão marcar vocês."],
+                     _link(), entidades)
+    erro = _postar(destinos[canal], cartao)
+    return {"enviados": [] if erro else [canal], "erros": [f"{canal}: {erro}"] if erro else []}
+
+
 # --- Verificação periódica --------------------------------------------------------
 
 
@@ -317,15 +357,19 @@ def _enviar(avisar: dict[str, list[dict[str, Any]]], cfg: dict[str, Any]) -> Non
             continue
         por_canal.setdefault(canal, []).extend((regional, l) for l in lojas)
     for canal, itens in por_canal.items():
-        linhas = [
-            f"**{l['filial']} {l['loja']}** ({reg}): {l['na_fila']} na fila, mais antigo há "
-            f"{_min(l.get('espera_mais_antiga_min'))}{' · continua alta' if l['repetido'] else ''}"
-            for reg, l in sorted(itens, key=lambda x: -x[1]["na_fila"])
-        ]
+        linhas, entidades = [], []
+        for reg, l in sorted(itens, key=lambda x: -x[1]["na_fila"]):
+            marca = ""
+            if cfg.get("marcar_gerentes"):
+                marca, ents = _mencoes(l["filial"])
+                entidades += ents
+            linhas.append(f"**{l['filial']} {l['loja']}** ({reg}): {l['na_fila']} na fila, mais antigo há "
+                          f"{_min(l.get('espera_mais_antiga_min'))}{' · continua alta' if l['repetido'] else ''}"
+                          f"{' · ' + marca if marca else ''}")
         titulo = "⚠️ Fila alta " + ("na loja" if len(itens) == 1 else f"em {len(itens)} lojas")
         rodape = (f"Limite: {cfg['limite_fila']} na fila ou {cfg['limite_espera_min']} min de espera. "
                   f"Novo aviso da mesma loja em {cfg['intervalo_min']} min se continuar.")
-        erro = _postar(destinos[canal], _cartao(titulo, linhas + [f"_{rodape}_"], _link()))
+        erro = _postar(destinos[canal], _cartao(titulo, linhas + [f"_{rodape}_"], _link(), entidades))
         _enviados.appendleft({"em": datetime.now(agente_filas.FUSO).isoformat(timespec="seconds"), "canal": canal,
                               "lojas": [f"{l['filial']} {l['loja']}" for _, l in itens], "erro": erro})
         if erro:
