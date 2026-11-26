@@ -11,8 +11,11 @@ Aqui fica, em memória, quem está esperando em cada time e desde quando.
 A configuração (modo, time do televendas e limites) é feita no portal (aba
 Catálogo do agente) e lida de lá a cada CONFIG_TTL_S:
     modo "automatico"    -> segue a fila, com dois limites para não ficar
-                            ligando e desligando (desliga com >= limite_desliga
-                            esperando, religa com <= limite_religa);
+                            ligando e desligando, por quantidade (desliga com
+                            >= limite_desliga esperando, religa com <= limite_religa)
+                            e/ou por tempo (desliga quando o mais antigo espera
+                            >= espera_desliga_min, religa com <= espera_religa_min).
+                            Desliga se qualquer um passar; religa quando todos voltarem;
     modo "disponivel"    -> televendas sempre oferecido;
     modo "indisponivel"  -> televendas nunca oferecido.
 
@@ -215,19 +218,26 @@ def ler_config() -> dict:
     return _config["dados"] or {}
 
 
-def _decidir(cfg: dict, na_fila: int) -> bool:
+def _decidir(cfg: dict, na_fila: int, espera_min: float = 0.0) -> bool:
+    """Automático: desliga quando QUALQUER critério ligado passa do limite (clientes
+    na fila ou minutos de espera do mais antigo); religa só quando TODOS os critérios
+    ligados voltam ao limite de religar. Limite de desligar 0 = critério desligado."""
     modo = cfg.get("modo") if cfg.get("modo") in MODOS else "disponivel"
     if modo != "automatico":
         return modo == "disponivel"
     if not cfg.get("time_id"):
         return True
-    desliga = int(cfg.get("limite_desliga") or 0)
-    religa = int(cfg.get("limite_religa") or 0)
-    if desliga <= 0:
+    criterios = []  # (valor atual, limite para desligar, limite para religar)
+    for valor, campo_desliga, campo_religa in ((na_fila, "limite_desliga", "limite_religa"),
+                                               (espera_min, "espera_desliga_min", "espera_religa_min")):
+        desliga = int(cfg.get(campo_desliga) or 0)
+        if desliga > 0:
+            criterios.append((valor, desliga, min(int(cfg.get(campo_religa) or 0), desliga - 1)))
+    if not criterios:
         return True
-    if _estado["disponivel"] and na_fila >= desliga:
+    if _estado["disponivel"] and any(valor >= desliga for valor, desliga, _ in criterios):
         return False
-    if not _estado["disponivel"] and na_fila <= min(religa, desliga - 1):
+    if not _estado["disponivel"] and all(valor <= religa for valor, _, religa in criterios):
         return True
     return _estado["disponivel"]
 
@@ -239,9 +249,11 @@ def situacao() -> dict:
         _limpar_expirados(agora)
         time_id = cfg.get("time_id")
         esperando = [e for e in _espera.values() if e["time"] == time_id] if time_id else []
-        disponivel = _decidir(cfg, len(esperando))
+        espera_min = round((agora - min(e["desde"] for e in esperando)) / 60, 1) if esperando else 0
+        disponivel = _decidir(cfg, len(esperando), espera_min)
         if disponivel != _estado["disponivel"]:
-            log.info("televendas %s (fila %s)", "DISPONIVEL" if disponivel else "INDISPONIVEL", len(esperando))
+            log.info("televendas %s (fila %s, espera %s min)", "DISPONIVEL" if disponivel else "INDISPONIVEL",
+                     len(esperando), espera_min)
         _estado["disponivel"] = disponivel
         por_time: dict[str, int] = {}
         for e in _espera.values():
@@ -250,7 +262,7 @@ def situacao() -> dict:
             "disponivel": disponivel,
             "config": cfg,
             "na_fila": len(esperando),
-            "espera_mais_antiga_min": round((agora - min(e["desde"] for e in esperando)) / 60, 1) if esperando else 0,
+            "espera_mais_antiga_min": espera_min,
             "eventos_recebidos": _estado["eventos"],
             "ultimo_evento": datetime.fromtimestamp(_estado["ultimo_evento"]).astimezone().isoformat()
             if _estado["ultimo_evento"] else None,

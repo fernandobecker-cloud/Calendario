@@ -3,7 +3,9 @@
 """
 
 import os
+import time
 import unittest
+from datetime import datetime, timezone
 
 os.environ.setdefault("AGENTE_API_TOKEN", "segredo-teste")
 
@@ -352,6 +354,32 @@ class FilaDoTelevendas(unittest.TestCase):
         self.assertFalse(fila.situacao()["disponivel"])  # 2: ainda acima do limite de religar
         self.evento("chat-finished", "b")
         self.assertTrue(fila.situacao()["disponivel"])   # 1: religa
+
+    def _ha_min(self, minutos):
+        return datetime.fromtimestamp(time.time() - minutos * 60, timezone.utc).isoformat()
+
+    def test_limite_por_tempo_de_espera(self):
+        self.cfg = {"modo": "automatico", "time_id": self.TELEVENDAS, "espera_desliga_min": 10, "espera_religa_min": 3}
+        self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS, quando=self._ha_min(5))
+        self.assertTrue(fila.situacao()["disponivel"])   # 5 min: abaixo do limite
+        self.evento("chat-routed", "b", "TEAM", self.TELEVENDAS, quando=self._ha_min(12))
+        self.assertFalse(fila.situacao()["disponivel"])  # 12 min: desliga
+        self.evento("chat-finished", "b")
+        self.assertFalse(fila.situacao()["disponivel"])  # 5 min: ainda acima do limite de religar
+        self.evento("chat-finished", "a")
+        self.assertTrue(fila.situacao()["disponivel"])   # fila vazia: religa
+
+    def test_fila_e_tempo_juntos(self):
+        self.cfg = {**self.cfg, "espera_desliga_min": 10, "espera_religa_min": 3}
+        self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS, quando=self._ha_min(15))
+        self.assertFalse(fila.situacao()["disponivel"])  # só 1 na fila, mas 15 min: desliga pelo tempo
+        self.evento("chat-finished", "a")
+        for chat in "bcd":
+            self.evento("chat-routed", chat, "TEAM", self.TELEVENDAS, quando=self._ha_min(1))
+        self.assertFalse(fila.situacao()["disponivel"])  # tempo ok, mas 3 na fila: segue desligado
+        self.evento("chat-finished", "b")
+        self.evento("chat-finished", "c")
+        self.assertTrue(fila.situacao()["disponivel"])   # 1 na fila e 1 min: religa
 
     def test_espera_antiga_expira(self):
         self.evento("chat-routed", "a", "TEAM", self.TELEVENDAS, quando="2020-01-01T00:00:00Z")

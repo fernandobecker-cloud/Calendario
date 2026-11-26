@@ -246,7 +246,7 @@ function PainelSite({ dados, setDados }) {
 }
 
 const MODOS_TELEVENDAS = [
-  { valor: 'automatico', rotulo: 'Automático', ajuda: 'Segue a fila do time do televendas na Omnichat.' },
+  { valor: 'automatico', rotulo: 'Automático', ajuda: 'Segue a fila do time do televendas na Omnichat: quantidade de clientes esperando e/ou tempo de espera.' },
   { valor: 'disponivel', rotulo: 'Forçar disponível', ajuda: 'A Ana sempre oferece o televendas.' },
   { valor: 'indisponivel', rotulo: 'Forçar indisponível', ajuda: 'A Ana oferece só site ou loja física.' },
 ]
@@ -365,7 +365,9 @@ export function DiagnosticoFilas() {
 
 function PainelTelevendas() {
   const [dados, setDados] = useState(null)
-  const [form, setForm] = useState({ modo: 'disponivel', time_id: '', limite_desliga: 15, limite_religa: 8 })
+  const [form, setForm] = useState({
+    modo: 'disponivel', time_id: '', limite_desliga: 15, limite_religa: 8, espera_desliga_min: '', espera_religa_min: '',
+  })
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const [sucesso, setSucesso] = useState('')
@@ -377,8 +379,11 @@ function PainelTelevendas() {
       setForm({
         modo: c.modo || 'disponivel',
         time_id: c.time_id || '',
-        limite_desliga: c.limite_desliga || 15,
-        limite_religa: c.limite_religa ?? 8,
+        // 0 = critério desligado: aparece vazio. Config antiga (sem os campos de tempo) mantém a fila.
+        limite_desliga: c.limite_desliga == null ? 15 : (c.limite_desliga || ''),
+        limite_religa: c.limite_desliga ? (c.limite_religa ?? 8) : '',
+        espera_desliga_min: c.espera_desliga_min || '',
+        espera_religa_min: c.espera_desliga_min ? (c.espera_religa_min ?? '') : '',
       })
     }
   }, [])
@@ -491,28 +496,62 @@ function PainelTelevendas() {
             </label>
             {form.modo === 'automatico' && (
             <>
-            <label className="flex w-52 flex-col gap-1 text-sm text-slate-600">
-              Desligar com
-              <input
-                type="number"
-                min="1"
-                value={form.limite_desliga}
-                onChange={(e) => setForm((f) => ({ ...f, limite_desliga: e.target.value }))}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-              />
-              <span className="text-xs text-slate-400">clientes esperando ou mais</span>
-            </label>
-            <label className="flex w-52 flex-col gap-1 text-sm text-slate-600">
-              Religar com
-              <input
-                type="number"
-                min="0"
-                value={form.limite_religa}
-                onChange={(e) => setForm((f) => ({ ...f, limite_religa: e.target.value }))}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-              />
-              <span className="text-xs text-slate-400">clientes esperando ou menos</span>
-            </label>
+            <fieldset className="flex flex-wrap gap-4 rounded-lg border border-slate-200 px-3 pb-3 pt-1">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Por fila</legend>
+              <label className="flex w-44 flex-col gap-1 text-sm text-slate-600">
+                Desligar com
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="desligado"
+                  value={form.limite_desliga}
+                  onChange={(e) => setForm((f) => ({ ...f, limite_desliga: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+                <span className="text-xs text-slate-400">clientes esperando ou mais</span>
+              </label>
+              <label className="flex w-44 flex-col gap-1 text-sm text-slate-600">
+                Religar com
+                <input
+                  type="number"
+                  min="0"
+                  value={form.limite_religa}
+                  onChange={(e) => setForm((f) => ({ ...f, limite_religa: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+                <span className="text-xs text-slate-400">clientes esperando ou menos</span>
+              </label>
+            </fieldset>
+            <fieldset className="flex flex-wrap gap-4 rounded-lg border border-slate-200 px-3 pb-3 pt-1">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Por tempo de espera</legend>
+              <label className="flex w-44 flex-col gap-1 text-sm text-slate-600">
+                Desligar com
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="desligado"
+                  value={form.espera_desliga_min}
+                  onChange={(e) => setForm((f) => ({ ...f, espera_desliga_min: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+                <span className="text-xs text-slate-400">min ou mais de espera do cliente mais antigo</span>
+              </label>
+              <label className="flex w-44 flex-col gap-1 text-sm text-slate-600">
+                Religar com
+                <input
+                  type="number"
+                  min="0"
+                  value={form.espera_religa_min}
+                  onChange={(e) => setForm((f) => ({ ...f, espera_religa_min: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                />
+                <span className="text-xs text-slate-400">min ou menos</span>
+              </label>
+            </fieldset>
+            <p className="w-full text-xs text-slate-400">
+              Deixe o "desligar com" vazio para não usar aquele critério. Com os dois preenchidos, desliga quando
+              qualquer um passar do limite e só religa quando os dois voltarem ao limite de religar.
+            </p>
             </>
             )}
           </div>

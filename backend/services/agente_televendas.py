@@ -30,6 +30,8 @@ _SCHEMA = (
     bigquery.SchemaField("time_nome", "STRING"),
     bigquery.SchemaField("limite_desliga", "INTEGER"),
     bigquery.SchemaField("limite_religa", "INTEGER"),
+    bigquery.SchemaField("espera_desliga_min", "INTEGER"),
+    bigquery.SchemaField("espera_religa_min", "INTEGER"),
     bigquery.SchemaField("alterado_por", "STRING"),
     bigquery.SchemaField("alterado_em", "TIMESTAMP"),
 )
@@ -56,27 +58,37 @@ def validar(dados: dict[str, Any]) -> dict[str, Any]:
     try:
         desliga = int(dados.get("limite_desliga") or 0)
         religa = int(dados.get("limite_religa") or 0)
+        espera_desliga = int(dados.get("espera_desliga_min") or 0)
+        espera_religa = int(dados.get("espera_religa_min") or 0)
     except (TypeError, ValueError) as exc:
         raise ConfigInvalida("Os limites precisam ser números inteiros.") from exc
     if modo == "automatico":
+        # Limite de desligar 0 (ou vazio) = critério desligado; precisa de pelo menos um.
         if not time_id:
             raise ConfigInvalida("No modo automático, escolha o time do televendas.")
-        if desliga < 1:
-            raise ConfigInvalida("O limite para desligar precisa ser pelo menos 1 cliente na fila.")
-        if not 0 <= religa < desliga:
-            raise ConfigInvalida("O limite para religar precisa ser menor que o limite para desligar.")
+        if desliga < 0 or espera_desliga < 0:
+            raise ConfigInvalida("Os limites não podem ser negativos.")
+        if desliga == 0 and espera_desliga == 0:
+            raise ConfigInvalida("No modo automático, preencha o limite por fila, por tempo de espera ou os dois.")
+        if desliga and not 0 <= religa < desliga:
+            raise ConfigInvalida("O limite de clientes para religar precisa ser menor que o de desligar.")
+        if espera_desliga and not 0 <= espera_religa < espera_desliga:
+            raise ConfigInvalida("O tempo de espera para religar precisa ser menor que o de desligar.")
     return {
         "modo": modo,
         "time_id": time_id,
         "time_nome": str(dados.get("time_nome") or "").strip() or None,
         "limite_desliga": desliga,
-        "limite_religa": religa,
+        "limite_religa": religa if desliga else 0,
+        "espera_desliga_min": espera_desliga,
+        "espera_religa_min": espera_religa if espera_desliga else 0,
     }
 
 
 def salvar(dados: dict[str, Any], usuario: str) -> dict[str, Any]:
     registro = {**validar(dados), "alterado_por": usuario,
                 "alterado_em": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+    # WRITE_TRUNCATE troca também o schema da tabela: as colunas novas entram sozinhas.
     config = bigquery.LoadJobConfig(schema=_SCHEMA, write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
     try:
         _cliente().load_table_from_json([registro], _tabela_id(), job_config=config).result(timeout=_TIMEOUT_S)
