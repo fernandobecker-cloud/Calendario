@@ -281,6 +281,42 @@ def _variante_so_loja(linha: dict) -> dict:
     }
 
 
+def _texto_site(linhas: list[dict]) -> str:
+    """Condição do site/televendas em texto, por capacidade (cores com o mesmo preço juntas).
+    O parcelamento também vai em installmentOptions, mas o Whizz não lê a opção "sem juros"
+    de lá (dividia o Pix por 10), então vai escrito aqui também."""
+    grupos: dict[tuple, list[dict]] = {}
+    for linha in linhas:
+        if so_loja(linha) or not linha.get("preco_por"):
+            continue
+        pix, cartao = precos(linha)
+        chave = (linha.get("capacidade") or "", float(linha.get("preco_de") or 0), pix, cartao,
+                 linha.get("parcelas"), linha.get("juros_mes"))
+        grupos.setdefault(chave, []).append(linha)
+    if not grupos:
+        return ""
+    itens = []
+    for (capacidade, de, pix, cartao, parcelas, juros), grupo in grupos.items():
+        cores = ", ".join(dict.fromkeys(str(l.get("cor")) for l in grupo if l.get("cor")))
+        rotulo = " ".join(p for p in (capacidade, f"({cores})" if cores else "") if p) or _nome_variante(grupo[0])
+        partes = [f"{_brl(pix)} no Pix" + (f" (de {_brl(de)})" if de and de > pix else "")]
+        for opcao in opcoes_de_pagamento(cartao, parcelas=parcelas, juros_mensal_pct=juros, preco_pix=pix):
+            if opcao["name"] == "Pix":
+                continue
+            n = opcao["maxInstallments"]
+            if n <= 1:
+                partes.append(f"{_brl(opcao['oneTimePayment'])} à vista no cartão")
+            elif opcao["interest"]:
+                partes.append(f"{n}x de {_brl(opcao['installmentPrice'])} com juros "
+                              f"(total {_brl(opcao['totalWithInterest'])})")
+            else:
+                partes.append(f"{n}x de {_brl(opcao['installmentPrice'])} sem juros "
+                              f"(total {_brl(opcao['totalWithInterest'])})")
+        itens.append(f"- {rotulo}: " + "; ".join(partes))
+    return ("PREÇO NO SITE E TELEVENDAS (use estes valores exatos; não calcule parcelas):\n"
+            + "\n".join(itens))
+
+
 def _texto_loja(linhas: list[dict]) -> str:
     com_preco = [l for l in linhas if l.get("preco_loja")]
     if not com_preco:
@@ -327,6 +363,9 @@ def produto_omnichat(grupo: dict, somente_sku: str | None = None) -> dict | None
     principal = min(com_estoque or variantes, key=lambda v: v["salePrice"])
     primeira = linhas[0]
     descricao = next((l["descricao"] for l in linhas if l.get("descricao")), "") or ""
+    site = _texto_site(linhas)
+    if site:
+        descricao = f"{descricao}\n\n{site}".strip()
     loja = _texto_loja(linhas)
     if loja:
         descricao = f"{descricao}\n\n{loja}".strip()
