@@ -294,7 +294,8 @@ def inicio_da_espera(desde: datetime, horario: tuple[int, int] | None) -> dateti
 
 def calcular(eventos: list[dict[str, Any]], agora: datetime,
              saidas: dict[str, int] | None = None,
-             horario: tuple[int, int] | None = None) -> dict[str, dict[str, Any]]:
+             horario: tuple[int, int] | None = None,
+             aguardando: dict[str, list[dict[str, Any]]] | None = None) -> dict[str, dict[str, Any]]:
     """Repassa os eventos em ordem e devolve os números de cada time (por id do time).
 
     Um atendimento roteado para um TIME entra na fila daquele time; quando vai
@@ -305,13 +306,19 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
     Em `saidas` (opcional) fica a contagem de como cada um saiu da fila.
     Com `horario` (abre, fecha), a espera de quem entrou fora dele conta a partir
     da abertura (ver inicio_da_espera).
+    Em `aguardando` (opcional) fica, por time, quem está contado como na fila agora, com o
+    último evento visto daquele atendimento e o último status da API da Omnichat (diagnóstico).
     """
     saidas = saidas if saidas is not None else {}
     # Origem de cada atendimento (registros da API da Omnichat), pelo objectId do webhook.
     origem_de: dict[str, str] = {}
+    status_api: dict[str, str] = {}
+    ultimo_de: dict[str, tuple[datetime, str]] = {}
     for e in eventos:
         if e.get("tipo") == "omni-interacao" and e.get("atendimento_id"):
             origem_de[e["atendimento_id"]] = classe_origem(e)
+            status_api[e["atendimento_id"]] = (e.get("interacao_status") or "?") + (
+                f" · assumido por {e.get('contatado_por') or '?'}" if e.get("contatado_em") else "")
     # Respostas de campanha (message-replies) por conversa: só classifica quando o evento está ligado.
     com_respostas = any(e.get("tipo") == "message-replies" for e in eventos)
     respondeu: dict[str, tuple[datetime, str]] = {}
@@ -331,6 +338,10 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
         momento = e["momento"]
         hoje = momento >= inicio_dia
         atual = situacao.get(at)
+        if e.get("tipo") != "message-replies":
+            ultimo_de[at] = (momento, " ".join(str(x) for x in (
+                e.get("tipo"), f"-> {e.get('para_tipo')}" if e.get("para_tipo") else None,
+                e.get("para_nome"), f"por {e.get('por_nome')}" if e.get("por_nome") else None) if x))
         if e.get("tipo") == "message-replies":
             nome = e.get("campanha_nome") or e.get("campanha_id") or "(campanha sem nome)"
             if eh_marketing(nome):  # resposta a mensagem automática não marca como campanha
@@ -341,7 +352,8 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
             if para == "TEAM" and e.get("para_id"):
                 if e.get("para_nome"):
                     nomes[e["para_id"]] = e["para_nome"]
-                situacao[at] = {"time": e["para_id"], "fila": True, "desde": momento}
+                situacao[at] = {"time": e["para_id"], "fila": True, "desde": momento, "entrada": momento,
+                                "atendimento": e.get("atendimento_id"), "por": e.get("por_nome")}
                 if hoje:
                     cont = time_de(e["para_id"])
                     cont["entraram_hoje"] += 1
@@ -393,7 +405,7 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
             situacao.pop(at, None)
 
     limite = agora - timedelta(hours=ESPERA_MAX_H)
-    for s in situacao.values():
+    for at, s in situacao.items():
         # Fora do horário a espera fica parada, então o prazo para expirar também.
         s["desde"] = inicio_da_espera(s["desde"], horario)
         if s["fila"] and s["desde"] < limite:
@@ -403,6 +415,18 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
             cont["na_fila"] += 1
             cont["espera_mais_antiga_min"] = max(cont["espera_mais_antiga_min"],
                                                  round(max(0.0, (agora - s["desde"]).total_seconds()) / 60, 1))
+            if aguardando is not None:
+                ultimo = ultimo_de.get(at)
+                aguardando.setdefault(s["time"], []).append({
+                    "atendimento_id": s.get("atendimento"),
+                    "conversa": str(at)[:8],
+                    "entrou_em": s["entrada"].astimezone(FUSO).isoformat() if s.get("entrada") else None,
+                    "espera_min": round(max(0.0, (agora - s["desde"]).total_seconds()) / 60, 1),
+                    "encaminhado_por": s.get("por"),
+                    "ultimo_evento": ultimo[1] if ultimo else None,
+                    "ultimo_evento_em": ultimo[0].astimezone(FUSO).isoformat() if ultimo else None,
+                    "status_api": status_api.get(s.get("atendimento") or "", "sem consulta"),
+                })
     resultado = {}
     for time_id, cont in por_time.items():
         resultado[time_id] = {
@@ -531,7 +555,8 @@ def diagnostico() -> dict[str, Any]:
     encaminhou: dict[str, int] = {}
     origens: dict[str, int] = {}
     saidas: dict[str, int] = {}
-    calcular(eventos, datetime.now(timezone.utc), saidas)
+    aguardando: dict[str, list[dict[str, Any]]] = {}
+    calcular(eventos, datetime.now(timezone.utc), saidas, horario=_horario_lojas(), aguardando=aguardando)
     for e in eventos:
         if e.get("tipo") == "message-replies" and e["momento"] >= inicio_dia:
             rot = f"Resposta de campanha: {e.get('campanha_nome') or e.get('campanha_id') or '(sem nome)'}"
@@ -566,6 +591,8 @@ def diagnostico() -> dict[str, Any]:
         "origens_hoje": [{"origem": k, "classe": classe_origem({"origem_id": k} if "sem origem" not in k else {}),
                           "atendimentos": v} for k, v in sorted(origens.items(), key=lambda kv: -kv[1])[:30]],
         "saidas_da_fila": dict(sorted(saidas.items(), key=lambda kv: -kv[1])),
+        # Quem o painel conta como na fila do televendas agora (para comparar com a Omnichat).
+        "na_fila_televendas": sorted(aguardando.get(televendas_id or "", []), key=lambda a: -a["espera_min"]),
         # Quem mandou o cliente para a fila das lojas hoje (para separar bot principal e Whizz).
         "encaminhado_para_lojas_por": [{"quem": k, "hoje": v}
                                        for k, v in sorted(encaminhou.items(), key=lambda kv: -kv[1])[:30]],

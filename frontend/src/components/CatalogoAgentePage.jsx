@@ -308,6 +308,42 @@ export function DiagnosticoFilas() {
               </tbody>
             </table>
           )}
+          {dados.na_fila_televendas && (
+            <div className="rounded-lg border border-slate-200 bg-white p-2">
+              <p className="text-xs font-medium text-slate-700">
+                Contados agora na fila do televendas ({dados.na_fila_televendas.length}) — compare com a Omnichat
+              </p>
+              {dados.na_fila_televendas.length > 0 && (
+                <div className="mt-1 max-h-[360px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-left text-slate-500">
+                      <tr>
+                        <th className="py-1 pr-2">Entrou</th>
+                        <th className="pr-2 text-right">Espera</th>
+                        <th className="pr-2">Atendimento</th>
+                        <th className="pr-2">Último evento</th>
+                        <th>Status na API da Omnichat</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dados.na_fila_televendas.map((a) => (
+                        <tr key={`${a.conversa}-${a.entrou_em}`} className="border-t border-slate-100 align-top">
+                          <td className="py-1 pr-2 whitespace-nowrap">{formatarData(a.entrou_em)}</td>
+                          <td className="pr-2 text-right tabular-nums">{a.espera_min} min</td>
+                          <td className="pr-2 font-mono">{a.atendimento_id || a.conversa}</td>
+                          <td className="pr-2">
+                            {a.ultimo_evento || '-'}
+                            {a.ultimo_evento_em && <span className="text-slate-400"> · {formatarData(a.ultimo_evento_em)}</span>}
+                          </td>
+                          <td>{a.status_api}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
           {dados.saidas_da_fila && (
             <p className="text-xs">
               <span className="font-medium text-slate-700">Como saíram da fila: </span>
