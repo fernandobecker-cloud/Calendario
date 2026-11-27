@@ -363,12 +363,10 @@ def produto_omnichat(grupo: dict, somente_sku: str | None = None) -> dict | None
     principal = min(com_estoque or variantes, key=lambda v: v["salePrice"])
     primeira = linhas[0]
     descricao = next((l["descricao"] for l in linhas if l.get("descricao")), "") or ""
-    site = _texto_site(linhas)
-    if site:
-        descricao = f"{descricao}\n\n{site}".strip()
-    loja = _texto_loja(linhas)
-    if loja:
-        descricao = f"{descricao}\n\n{loja}".strip()
+    # Preços primeiro: a descrição do produto é longa e a Omnichat pode cortar o fim.
+    precos_texto = "\n\n".join(t for t in (_texto_site(linhas), _texto_loja(linhas)) if t)
+    if precos_texto:
+        descricao = f"{precos_texto}\n\n{descricao}".strip()
     link = next((l["link"] for l in linhas if l.get("link")), None)
     imagem = next((l["imagem"] for l in linhas if l.get("imagem")), None)
     for v in variantes:

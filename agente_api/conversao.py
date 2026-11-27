@@ -70,7 +70,8 @@ def opcoes_de_pagamento(
     while sj > 1 and truncar(preco_venda / sj) < config.PARCELA_MINIMA:
         sj -= 1
     if sj > 1 and sj != n:
-        opcoes.append({
+        # Primeiro da lista: é a condição que a campanha divulga (o Whizz não achava o 10x).
+        opcoes.insert(0, {
             "name": "Cartão de crédito sem juros",
             "oneTimePayment": arredondar(preco_venda),
             "maxInstallments": sj,

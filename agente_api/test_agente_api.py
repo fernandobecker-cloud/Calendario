@@ -27,7 +27,7 @@ class RegrasDePagamento(unittest.TestCase):
 
     def test_bate_com_o_site(self):
         for venda, pix, parcela in self.CASOS_DO_SITE:
-            cartao, sem_juros, opcao_pix = conversao.opcoes_de_pagamento(venda)
+            sem_juros, cartao, opcao_pix = conversao.opcoes_de_pagamento(venda)
             self.assertEqual(opcao_pix["oneTimePayment"], pix, venda)
             self.assertEqual(cartao["maxInstallments"], 21)
             self.assertEqual(cartao["installmentPrice"], parcela, venda)
@@ -165,7 +165,7 @@ class Planilha(unittest.TestCase):
         pro = r[1]
         self.assertEqual(pro["objectId"], "100544PR")
         self.assertEqual(pro["mainVariant"]["objectId"], "100072474")
-        cartao, sem_juros, pix = pro["mainVariant"]["installmentOptions"]
+        sem_juros, cartao, pix = pro["mainVariant"]["installmentOptions"]
         self.assertEqual(pro["mainVariant"]["salePrice"], 9829.0)  # preco grande do site = Pix
         self.assertEqual((cartao["oneTimePayment"], cartao["installmentPrice"], pix["oneTimePayment"]),
                          (10921.11, 582.20, 9829.0))
@@ -187,10 +187,20 @@ class Planilha(unittest.TestCase):
         self.assertEqual(r[0]["objectId"], "100544PR")
 
     def test_dez_vezes_sem_juros(self):
-        cartao, sem_juros, pix = conversao.opcoes_de_pagamento(5998.89, preco_pix=5399.0)
+        sem_juros, cartao, pix = conversao.opcoes_de_pagamento(5998.89, preco_pix=5399.0)
         self.assertEqual((sem_juros["maxInstallments"], sem_juros["installmentPrice"], sem_juros["interest"]),
                          (10, 599.88, 0))
         self.assertEqual(cartao["maxInstallments"], 21)
+
+    def test_precos_do_site_no_comeco_da_descricao(self):
+        item = planilha.produto_omnichat({"chave": "x", "linhas": [
+            {"produto": "iPhone X", "sku": "1", "capacidade": "256GB", "cor": "Preto", "preco_de": 11699.0,
+             "preco_por": 11049.15, "preco_cartao": 12999.0, "descricao": "Texto longo do produto", "ativo": True}]})
+        descricao = item["productDescription"]
+        self.assertTrue(descricao.startswith("PREÇO NO SITE E TELEVENDAS"))
+        self.assertIn("256GB (Preto): R$ 11.049,15 no Pix (de R$ 11.699,00)", descricao)
+        self.assertIn("10x de R$ 1.299,90 sem juros (total R$ 12.999,00)", descricao)
+        self.assertEqual(item["mainVariant"]["installmentOptions"][0]["maxInstallments"], 10)
 
     def test_iphone_traz_pro_max_entre_os_10(self):
         linhas = [{"produto": n, "produto_id": n, "sku": str(i), "preco_por": p, "link": "x", "categoria": "IPHONE"}
@@ -247,7 +257,7 @@ class Planilha(unittest.TestCase):
     def test_regra_do_site_pix_e_cartao(self):
         # Paginas do site em 17/11/2026: (preco no Pix, parcelas, valor da parcela)
         for pix, n, parcela in [(5399.0, 21, 319.80), (99.0, 21, 5.86), (69.0, 16, None)]:
-            cartao, _sem_juros, opcao_pix = planilha.produto_omnichat(
+            *_, cartao, opcao_pix = planilha.produto_omnichat(
                 {"chave": "x", "linhas": [{"produto": "X", "sku": "1", "preco_por": pix, "ativo": True}]}
             )["mainVariant"]["installmentOptions"]
             self.assertEqual(opcao_pix["oneTimePayment"], pix)
