@@ -312,11 +312,14 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
     saidas = saidas if saidas is not None else {}
     # Origem de cada atendimento (registros da API da Omnichat), pelo objectId do webhook.
     origem_de: dict[str, str] = {}
+    campanha_api: dict[str, str] = {}  # nome da campanha (origem da API) dos atendimentos de mkt
     status_api: dict[str, str] = {}
     ultimo_de: dict[str, tuple[datetime, str]] = {}
     for e in eventos:
         if e.get("tipo") == "omni-interacao" and e.get("atendimento_id"):
             origem_de[e["atendimento_id"]] = classe_origem(e)
+            if origem_de[e["atendimento_id"]] == "campanha":
+                campanha_api[e["atendimento_id"]] = str(e.get("origem_id") or rotulo_origem(e))
             status_api[e["atendimento_id"]] = (e.get("interacao_status") or "?") + (
                 f" · assumido por {e.get('contatado_por') or '?'}" if e.get("contatado_em") else "")
     # Respostas de campanha (message-replies) por conversa: só classifica quando o evento está ligado.
@@ -362,6 +365,9 @@ def calcular(eventos: list[dict[str, Any]], agora: datetime,
                     if resposta and timedelta(0) <= momento - resposta[0] <= janela:
                         classe = "campanha"
                         cont["campanhas"][resposta[1]] = cont["campanhas"].get(resposta[1], 0) + 1
+                    elif classe == "campanha":
+                        nome = campanha_api.get(e.get("atendimento_id") or "") or "(campanha, pela API)"
+                        cont["campanhas"][nome] = cont["campanhas"].get(nome, 0) + 1
                     elif not classe and com_respostas:
                         classe = "organico"
                     if classe:
@@ -598,3 +604,91 @@ def diagnostico() -> dict[str, Any]:
                                        for k, v in sorted(encaminhou.items(), key=lambda kv: -kv[1])[:30]],
         "times": sorted(times.values(), key=lambda t: (t["classificacao"] == "Fora do painel", t["nome"] or "")),
     }
+
+
+# --- Funil das campanhas (aba Filas) ---------------------------------------------
+
+_funil_cache: dict[tuple, tuple[float, list[dict[str, Any]]]] = {}
+
+
+def funil_campanhas(inicio: str, fim: str) -> list[dict[str, Any]]:
+    """Por campanha, no período (datas de Brasília): quantas conversas responderam
+    (webhook message-replies = interagiram com o Whizz) e quantas dessas foram para
+    um time de atendimento humano até CAMPANHA_JANELA_H depois da primeira resposta,
+    separando televendas e lojas. Conta conversas distintas (hash do telefone)."""
+    try:
+        televendas_id = (agente_televendas.carregar() or {}).get("time_id") or ""
+    except PlanilhaErroBQ:
+        televendas_id = ""
+    chave = (inicio, fim, televendas_id)
+    guardado = _funil_cache.get(chave)
+    if guardado and time.monotonic() - guardado[0] < 300:
+        return guardado[1]
+    sql = f"""
+    WITH respostas AS (
+      SELECT COALESCE(campanha_id, campanha_nome) AS chave, ANY_VALUE(campanha_id) AS campanha_id,
+             ANY_VALUE(campanha_nome) AS campanha_nome, conversa_id, MIN(momento) AS primeira
+      FROM `{_tabela_id()}`
+      WHERE tipo = 'message-replies' AND conversa_id IS NOT NULL
+        AND momento >= TIMESTAMP(@inicio, 'America/Sao_Paulo')
+        AND momento < TIMESTAMP(DATE_ADD(@fim, INTERVAL 1 DAY), 'America/Sao_Paulo')
+      GROUP BY chave, conversa_id
+    ),
+    rotas AS (
+      SELECT conversa_id, momento, para_id
+      FROM `{_tabela_id()}`
+      WHERE tipo = 'chat-routed' AND UPPER(para_tipo) = 'TEAM' AND conversa_id IS NOT NULL
+        AND momento >= TIMESTAMP(@inicio, 'America/Sao_Paulo')
+        AND momento < TIMESTAMP_ADD(TIMESTAMP(DATE_ADD(@fim, INTERVAL 1 DAY), 'America/Sao_Paulo'),
+                                    INTERVAL {CAMPANHA_JANELA_H} HOUR)
+    )
+    SELECT r.chave, ANY_VALUE(r.campanha_id) AS campanha_id, ANY_VALUE(r.campanha_nome) AS campanha_nome,
+           COUNT(DISTINCT r.conversa_id) AS responderam,
+           COUNT(DISTINCT IF(t.conversa_id IS NOT NULL, r.conversa_id, NULL)) AS humano,
+           COUNT(DISTINCT IF(t.para_id = @televendas, r.conversa_id, NULL)) AS televendas,
+           COUNT(DISTINCT IF(t.para_id != @televendas, r.conversa_id, NULL)) AS lojas
+    FROM respostas r
+    LEFT JOIN rotas t ON t.conversa_id = r.conversa_id
+      AND t.momento >= r.primeira AND t.momento <= TIMESTAMP_ADD(r.primeira, INTERVAL {CAMPANHA_JANELA_H} HOUR)
+    GROUP BY r.chave
+    """
+    config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("inicio", "DATE", inicio),
+        bigquery.ScalarQueryParameter("fim", "DATE", fim),
+        bigquery.ScalarQueryParameter("televendas", "STRING", televendas_id),
+    ])
+    try:
+        linhas = [dict(r.items()) for r in _cliente().query(sql, job_config=config).result(timeout=_TIMEOUT_S)]
+    except NotFound:
+        linhas = []
+    except PlanilhaErroBQ:
+        raise
+    except Exception as exc:
+        raise PlanilhaErroBQ(f"Falha ao ler as respostas de campanha no BigQuery: {exc}") from exc
+    _funil_cache[chave] = (time.monotonic(), linhas)
+    if len(_funil_cache) > 30:
+        _funil_cache.pop(next(iter(_funil_cache)))
+    return linhas
+
+
+def juntar_funil(envios: list[dict[str, Any]], respostas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Junta os envios (API de campanhas) com as respostas/encaminhamentos (BigQuery),
+    pelo id da campanha ou, se não bater, pelo nome."""
+    vazio = {"responderam": 0, "humano": 0, "televendas": 0, "lojas": 0}
+    por_id = {str(r["campanha_id"]): r for r in respostas if r.get("campanha_id")}
+    por_nome = {str(r["campanha_nome"]).strip().lower(): r for r in respostas if r.get("campanha_nome")}
+    usadas: set[int] = set()
+    linhas = []
+    for c in envios:
+        r = por_id.get(str(c.get("id") or "")) or por_nome.get(str(c.get("nome") or "").strip().lower())
+        if r:
+            usadas.add(id(r))
+        linhas.append({**c, **{k: (r or vazio).get(k) or 0 for k in vazio}, "marketing": eh_marketing(c.get("nome"))})
+    for r in respostas:  # respondidas no período, mas a campanha foi criada antes
+        if id(r) not in usadas:
+            linhas.append({"id": r.get("campanha_id"), "nome": r.get("campanha_nome") or r.get("chave"),
+                           "status": None, "criada_em": None, "base": None, "enviadas": None, "entregues": None,
+                           "lidas": None, "erro": None, "agendadas": None,
+                           **{k: r.get(k) or 0 for k in vazio}, "marketing": eh_marketing(r.get("campanha_nome"))})
+    linhas.sort(key=lambda l: (-(l["enviadas"] or 0), -l["responderam"]))
+    return linhas
