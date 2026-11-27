@@ -81,6 +81,16 @@ def _col(linha: dict[str, str], *inicios: str) -> str:
     return ""
 
 
+_CORES = {"black": "preto", "white": "branco", "blue": "azul", "green": "verde", "pink": "rosa",
+          "yellow": "amarelo", "purple": "roxo", "red": "vermelho", "product red": "vermelho",
+          "midnight": "meia noite", "starlight": "estelar", "ultramarine": "ultramarino", "teal": "verde acinzentado"}
+
+
+def _cor(t: str) -> str:
+    n = _norm(t)
+    return _CORES.get(n, n)
+
+
 def _num(v: str) -> float | None:
     t = re.sub(r"[^0-9,.\-]", "", str(v or ""))
     if not t or not re.search(r"\d", t):
@@ -121,6 +131,28 @@ def main() -> None:
             if s.get("id"):
                 por_sku.setdefault(str(s["id"]).strip().upper(), (p, s))
     tem_detalhe = any(isinstance(s, dict) for p in produtos for s in p.get("skus") or [])
+    # Páginas antigas do site (ex.: iPhone 15) usam códigos próprios nos SKUs (227963) e não o
+    # código do comercial (100031967). Para iPhone, cruza também por modelo + capacidade + cor.
+    por_modelo: dict[tuple[str, str, str], tuple[dict, dict]] = {}
+    for p in produtos:
+        nome = _norm(p.get("nome")).removeprefix("apple ")
+        if not re.fullmatch(r"iphone [0-9a-z ]+", nome) or len(nome.split()) > 4:
+            continue
+        for s in p.get("skus") or []:
+            if isinstance(s, dict) and s.get("capacidade") and s.get("cor"):
+                por_modelo.setdefault((nome, _norm(s["capacidade"]).replace(" ", ""), _cor(s["cor"])), (p, s))
+
+    def no_site(sku: str, desc: str, por_modelo_ok: bool = True) -> tuple[dict, dict] | None:
+        """Página do SKU no site. O cruzamento por modelo/cor vale só para itens da tabela do site
+        (os de loja duplicariam a variante) e nunca para aparelho de demonstração."""
+        if sku in por_sku:
+            return por_sku[sku]
+        if not por_modelo_ok or re.search(r"\b(dm|demo)\b", _norm(desc)):
+            return None
+        m = re.match(r"iphone (.+?) ([a-z ]+?) (\d+(?:gb|tb))\b", _norm(desc))
+        if not m:
+            return None
+        return por_modelo.get((f"iphone {m.group(1)}", m.group(3), _cor(m.group(2))))
 
     varejo = {}
     for l in _tabela(a.varejo):
@@ -205,7 +237,8 @@ def main() -> None:
         if not categoria_ok(_col(l, "nivel 1")):
             cont["fora_categoria"] += 1
             continue
-        if sku not in por_sku:
+        pagina = no_site(sku, _col(l, "descricao"))
+        if not pagina:
             # Não dá para vender no site: se tiver preço de loja, entra como só loja.
             l_var = varejo.get(sku)
             if l_var and _num(_col(l_var, "pix")) and preco_simbolico(l_var):
@@ -220,7 +253,7 @@ def main() -> None:
                 fora.append({"sku": sku, "descricao": _col(l, "descricao"),
                              "motivo": "tabela do site, não ativo no site e sem preço de loja"})
             continue
-        linha = montar(sku, *por_sku[sku], l, varejo.get(sku))
+        linha = montar(sku, *pagina, l, varejo.get(sku))
         cont["site"] += 1
         cont["sem_loja"] += 0 if linha["preco_loja"] else 1
         saida.append(linha)
@@ -231,7 +264,8 @@ def main() -> None:
             if not categoria_ok(_col(l, "nivel 1")):
                 cont["fora_categoria"] += 1
                 continue
-            if sku not in por_sku:
+            pagina = no_site(sku, _col(l, "descricao"), por_modelo_ok=False)
+            if not pagina:
                 if preco_simbolico(l):
                     cont["simbolico"] += 1
                     fora.append({"sku": sku, "descricao": _col(l, "descricao"),
@@ -240,7 +274,7 @@ def main() -> None:
                 saida.append(montar(sku, None, None, None, l))
                 cont["so_loja_fora_site"] += 1
                 continue
-            saida.append(montar(sku, *por_sku[sku], None, l))
+            saida.append(montar(sku, *pagina, None, l))
             cont["so_loja"] += 1
     # Cor + capacidade nem sempre separam as variantes (Watch: tamanho e pulseira).
     # Se repetir dentro do produto, usa o nome completo do SKU no site.
