@@ -115,9 +115,3 @@ OMNI_API_SECRET = os.getenv("OMNI_API_SECRET", "").strip()
 OMNI_API_RPS = _float("OMNI_API_RPS", 1.0)
 # A cada quanto reconsultar quem ainda espera na fila (para saber quando foi assumido).
 OMNI_RECONSULTA_S = _int("OMNI_RECONSULTA_S", 90)
-
-# API de campanhas da Omnichat (ver campanhas.py): enviadas, entregues, lidas e erro
-# por campanha. Usa as mesmas chaves da API v1, a não ser que tenha chaves próprias.
-OMNI_CAMPANHAS_URL = os.getenv("OMNI_CAMPANHAS_URL", "https://campaign-api.omni.chat/v1").strip().rstrip("/")
-OMNI_CAMPANHAS_KEY = os.getenv("OMNI_CAMPANHAS_KEY", "").strip() or OMNI_API_KEY
-OMNI_CAMPANHAS_SECRET = os.getenv("OMNI_CAMPANHAS_SECRET", "").strip() or OMNI_API_SECRET

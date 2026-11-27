@@ -23,7 +23,7 @@ import time
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from . import campanhas, config, fila, oracle, planilha
+from . import config, fila, oracle, planilha
 from .conversao import produto_omnichat
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -217,19 +217,3 @@ def ver_fila(
     """Situação da fila do televendas, para a aba do portal."""
     _autorizar(x_api_key, authorization, token)
     return fila.situacao()
-
-
-@app.get("/omnichat/campanhas")
-def campanhas_omnichat(
-    inicio: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    fim: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    token: str | None = Query(None),
-    x_api_key: str | None = Header(None),
-    authorization: str | None = Header(None),
-):
-    """Para a aba Filas do portal: enviadas/entregues/lidas por campanha (API de campanhas da Omnichat)."""
-    _autorizar(x_api_key, authorization, token)
-    try:
-        return campanhas.listar(inicio, fim)
-    except campanhas.CampanhasErro as exc:
-        return JSONResponse(status_code=502, content={"detail": str(exc)})

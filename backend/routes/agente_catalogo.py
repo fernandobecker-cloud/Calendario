@@ -386,37 +386,3 @@ def enviar_status_agora(request: Request):
 def diagnostico_das_filas(request: Request):
     _exigir_admin(request)
     return {**agente_filas.diagnostico(), "omnichat_api": (_fila_do_agente() or {}).get("omnichat_api")}
-
-
-@router.get("/fila/campanhas")
-def funil_das_campanhas(
-    request: Request,
-    inicio: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    fim: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-):
-    """Aba Filas: por campanha, enviadas/entregues/lidas (API de campanhas da Omnichat,
-    pela API do agente) -> responderam (Whizz) -> foram para humano (televendas x lojas)."""
-    _exigir_admin(request)
-    if fim < inicio:
-        raise HTTPException(status_code=400, detail="A data final precisa ser depois da inicial.")
-    aviso = None
-    envios: list[dict] = []
-    if not AGENTE_API_TOKEN:
-        aviso = "AGENTE_API_TOKEN nao configurado no portal: sem os numeros de envio."
-    else:
-        try:
-            resp = requests.get(f"{AGENTE_API_URL}/omnichat/campanhas", params={"inicio": inicio, "fim": fim},
-                                headers={"x-api-key": AGENTE_API_TOKEN}, timeout=60)
-            corpo = resp.json()
-            if resp.status_code == 200:
-                envios = corpo.get("campanhas") or []
-            else:
-                aviso = corpo.get("detail") or f"API do agente respondeu {resp.status_code}"
-        except (requests.RequestException, ValueError) as exc:
-            aviso = f"Sem resposta da API do agente: {exc}"
-    try:
-        respostas = agente_filas.funil_campanhas(inicio, fim)
-    except agente_planilha.PlanilhaErroBQ as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"inicio": inicio, "fim": fim, "aviso_envios": aviso,
-            "campanhas": agente_filas.juntar_funil(envios, respostas)}

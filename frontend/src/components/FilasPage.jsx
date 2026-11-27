@@ -263,147 +263,6 @@ function AlertasTeams() {
   )
 }
 
-function hojeISO() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function pct(parte, todo) {
-  if (!todo || parte === null || parte === undefined) return ''
-  return `${((parte / todo) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
-}
-
-function num(v) {
-  return v === null || v === undefined ? '–' : v.toLocaleString('pt-BR')
-}
-
-// Funil das campanhas de WhatsApp: enviadas/entregues/lidas vêm da API de campanhas da
-// Omnichat; "responderam" é o webhook "Resposta de campanha" (cai no Whizz) e "foram para
-// humano" é quem, até 24 h depois da resposta, foi encaminhado para um time (televendas ou loja).
-function FunilCampanhas() {
-  const [inicio, setInicio] = useState(hojeISO())
-  const [fim, setFim] = useState(hojeISO())
-  const [soMkt, setSoMkt] = useState(true)
-  const [dados, setDados] = useState(null)
-  const [erro, setErro] = useState('')
-  const [carregando, setCarregando] = useState(false)
-
-  const carregar = useCallback(async () => {
-    setCarregando(true)
-    setErro('')
-    try {
-      const res = await fetch(`/api/agente-ia/fila/campanhas?inicio=${inicio}&fim=${fim}`)
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.detail || `Erro ${res.status}`)
-      setDados(payload)
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Falhou.')
-    } finally {
-      setCarregando(false)
-    }
-  }, [inicio, fim])
-
-  useEffect(() => { carregar() }, [carregar])
-
-  const linhas = (dados?.campanhas || []).filter((c) => !soMkt || c.marketing)
-  const total = linhas.reduce((t, c) => {
-    for (const k of ['enviadas', 'entregues', 'lidas', 'erro', 'responderam', 'humano', 'televendas', 'lojas']) {
-      t[k] += c[k] || 0
-    }
-    return t
-  }, { enviadas: 0, entregues: 0, lidas: 0, erro: 0, responderam: 0, humano: 0, televendas: 0, lojas: 0 })
-
-  const td = 'px-2 py-1.5 text-right tabular-nums'
-  const sub = (texto) => texto && <span className="block text-[11px] text-slate-400">{texto}</span>
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Campanhas de WhatsApp</h2>
-          <p className="text-sm text-slate-500">Enviadas → responderam (Whizz) → foram para atendimento humano</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <input type="date" value={inicio} max={fim} onChange={(e) => setInicio(e.target.value)}
-            className="rounded-lg border border-slate-300 px-2 py-1" />
-          <span className="text-slate-400">até</span>
-          <input type="date" value={fim} min={inicio} onChange={(e) => setFim(e.target.value)}
-            className="rounded-lg border border-slate-300 px-2 py-1" />
-          <label className="flex items-center gap-1 text-slate-600">
-            <input type="checkbox" checked={soMkt} onChange={(e) => setSoMkt(e.target.checked)} /> só WMKT
-          </label>
-          <button type="button" onClick={carregar} disabled={carregando}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-slate-700 hover:bg-slate-100 disabled:opacity-50">
-            {carregando ? 'Carregando...' : 'Atualizar'}
-          </button>
-        </div>
-      </div>
-
-      {erro && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</p>}
-      {dados?.aviso_envios && (
-        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Sem os números de envio da Omnichat: {dados.aviso_envios}
-        </p>
-      )}
-
-      {dados && (
-        <>
-          <div className="mt-4 flex flex-wrap gap-4">
-            <Numero rotulo="Enviadas" valor={num(total.enviadas)}
-              detalhe={total.enviadas ? `${num(total.entregues)} entregues · ${num(total.lidas)} lidas` : null} />
-            <Numero rotulo="Responderam (Whizz)" valor={num(total.responderam)}
-              detalhe={pct(total.responderam, total.entregues) && `${pct(total.responderam, total.entregues)} das entregues`} />
-            <Numero rotulo="Foram para humano" valor={num(total.humano)}
-              detalhe={total.responderam ? `${pct(total.humano, total.responderam)} de quem respondeu` : null} />
-            <Numero rotulo="Televendas · lojas" valor={`${num(total.televendas)} · ${num(total.lojas)}`} />
-          </div>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-2 py-1.5">Campanha</th>
-                  <th className="px-2 py-1.5 text-right">Enviadas</th>
-                  <th className="px-2 py-1.5 text-right">Entregues</th>
-                  <th className="px-2 py-1.5 text-right">Lidas</th>
-                  <th className="px-2 py-1.5 text-right">Responderam</th>
-                  <th className="px-2 py-1.5 text-right">Para humano</th>
-                  <th className="px-2 py-1.5 text-right">Televendas</th>
-                  <th className="px-2 py-1.5 text-right">Lojas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.length === 0 && (
-                  <tr><td colSpan={8} className="px-2 py-3 text-center text-slate-400">Nenhuma campanha no período.</td></tr>
-                )}
-                {linhas.map((c) => (
-                  <tr key={`${c.id}-${c.nome}`} className="border-t border-slate-100">
-                    <td className="px-2 py-1.5">
-                      {c.nome || c.id}
-                      {c.enviadas === null && sub('criada antes do período: só as respostas')}
-                    </td>
-                    <td className={td}>{num(c.enviadas)}{c.erro ? sub(`${num(c.erro)} erro`) : null}</td>
-                    <td className={td}>{num(c.entregues)}{sub(pct(c.entregues, c.enviadas))}</td>
-                    <td className={td}>{num(c.lidas)}{sub(pct(c.lidas, c.entregues))}</td>
-                    <td className={td}>{num(c.responderam)}{sub(pct(c.responderam, c.entregues))}</td>
-                    <td className={td}>{num(c.humano)}{sub(pct(c.humano, c.responderam))}</td>
-                    <td className={td}>{num(c.televendas)}</td>
-                    <td className={td}>{num(c.lojas)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-slate-400">
-            Envios: campanhas criadas no período, números da Omnichat. Responderam: clientes (por telefone) que responderam à
-            campanha no período. Para humano: desses, os encaminhados para um time do televendas ou de loja até 24 h depois
-            da resposta. Respostas e encaminhamentos só existem desde que o webhook da Omnichat foi ligado.
-          </p>
-        </>
-      )}
-    </section>
-  )
-}
-
 export default function FilasPage({ chave, admin = false }) {
   const [dados, setDados] = useState(null)
   const [erro, setErro] = useState('')
@@ -497,15 +356,13 @@ export default function FilasPage({ chave, admin = false }) {
               <Resumo titulo="Todas as lojas" subtitulo={`${dados.regionais.length} regionais`} dados={dados.total_lojas} />
             </div>
 
-            {[['Televendas', dados.televendas], ['Lojas', dados.total_lojas]]
-              .filter(([, d]) => Object.keys(d?.campanhas || {}).length > 0)
-              .map(([titulo, d]) => (
-                <p key={titulo} className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-                  <span className="font-medium">{titulo} — vieram de campanhas de mkt hoje: </span>
-                  {Object.entries(d.campanhas).sort((a, b) => b[1] - a[1])
-                    .map(([nome, n]) => `${nome} (${n})`).join(' · ')}
-                </p>
-              ))}
+            {Object.keys(dados.total_lojas.campanhas || {}).length > 0 && (
+              <p className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                <span className="font-medium">Vieram de campanhas de mkt hoje: </span>
+                {Object.entries(dados.total_lojas.campanhas).sort((a, b) => b[1] - a[1])
+                  .map(([nome, n]) => `${nome} (${n})`).join(' · ')}
+              </p>
+            )}
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500">
@@ -535,7 +392,6 @@ export default function FilasPage({ chave, admin = false }) {
               Fila = cliente encaminhado para o time da loja e ainda não pego por um vendedor. Espera = tempo entre entrar
               no time e ser pego. Esperas acima de 2 h saem da conta.
             </p>
-            {admin && <FunilCampanhas />}
             {admin && <AlertasTeams />}
             {admin && <DiagnosticoFilas />}
           </>
