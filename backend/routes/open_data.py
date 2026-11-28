@@ -1819,7 +1819,7 @@ def _omni_envios_sql() -> str:
         import logging
         logging.getLogger(__name__).warning("omni_campanhas: nao consegui garantir as tabelas: %s", exc)
     manual = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
-    auto = f"`{omni_campanhas.tabela(omni_campanhas.TABELA_STATUS)}`"
+    auto = omni_campanhas.status_com_nome_sql()
     flag = "IF(LOWER(CAST({c} AS STRING)) IN ('1', 'true'), 1, 0)"
     return f"""(
   SELECT {_tel_sql('phone')} AS phone, CAST(template_title AS STRING) AS template_title,
@@ -1828,17 +1828,17 @@ def _omni_envios_sql() -> str:
          {flag.format(c='delivered')} AS delivered, {flag.format(c='`read`')} AS `read`, {flag.format(c='click')} AS click
   FROM {manual}
   UNION ALL
-  SELECT {_tel_sql('ANY_VALUE(telefone)')}, ANY_VALUE(COALESCE(template, campanha_nome)),
-         COALESCE(disparo_id, CONCAT(ANY_VALUE(telefone), '|', ANY_VALUE(COALESCE(template, campanha_nome)))),
+  SELECT {_tel_sql('ANY_VALUE(telefone)')}, ANY_VALUE(nome),
+         COALESCE(disparo_id, CONCAT(ANY_VALUE(telefone), '|', ANY_VALUE(nome))),
          MIN(momento),
          MAX(IF(REGEXP_CONTAINS(UPPER(status), r'DELIVER|READ'), 1, 0)),
          MAX(IF(REGEXP_CONTAINS(UPPER(status), r'READ'), 1, 0)),
          0
-  FROM {auto}
-  WHERE telefone IS NOT NULL AND COALESCE(template, campanha_nome) IS NOT NULL
+  FROM {auto} AS st
+  WHERE telefone IS NOT NULL AND nome IS NOT NULL
     AND momento > (SELECT COALESCE(MAX(CAST(campaign_message_created_at AS TIMESTAMP)), TIMESTAMP '2000-01-01')
                    FROM {manual})
-  GROUP BY disparo_id, telefone, COALESCE(template, campanha_nome)
+  GROUP BY disparo_id, telefone, nome
 ) AS omni"""
 
 

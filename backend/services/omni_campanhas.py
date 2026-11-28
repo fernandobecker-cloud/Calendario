@@ -69,6 +69,24 @@ def _garantir_status() -> None:
     _estado["tabela_ok"] = True
 
 
+def status_com_nome_sql() -> str:
+    """Os avisos de status (message-status) só trazem o id da campanha. O nome vem das
+    respostas de campanha (message-replies), que trazem id e nome e ficam na tabela de
+    eventos das filas (portal_crm.agente_fila_eventos)."""
+    eventos = tabela("agente_fila_eventos")
+    return f"""(
+  SELECT s.* EXCEPT (campanha_nome), COALESCE(s.template, s.campanha_nome, n.nome) AS nome,
+         COALESCE(s.campanha_nome, n.nome) AS campanha_nome
+  FROM `{tabela(TABELA_STATUS)}` s
+  LEFT JOIN (
+    SELECT campanha_id, ANY_VALUE(campanha_nome) AS nome
+    FROM `{eventos}`
+    WHERE tipo = 'message-replies' AND campanha_id IS NOT NULL AND campanha_nome IS NOT NULL
+    GROUP BY campanha_id
+  ) n USING (campanha_id)
+)"""
+
+
 def garantir_tabelas() -> None:
     """As consultas da apuração leem as duas tabelas: precisam existir, mesmo vazias."""
     _garantir_status()
@@ -181,9 +199,9 @@ def situacao() -> dict[str, Any]:
                       f"FROM `{tabela(TABELA_PONTE)}`")
     status = _consulta(f"""
         SELECT DATE(momento, 'America/Sao_Paulo') AS dia, COUNT(*) AS avisos, COUNT(DISTINCT telefone) AS telefones,
-               COUNTIF(COALESCE(template, campanha_nome) IS NULL) AS sem_template,
-               STRING_AGG(DISTINCT COALESCE(template, campanha_nome), ' · ' LIMIT 8) AS templates
-        FROM `{tabela(TABELA_STATUS)}`
+               COUNTIF(nome IS NULL) AS sem_template,
+               STRING_AGG(DISTINCT nome, ' · ' LIMIT 8) AS templates
+        FROM {status_com_nome_sql()}
         WHERE momento >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
         GROUP BY dia ORDER BY dia DESC""")
     p = ponte[0] if ponte and ponte[0].get("linhas") else None

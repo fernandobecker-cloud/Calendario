@@ -561,3 +561,18 @@ class StatusDeCampanha(unittest.TestCase):
         self.cs.registrar(evento)
         self.assertIsNotNone(self.cs._pendentes[0]["bruto"])
         self.assertEqual(self.cs._pendentes[0]["telefone"], "11988887777")
+
+    def test_exemplo_da_omnichat(self):
+        # "Ver exemplo" do evento Status da mensagem de campanha, na tela do webhook (28/11/2026).
+        evento = {"retailerId": "aB3dE5gH7j", "origin": "campaign", "type": "message-status",
+                  "traceId": "6710a3f2c9e77b0012ab34cd",
+                  "payload": {"campaign": {"id": "C4mp4nh41D"}, "dispatch": {"id": "D1sp4tch01"},
+                              "message": {"id": "M3ss4g3Id3", "status": "OUTGOING_DELIVERED"},
+                              "contact": {"phoneNumber": "5511999990000"}, "timestamp": 1791901925120}}
+        self.cs._estado["com_bruto"] = 10**6
+        self.assertEqual(fila.registrar_evento(evento), "status de campanha")
+        reg = self.cs._pendentes[0]
+        self.assertEqual((reg["status"], reg["telefone"], reg["campanha_id"], reg["disparo_id"]),
+                         ("OUTGOING_DELIVERED", "5511999990000", "C4mp4nh41D", "D1sp4tch01"))
+        self.assertTrue(reg["momento"].startswith("2026-10-13T14:32:05"))
+        self.assertIsNone(reg["bruto"])

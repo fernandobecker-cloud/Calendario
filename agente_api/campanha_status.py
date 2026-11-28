@@ -111,7 +111,9 @@ def registrar(evento: dict) -> str:
             _traces.popitem(last=False)
         _estado["recebidos"] += 1
         _estado["ultimo"] = time.time()
-        faltando = not (reg["telefone"] and reg["status"] and (reg["template"] or reg["campanha_nome"]))
+        # O evento só traz o id da campanha (o nome vem das respostas de campanha, no portal).
+        faltando = not (reg["telefone"] and reg["status"] and (reg["campanha_id"] or reg["template"]
+                                                               or reg["campanha_nome"]))
         bruto = None
         if faltando or _estado["com_bruto"] < _BRUTOS_INICIAIS:
             _estado["com_bruto"] += 1
