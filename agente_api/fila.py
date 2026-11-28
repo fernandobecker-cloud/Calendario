@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from . import config, omni_interacoes
+from . import campanha_status, config, omni_interacoes
 
 log = logging.getLogger("agente_api.fila")
 
@@ -92,6 +92,8 @@ def _epoch(texto) -> float:
 def registrar_evento(evento: dict) -> str:
     """Aplica um evento do webhook. Devolve o que foi feito (para o log)."""
     tipo = evento.get("type")
+    if tipo == "message-status":  # status de mensagem de campanha: vai para a apuração, não para a fila
+        return campanha_status.registrar(evento)
     payload = evento.get("payload") or {}
     # O telefone (chatId) é o que liga a entrada na fila à saída: o objectId pode
     # mudar quando o vendedor pega o atendimento. Fica só em memória, nunca é enviado.
@@ -268,6 +270,7 @@ def situacao() -> dict:
             if _estado["ultimo_evento"] else None,
             "contando_desde": datetime.fromtimestamp(_estado["inicio"]).astimezone().isoformat(),
             "omnichat_api": omni_interacoes.situacao(),
+            "campanha_status": campanha_status.situacao(),
             "times": sorted(
                 ({"id": t, "nome": d["nome"], "na_fila": por_time.get(t, 0)} for t, d in _times.items()),
                 key=lambda t: (t["nome"] or "").lower(),
@@ -408,3 +411,4 @@ def _tirar_da_fila(chave: str) -> None:
 def iniciar_envio() -> None:
     threading.Thread(target=_loop_de_envio, name="envio-fila", daemon=True).start()
     omni_interacoes.iniciar(_guardar_registro, _tirar_da_fila)
+    campanha_status.iniciar()

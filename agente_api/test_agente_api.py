@@ -522,3 +522,42 @@ class FilaDoTelevendas(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StatusDeCampanha(unittest.TestCase):
+    def setUp(self):
+        from agente_api import campanha_status
+        self.cs = campanha_status
+        self.cs._pendentes.clear()
+        self.cs._traces.clear()
+        self.cs._estado.update(com_bruto=0, recebidos=0)
+        fila._pendentes.clear()
+
+    def test_vai_para_a_apuracao_e_nao_para_a_fila(self):
+        evento = {"type": "message-status", "origin": "campaign", "traceId": "t1",
+                  "payload": {"status": "DELIVERED", "timestamp": 1764270000000,
+                              "campaign": {"id": "C1", "name": "20261127_WMKT_Black"},
+                              "dispatch": {"id": "D1"}, "contact": {"phoneNumber": "5511987654321"},
+                              "template": {"name": "black_iphone_v2"}}}
+        self.assertEqual(fila.registrar_evento(evento), "status de campanha")
+        self.assertEqual(fila.registrar_evento(evento), "repetido")
+        self.assertEqual(fila._pendentes, [])
+        reg = self.cs._pendentes[0]
+        self.assertEqual((reg["status"], reg["telefone"], reg["template"], reg["campanha_nome"], reg["disparo_id"]),
+                         ("DELIVERED", "5511987654321", "black_iphone_v2", "20261127_WMKT_Black", "D1"))
+        self.assertTrue(reg["momento"].startswith("2025-11-27"))
+        self.assertIsNotNone(reg["bruto"])  # os primeiros vão com o evento completo
+
+    def test_status_de_atendimento_e_ignorado(self):
+        evento = {"type": "message-status", "origin": "conversational", "traceId": "t2",
+                  "payload": {"status": "READ", "chatId": "5511900000000"}}
+        self.assertEqual(fila.registrar_evento(evento), "ignorado")
+        self.assertEqual(self.cs._pendentes, [])
+
+    def test_evento_sem_template_guarda_o_bruto(self):
+        self.cs._estado["com_bruto"] = 10**6
+        evento = {"type": "message-status", "traceId": "t3",
+                  "payload": {"status": "SENT", "dispatch": {"id": "D9", "phoneNumber": "11988887777"}}}
+        self.cs.registrar(evento)
+        self.assertIsNotNone(self.cs._pendentes[0]["bruto"])
+        self.assertEqual(self.cs._pendentes[0]["telefone"], "11988887777")

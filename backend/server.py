@@ -392,7 +392,7 @@ async def basic_auth_middleware(request: Request, call_next: Any) -> Response:
     # televendas e manda os eventos das filas por aqui com o proprio token
     # (AGENTE_API_TOKEN), conferido na rota.
     if request.url.path in ("/api/agente-ia/planilha/feed", "/api/agente-ia/televendas/config",
-                            "/api/agente-ia/fila/eventos"):
+                            "/api/agente-ia/fila/eventos", "/api/agente-ia/campanhas/status"):
         return await call_next(request)
 
     # Painel das filas por link, sem login: a chave do link e conferida na rota.

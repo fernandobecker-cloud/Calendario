@@ -21,6 +21,7 @@ depois NPI_STORAGE=bigquery no Render; voltar pra "sheets" e o rollback.
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -286,3 +287,46 @@ def regional_periodo(periodo_id: int, payload: CalcularPayload) -> dict[str, Any
         "periodo_id": periodo_id,
         **regional,
     }
+
+
+_MAX_BYTES_PONTE = 400 * 1024 * 1024
+
+
+@router.get("/fontes-omni")
+def fontes_omni(request: Request) -> dict[str, Any]:
+    """O que já chegou das fontes automáticas do WhatsApp Omnichat (status de campanha
+    pelo webhook e a base de celulares da Emarsys subida aqui)."""
+    _require_admin(request)
+    from backend.services import omni_campanhas
+    from backend.services.agente_planilha import PlanilhaErroBQ
+    try:
+        return omni_campanhas.situacao()
+    except PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/ponte-emarsys")
+async def subir_ponte_emarsys(request: Request) -> dict[str, Any]:
+    """Recebe o CSV exportado da Emarsys (id do contato + celular), cru no corpo, e
+    substitui a base de celulares usada para ligar os envios da Omnichat aos pedidos."""
+    _require_admin(request)
+    from backend.services import omni_campanhas
+    from backend.services.agente_planilha import PlanilhaErroBQ
+    tamanho = 0
+    with tempfile.NamedTemporaryFile(suffix=".csv") as tmp:
+        async for parte in request.stream():
+            tamanho += len(parte)
+            if tamanho > _MAX_BYTES_PONTE:
+                raise HTTPException(status_code=400, detail="Arquivo maior que 400 MB.")
+            tmp.write(parte)
+        tmp.flush()
+        if not tamanho:
+            raise HTTPException(status_code=400, detail="Arquivo vazio.")
+        try:
+            # Arquivo grande: lê e carrega fora do loop do servidor.
+            from starlette.concurrency import run_in_threadpool
+            return await run_in_threadpool(omni_campanhas.salvar_ponte, tmp.name, request.state.auth_user.username)
+        except omni_campanhas.PonteInvalida as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PlanilhaErroBQ as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc

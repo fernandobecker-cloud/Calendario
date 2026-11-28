@@ -191,7 +191,7 @@ async def webhook_omnichat(
     for item in eventos:
         if isinstance(item, dict):
             feito = fila.registrar_evento(item)
-            if feito != "ignorado":  # message-sent chega a cada mensagem: só loga o que serviu
+            if feito not in ("ignorado", "status de campanha", "repetido"):  # message-sent chega a cada mensagem: só loga o que serviu
                 log.info("webhook %s %s -> %s", item.get("type"), (item.get("payload") or {}).get("objectId"), feito)
     return {"ok": True}
 

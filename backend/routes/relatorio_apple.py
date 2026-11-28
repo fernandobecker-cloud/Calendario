@@ -196,7 +196,8 @@ LEFT JOIN wp_envios e USING (id) LEFT JOIN wp_cliques c USING (id)
 def _build_omni_metricas_sql() -> str:
     """Uma linha por template do Omnichat. Mesma janela de toques do calculo
     NPI ([inicio - janela, fim]), pra pegar o disparo que gerou a receita."""
-    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    from backend.routes.open_data import _omni_envios_sql
+    omni_table = _omni_envios_sql()
     flag = "LOWER(CAST({c} AS STRING)) IN ('1', 'true')"
     return f"""
 SELECT

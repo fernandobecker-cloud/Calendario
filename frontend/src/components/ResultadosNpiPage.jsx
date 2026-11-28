@@ -767,6 +767,97 @@ function MigrarBigQuery() {
   )
 }
 
+// Fontes do WhatsApp Omnichat na apuração: os status de campanha chegam sozinhos pelo
+// webhook da Omnichat; a base de celulares da Emarsys (liga o telefone ao contato) é
+// subida aqui e substitui a anterior.
+function FontesOmni() {
+  const [dados, setDados] = useState(null)
+  const [erro, setErro] = useState('')
+  const [msg, setMsg] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    try {
+      const res = await fetch('/api/open-data/npi/fontes-omni')
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `Erro ${res.status}`)
+      setDados(payload)
+      setErro('')
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falhou.')
+    }
+  }, [])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const subir = async (evento) => {
+    const arquivo = evento.target.files?.[0]
+    evento.target.value = ''
+    if (!arquivo) return
+    setEnviando(true)
+    setErro('')
+    setMsg('')
+    try {
+      const res = await fetch('/api/open-data/npi/ponte-emarsys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: arquivo,
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(extrairDetalheErro(payload) || `Erro ${res.status}`)
+      setMsg(`Base carregada: ${payload.com_celular.toLocaleString('pt-BR')} contatos com celular `
+        + `(de ${payload.contatos.toLocaleString('pt-BR')} no arquivo).`)
+      carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falhou.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const ponte = dados?.ponte
+  const status = dados?.status_7d || []
+  return (
+    <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Fontes do WhatsApp Omnichat</h2>
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <div className="text-sm text-slate-700">
+          <p className="font-semibold">Envios das campanhas (automático, webhook da Omnichat)</p>
+          {status.length === 0 ? (
+            <p className="mt-1 text-slate-500">Nada recebido nos últimos 7 dias. Enquanto isso, vale a carga manual antiga.</p>
+          ) : (
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {status.map((d) => (
+                <li key={d.dia}>
+                  <span className="font-medium">{d.dia.split('-').reverse().join('/')}</span>:{' '}
+                  {d.avisos.toLocaleString('pt-BR')} avisos · {d.telefones.toLocaleString('pt-BR')} telefones
+                  {d.sem_template ? <span className="text-amber-700"> · {d.sem_template.toLocaleString('pt-BR')} sem template</span> : null}
+                  {d.templates ? <span className="block text-slate-400">{d.templates}</span> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="text-sm text-slate-700">
+          <p className="font-semibold">Base de celulares da Emarsys</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {ponte
+              ? `${Number(ponte.linhas).toLocaleString('pt-BR')} contatos, carregada em ${new Date(ponte.carregado_em).toLocaleString('pt-BR')}${ponte.por ? ` por ${ponte.por}` : ''}.`
+              : 'Ainda não carregada aqui (vale a carga manual antiga).'}
+            {' '}CSV exportado da Emarsys com o id do contato (user_id) e o Número do celular. Substitui a base anterior.
+          </p>
+          <label className={`mt-2 inline-block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 ${enviando ? 'pointer-events-none opacity-50' : ''}`}>
+            {enviando ? 'Carregando... (pode levar alguns minutos)' : 'Subir base da Emarsys (CSV)'}
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={subir} disabled={enviando} />
+          </label>
+        </div>
+      </div>
+      {msg && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{msg}</p>}
+      {erro && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</p>}
+    </section>
+  )
+}
+
 export default function ResultadosNpiPage({ currentRole }) {
   const [dados, setDados] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -860,6 +951,8 @@ export default function ResultadosNpiPage({ currentRole }) {
       {erro && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{erro}</p>}
 
       {isAdmin && dados?.storage === 'sheets' && <MigrarBigQuery />}
+
+      {isAdmin && <FontesOmni />}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft md:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

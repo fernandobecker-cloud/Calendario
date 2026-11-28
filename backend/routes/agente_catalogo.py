@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from backend.routes.filas_publico import chave_do_link
-from backend.services import agente_filas, agente_planilha, agente_site, agente_televendas, filas_alertas
+from backend.services import agente_filas, agente_planilha, agente_site, agente_televendas, filas_alertas, omni_campanhas
 
 router = APIRouter(prefix="/api/agente-ia", tags=["agente-ia"])
 
@@ -315,6 +315,23 @@ async def receber_eventos_da_fila(request: Request):
     if not isinstance(eventos, list):
         raise HTTPException(status_code=400, detail="Esperava {\"eventos\": [...]}.")
     return agente_filas.receber(eventos)
+
+
+@router.post("/campanhas/status")
+async def receber_status_de_campanha(request: Request):
+    """Para a API do agente: lote de status de mensagens de campanha (webhook message-status)."""
+    _token_do_agente(request)
+    try:
+        corpo = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="JSON invalido.") from exc
+    registros = corpo.get("registros") if isinstance(corpo, dict) else None
+    if not isinstance(registros, list):
+        raise HTTPException(status_code=400, detail="Esperava {\"registros\": [...]}.")
+    try:
+        return omni_campanhas.receber_status(registros)
+    except agente_planilha.PlanilhaErroBQ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc  # o agente guarda e tenta de novo
 
 
 @router.get("/fila/painel")

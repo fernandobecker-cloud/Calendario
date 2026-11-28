@@ -104,6 +104,11 @@ FILA_EVENTOS_URL = os.getenv(
     "https://calendario-39gp.onrender.com/api/agente-ia/fila/eventos",
 ).strip()
 FILA_ENVIO_S = _int("FILA_ENVIO_S", 30)
+# Status das mensagens de campanha (webhook message-status) vão para cá (ver campanha_status.py).
+CAMPANHA_STATUS_URL = os.getenv(
+    "AGENTE_CAMPANHA_STATUS_URL",
+    FILA_EVENTOS_URL.replace("/fila/eventos", "/campanhas/status") if FILA_EVENTOS_URL else "",
+).strip()
 
 # API v1 da Omnichat (ver omni_interacoes.py): origem do atendimento (campanha x
 # orgânico) e o momento em que o vendedor assumiu, que o webhook não manda.

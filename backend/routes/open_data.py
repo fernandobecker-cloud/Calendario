@@ -1801,6 +1801,60 @@ SELECT * FROM gaps
 """.strip()
 
 
+# Fontes do WhatsApp Omnichat da apuração: a carga manual antiga (apuracao_npi26) e
+# o que o portal grava sozinho (portal_crm, ver backend/services/omni_campanhas.py).
+# Os envios automáticos só valem depois do último envio da carga manual, para não
+# contar o mesmo disparo duas vezes. Telefone comparado pelos 11 últimos dígitos.
+def _tel_sql(coluna: str) -> str:
+    return f"RIGHT(REGEXP_REPLACE(CAST({coluna} AS STRING), r'[^0-9]', ''), 11)"
+
+
+def _omni_envios_sql() -> str:
+    """Subconsulta com as colunas da dados_omni (phone, template_title,
+    campaign_message_id, campaign_message_created_at, delivered, read, click)."""
+    from backend.services import omni_campanhas
+    try:
+        omni_campanhas.garantir_tabelas()
+    except Exception as exc:  # noqa: BLE001 - sem a tabela nova, a consulta falharia
+        import logging
+        logging.getLogger(__name__).warning("omni_campanhas: nao consegui garantir as tabelas: %s", exc)
+    manual = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    auto = f"`{omni_campanhas.tabela(omni_campanhas.TABELA_STATUS)}`"
+    flag = "IF(LOWER(CAST({c} AS STRING)) IN ('1', 'true'), 1, 0)"
+    return f"""(
+  SELECT {_tel_sql('phone')} AS phone, CAST(template_title AS STRING) AS template_title,
+         CAST(campaign_message_id AS STRING) AS campaign_message_id,
+         CAST(campaign_message_created_at AS TIMESTAMP) AS campaign_message_created_at,
+         {flag.format(c='delivered')} AS delivered, {flag.format(c='`read`')} AS `read`, {flag.format(c='click')} AS click
+  FROM {manual}
+  UNION ALL
+  SELECT {_tel_sql('ANY_VALUE(telefone)')}, ANY_VALUE(COALESCE(template, campanha_nome)),
+         COALESCE(disparo_id, CONCAT(ANY_VALUE(telefone), '|', ANY_VALUE(COALESCE(template, campanha_nome)))),
+         MIN(momento),
+         MAX(IF(REGEXP_CONTAINS(UPPER(status), r'DELIVER|READ'), 1, 0)),
+         MAX(IF(REGEXP_CONTAINS(UPPER(status), r'READ'), 1, 0)),
+         0
+  FROM {auto}
+  WHERE telefone IS NOT NULL AND COALESCE(template, campanha_nome) IS NOT NULL
+    AND momento > (SELECT COALESCE(MAX(CAST(campaign_message_created_at AS TIMESTAMP)), TIMESTAMP '2000-01-01')
+                   FROM {manual})
+  GROUP BY disparo_id, telefone, COALESCE(template, campanha_nome)
+) AS omni"""
+
+
+def _ponte_emarsys_sql() -> str:
+    """contact_id <-> phone: carga manual antiga + a base subida pela aba Resultados NPI."""
+    from backend.services import omni_campanhas
+    manual = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
+    portal = f"`{omni_campanhas.tabela(omni_campanhas.TABELA_PONTE)}`"
+    return f"""(
+  SELECT CAST(user_id AS STRING) AS contact_id, {_tel_sql('`Número do celular`')} AS phone
+  FROM {manual} WHERE `Número do celular` IS NOT NULL
+  UNION DISTINCT
+  SELECT user_id, {_tel_sql('telefone')} FROM {portal} WHERE telefone IS NOT NULL
+) AS ponte"""
+
+
 def _build_npi_whatsapp_touches_sql() -> str:
     """So referencia tabelas do projeto `base-vendas-496714` - nunca as
     tabelas da Emarsys na mesma query (ver docstring de
@@ -1821,16 +1875,13 @@ def _build_npi_whatsapp_touches_sql() -> str:
     periodo (que pode ser muito maior que o numero de pedidos) - foi o que
     ainda OOMou mesmo apos o filtro de data, num periodo com campanha de
     grande volume."""
-    bridge_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados-emarsys`"
-    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    bridge_table = _ponte_emarsys_sql()
+    omni_table = _omni_envios_sql()
     return f"""
 WITH bridge AS (
-  SELECT
-    CAST(user_id AS STRING) AS contact_id,
-    CAST(`Número do celular` AS STRING) AS phone
+  SELECT contact_id, phone
   FROM {bridge_table}
-  WHERE `Número do celular` IS NOT NULL
-    AND CAST(user_id AS STRING) IN UNNEST(@contact_ids)
+  WHERE contact_id IN UNNEST(@contact_ids)
 ),
 omni_filtrado AS (
   SELECT phone, DATE(campaign_message_created_at, 'America/Sao_Paulo') AS dispatch_date, template_title
@@ -2128,7 +2179,7 @@ def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
     if not BASE_VENDAS_BQ_PROJECT:
         raise HTTPException(status_code=500, detail="BASE_VENDAS_BQ_PROJECT nao configurado.")
 
-    omni_table = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    omni_table = _omni_envios_sql()
     sql = f"""
 SELECT
   template_title,
