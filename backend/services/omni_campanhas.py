@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 TABELA_STATUS = "omni_campanha_status"
 TABELA_PONTE = "emarsys_telefones"
+TABELA_MANUAL = "omni_envios_manual"  # exportação da Omnichat subida pelo portal (envios antigos)
 _TIMEOUT_S = 120
 
 _SCHEMA_STATUS = [
@@ -47,6 +48,18 @@ _SCHEMA_STATUS = [
 _SCHEMA_PONTE = [
     bigquery.SchemaField("user_id", "STRING"),
     bigquery.SchemaField("telefone", "STRING"),
+    bigquery.SchemaField("carregado_em", "TIMESTAMP"),
+    bigquery.SchemaField("carregado_por", "STRING"),
+]
+_SCHEMA_MANUAL = [
+    bigquery.SchemaField("phone", "STRING"),
+    bigquery.SchemaField("template_title", "STRING"),
+    bigquery.SchemaField("campaign_message_id", "STRING"),
+    bigquery.SchemaField("campaign_message_created_at", "TIMESTAMP"),
+    bigquery.SchemaField("delivered", "INTEGER"),
+    bigquery.SchemaField("read", "INTEGER"),
+    bigquery.SchemaField("click", "INTEGER"),
+    bigquery.SchemaField("arquivo", "STRING"),
     bigquery.SchemaField("carregado_em", "TIMESTAMP"),
     bigquery.SchemaField("carregado_por", "STRING"),
 ]
@@ -91,6 +104,8 @@ def garantir_tabelas() -> None:
     """As consultas da apuração leem as duas tabelas: precisam existir, mesmo vazias."""
     _garantir_status()
     t = bigquery.Table(tabela(TABELA_PONTE), schema=_SCHEMA_PONTE)
+    _cliente().create_table(t, exists_ok=True, timeout=_TIMEOUT_S)
+    t = bigquery.Table(tabela(TABELA_MANUAL), schema=_SCHEMA_MANUAL)
     _cliente().create_table(t, exists_ok=True, timeout=_TIMEOUT_S)
 
 
@@ -184,6 +199,120 @@ def salvar_ponte(caminho: str, usuario: str) -> dict[str, Any]:
     return {"contatos": total, "com_celular": com_tel, "carregado_em": agora}
 
 
+# --- Exportação manual da Omnichat (envios antes do webhook) ---------------------
+
+_COLUNAS_OMNI = {
+    "phone": ("phone", "phonenumber", "phone_number", "telefone", "celular", "numero", "número", "contact_phone",
+              "contato", "whatsapp"),
+    "template_title": ("template_title", "template", "templatetitle", "template_name", "nome do template",
+                       "campaign_name", "campanha", "nome da campanha"),
+    "campaign_message_id": ("campaign_message_id", "message_id", "messageid", "id da mensagem", "dispatch_id", "id"),
+    "campaign_message_created_at": ("campaign_message_created_at", "created_at", "createdat", "sent_at", "data",
+                                    "data de envio", "data do envio", "enviado em", "date"),
+    "delivered": ("delivered", "entregue", "entregues"),
+    "read": ("read", "lida", "lido", "lidas"),
+    "click": ("click", "clicked", "clique", "clicou", "cliques"),
+    "status": ("status", "situação", "situacao"),
+}
+_VERDADE = {"1", "true", "sim", "s", "yes", "y", "x"}
+
+
+class EnviosInvalidos(ValueError):
+    pass
+
+
+def _flag(valor: str) -> int:
+    return 1 if (valor or "").strip().lower() in _VERDADE else 0
+
+
+def _data_iso(valor: str) -> str | None:
+    """ISO, 'dd/mm/aaaa hh:mm[:ss]' ou epoch. Sem fuso: horário de Brasília."""
+    from zoneinfo import ZoneInfo
+    v = (valor or "").strip()
+    if not v:
+        return None
+    if re.fullmatch(r"\d{10,13}", v):
+        n = int(v)
+        return datetime.fromtimestamp(n / 1000 if n > 1e11 else n, timezone.utc).isoformat()
+    for formato in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(v, formato).replace(tzinfo=ZoneInfo("America/Sao_Paulo")).isoformat()
+        except ValueError:
+            pass
+    try:
+        dt = datetime.fromisoformat(v.replace("Z", "+00:00").replace(" UTC", "+00:00"))
+    except ValueError:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=ZoneInfo("America/Sao_Paulo"))).isoformat()
+
+
+def salvar_envios_omni(caminho: str, nome_arquivo: str, usuario: str) -> dict[str, Any]:
+    """Acrescenta a exportação da Omnichat (um envio por linha) em portal_crm.omni_envios_manual.
+    Subir o mesmo período de novo não conta em dobro: a apuração usa envios distintos."""
+    import hashlib
+    with open(caminho, "rb") as fh:
+        primeira = fh.read(65536).decode("utf-8-sig", errors="replace").splitlines()
+    delim = max((";", ",", "\t"), key=(primeira[0] if primeira else "").count)
+    agora = datetime.now(timezone.utc).isoformat()
+    total, gravadas, sem_data, entregues = 0, 0, 0, 0
+    templates: set[str] = set()
+    de, ate = "9999", "0000"
+    with open(caminho, encoding="utf-8-sig", errors="replace", newline="") as entrada, \
+            tempfile.NamedTemporaryFile("w+", suffix=".csv", newline="", encoding="utf-8") as saida:
+        leitor = csv.reader(entrada, delimiter=delim)
+        cabecalho = [_norm(c) for c in next(leitor, [])]
+        col = {k: next((cabecalho.index(a) for a in apelidos if a in cabecalho), None)
+               for k, apelidos in _COLUNAS_OMNI.items()}
+        faltam = [k for k in ("phone", "template_title", "campaign_message_created_at") if col[k] is None]
+        if col["delivered"] is None and col["status"] is None:
+            faltam.append("delivered (ou status)")
+        if faltam:
+            raise EnviosInvalidos(f"Faltam as colunas: {', '.join(faltam)}. Colunas do arquivo: "
+                                  f"{', '.join(cabecalho) or '(vazio)'}")
+        escritor = csv.writer(saida)
+
+        def pegar(linha, chave):
+            i = col[chave]
+            return linha[i].strip() if i is not None and i < len(linha) else ""
+
+        for linha in leitor:
+            if not any(c.strip() for c in linha):
+                continue
+            total += 1
+            telefone, template = pegar(linha, "phone"), pegar(linha, "template_title")
+            quando = _data_iso(pegar(linha, "campaign_message_created_at"))
+            if not telefone or not template or not quando:
+                sem_data += 1
+                continue
+            status = pegar(linha, "status").upper()
+            entregue = _flag(pegar(linha, "delivered")) if col["delivered"] is not None else \
+                int(bool(re.search(r"DELIVER|READ|ENTREG|LID", status)))
+            lida = _flag(pegar(linha, "read")) if col["read"] is not None else int(bool(re.search(r"READ|LID", status)))
+            mensagem = pegar(linha, "campaign_message_id") or hashlib.sha1(
+                f"{telefone}|{template}|{quando}".encode()).hexdigest()[:20]
+            escritor.writerow([telefone, template, mensagem, quando, entregue, lida, _flag(pegar(linha, "click")),
+                               nome_arquivo[:200], agora, usuario])
+            gravadas += 1
+            entregues += entregue
+            templates.add(template)
+            de, ate = min(de, quando[:10]), max(ate, quando[:10])
+        if not gravadas:
+            raise EnviosInvalidos("Nenhuma linha com telefone, template e data válidos no arquivo.")
+        saida.flush()
+        job = bigquery.LoadJobConfig(schema=_SCHEMA_MANUAL, source_format=bigquery.SourceFormat.CSV,
+                                     write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+        try:
+            with open(saida.name, "rb") as binario:
+                _cliente().load_table_from_file(binario, tabela(TABELA_MANUAL), job_config=job).result(
+                    timeout=_TIMEOUT_S * 5)
+        except PlanilhaErroBQ:
+            raise
+        except Exception as exc:
+            raise PlanilhaErroBQ(f"Falha ao gravar a exportação da Omnichat no BigQuery: {exc}") from exc
+    return {"linhas": total, "gravadas": gravadas, "ignoradas": sem_data, "entregues": entregues,
+            "templates": len(templates), "de": de, "ate": ate}
+
+
 def _consulta(sql: str) -> list[dict[str, Any]]:
     try:
         return [dict(r.items()) for r in _cliente().query(sql).result(timeout=60)]
@@ -204,7 +333,14 @@ def situacao() -> dict[str, Any]:
         FROM {status_com_nome_sql()}
         WHERE momento >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
         GROUP BY dia ORDER BY dia DESC""")
+    manual = _consulta(f"""
+        SELECT arquivo, ANY_VALUE(carregado_por) AS por, MAX(carregado_em) AS carregado_em, COUNT(*) AS linhas,
+               MIN(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS de,
+               MAX(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS ate
+        FROM `{tabela(TABELA_MANUAL)}` GROUP BY arquivo ORDER BY carregado_em DESC LIMIT 10""")
     p = ponte[0] if ponte and ponte[0].get("linhas") else None
     if p and p.get("carregado_em"):
         p["carregado_em"] = p["carregado_em"].isoformat()
-    return {"ponte": p, "status_7d": [{**s, "dia": s["dia"].isoformat()} for s in status]}
+    for m in manual:
+        m.update(carregado_em=m["carregado_em"].isoformat(), de=m["de"].isoformat(), ate=m["ate"].isoformat())
+    return {"ponte": p, "status_7d": [{**s, "dia": s["dia"].isoformat()} for s in status], "manual": manual}

@@ -330,3 +330,31 @@ async def subir_ponte_emarsys(request: Request) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except PlanilhaErroBQ as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/envios-omni")
+async def subir_envios_omni(request: Request, arquivo: str = Query("exportacao_omni.csv")) -> dict[str, Any]:
+    """Recebe a exportação de envios da Omnichat (CSV cru no corpo) e acrescenta aos envios
+    manuais da apuração. Para os envios de antes do webhook (message-status)."""
+    _require_admin(request)
+    from backend.services import omni_campanhas
+    from backend.services.agente_planilha import PlanilhaErroBQ
+    from starlette.concurrency import run_in_threadpool
+    tamanho = 0
+    with tempfile.NamedTemporaryFile(suffix=".csv") as tmp:
+        async for parte in request.stream():
+            tamanho += len(parte)
+            if tamanho > _MAX_BYTES_PONTE:
+                raise HTTPException(status_code=400, detail="Arquivo maior que 400 MB.")
+            tmp.write(parte)
+        tmp.flush()
+        if not tamanho:
+            raise HTTPException(status_code=400, detail="Arquivo vazio.")
+        try:
+            await run_in_threadpool(omni_campanhas.garantir_tabelas)
+            return await run_in_threadpool(omni_campanhas.salvar_envios_omni, tmp.name, arquivo,
+                                           request.state.auth_user.username)
+        except omni_campanhas.EnviosInvalidos as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PlanilhaErroBQ as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc

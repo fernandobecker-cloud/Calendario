@@ -1818,15 +1818,24 @@ def _omni_envios_sql() -> str:
     except Exception as exc:  # noqa: BLE001 - sem a tabela nova, a consulta falharia
         import logging
         logging.getLogger(__name__).warning("omni_campanhas: nao consegui garantir as tabelas: %s", exc)
-    manual = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    antiga = f"`{BASE_VENDAS_BQ_PROJECT}.apuracao_npi26.dados_omni`"
+    pelo_portal = f"`{omni_campanhas.tabela(omni_campanhas.TABELA_MANUAL)}`"
     auto = omni_campanhas.status_com_nome_sql()
     flag = "IF(LOWER(CAST({c} AS STRING)) IN ('1', 'true'), 1, 0)"
-    return f"""(
+    # Exportações manuais: a carga antiga no BigQuery + as subidas pelo botão da aba Resultados NPI.
+    manual = f"""(
   SELECT {_tel_sql('phone')} AS phone, CAST(template_title AS STRING) AS template_title,
          CAST(campaign_message_id AS STRING) AS campaign_message_id,
          CAST(campaign_message_created_at AS TIMESTAMP) AS campaign_message_created_at,
          {flag.format(c='delivered')} AS delivered, {flag.format(c='`read`')} AS `read`, {flag.format(c='click')} AS click
-  FROM {manual}
+  FROM {antiga}
+  UNION ALL
+  SELECT {_tel_sql('phone')}, template_title, campaign_message_id, campaign_message_created_at,
+         delivered, `read`, click
+  FROM {pelo_portal}
+)"""
+    return f"""(
+  SELECT * FROM {manual} AS m
   UNION ALL
   SELECT {_tel_sql('ANY_VALUE(telefone)')}, ANY_VALUE(nome),
          COALESCE(disparo_id, CONCAT(ANY_VALUE(telefone), '|', ANY_VALUE(nome))),
@@ -1836,8 +1845,7 @@ def _omni_envios_sql() -> str:
          0
   FROM {auto} AS st
   WHERE telefone IS NOT NULL AND nome IS NOT NULL
-    AND momento > (SELECT COALESCE(MAX(CAST(campaign_message_created_at AS TIMESTAMP)), TIMESTAMP '2000-01-01')
-                   FROM {manual})
+    AND momento > (SELECT COALESCE(MAX(campaign_message_created_at), TIMESTAMP '2000-01-01') FROM {manual} AS mm)
   GROUP BY disparo_id, telefone, nome
 ) AS omni"""
 
@@ -2183,7 +2191,7 @@ def listar_npi_templates_disponiveis() -> list[dict[str, Any]]:
     sql = f"""
 SELECT
   template_title,
-  COUNT(*) AS total_entregues,
+  COUNT(DISTINCT campaign_message_id) AS total_entregues,
   MIN(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS primeiro_envio,
   MAX(DATE(campaign_message_created_at, 'America/Sao_Paulo')) AS ultimo_envio
 FROM {omni_table}

@@ -790,7 +790,7 @@ function FontesOmni() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  const subir = async (evento) => {
+  const enviarArquivo = async (evento, url, mensagem) => {
     const arquivo = evento.target.files?.[0]
     evento.target.value = ''
     if (!arquivo) return
@@ -798,15 +798,15 @@ function FontesOmni() {
     setErro('')
     setMsg('')
     try {
-      const res = await fetch('/api/open-data/npi/ponte-emarsys', {
+      const sep = url.includes('?') ? '&' : '?'
+      const res = await fetch(`${url}${sep}arquivo=${encodeURIComponent(arquivo.name)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/csv' },
         body: arquivo,
       })
       const payload = await res.json().catch(() => null)
       if (!res.ok) throw new Error(extrairDetalheErro(payload) || `Erro ${res.status}`)
-      setMsg(`Base carregada: ${payload.com_celular.toLocaleString('pt-BR')} contatos com celular `
-        + `(de ${payload.contatos.toLocaleString('pt-BR')} no arquivo).`)
+      setMsg(mensagem(payload))
       carregar()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falhou.')
@@ -814,6 +814,14 @@ function FontesOmni() {
       setEnviando(false)
     }
   }
+
+  const n = (v) => Number(v || 0).toLocaleString('pt-BR')
+  const dia = (iso) => (iso || '').split('-').reverse().join('/')
+  const subir = (evento) => enviarArquivo(evento, '/api/open-data/npi/ponte-emarsys', (p) =>
+    `Base carregada: ${n(p.com_celular)} contatos com celular (de ${n(p.contatos)} no arquivo).`)
+  const subirOmni = (evento) => enviarArquivo(evento, '/api/open-data/npi/envios-omni', (p) =>
+    `Exportação carregada: ${n(p.gravadas)} envios (${n(p.entregues)} entregues) de ${n(p.templates)} templates, `
+    + `de ${dia(p.de)} a ${dia(p.ate)}.${p.ignoradas ? ` ${n(p.ignoradas)} linhas sem telefone, template ou data ficaram de fora.` : ''}`)
 
   const ponte = dados?.ponte
   const status = dados?.status_7d || []
@@ -837,6 +845,26 @@ function FontesOmni() {
               ))}
             </ul>
           )}
+          <p className="mt-3 font-semibold">Envios antigos (exportação manual da Omnichat)</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Para os disparos de antes do webhook. CSV com telefone (phone), template (template_title), data do envio
+            (campaign_message_created_at) e entregue (delivered) ou status. Soma às cargas anteriores; subir o mesmo
+            período de novo não conta em dobro.
+          </p>
+          {(dados?.manual || []).length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {dados.manual.map((m) => (
+                <li key={`${m.arquivo}-${m.carregado_em}`}>
+                  <span className="font-medium">{m.arquivo}</span>: {n(m.linhas)} envios, {dia(m.de)} a {dia(m.ate)}
+                  <span className="text-slate-400"> · {new Date(m.carregado_em).toLocaleString('pt-BR')}{m.por ? ` por ${m.por}` : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className={`mt-2 inline-block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 ${enviando ? 'pointer-events-none opacity-50' : ''}`}>
+            {enviando ? 'Carregando... (pode levar alguns minutos)' : 'Subir exportação da Omnichat (CSV)'}
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={subirOmni} disabled={enviando} />
+          </label>
         </div>
         <div className="text-sm text-slate-700">
           <p className="font-semibold">Base de celulares da Emarsys</p>
